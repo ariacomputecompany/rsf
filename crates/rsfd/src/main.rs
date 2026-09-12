@@ -1882,6 +1882,96 @@ mod tests {
         let _ = std::fs::remove_dir_all(state);
     }
 
+    #[test]
+    fn daemon_data_listener_executes_durable_object_requests_over_tcp() {
+        let state = test_path("daemon_data_listener_executes_durable_object_requests_over_tcp");
+        let state_arg = state.display().to_string();
+        bootstrap_three_nodes(&state_arg);
+
+        let listener = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("bind data listener");
+        let bucket_addr = listener.local_addr();
+        let bucket_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Object,
+            "app-client",
+            Some("app".to_string()),
+            "CREATE_BUCKET media",
+            Some("object-bucket-1".to_string()),
+            0,
+        ));
+        let bucket_client = std::thread::spawn(move || send_data_frame(bucket_addr, bucket_frame));
+        let mut bucket_out = Vec::new();
+        wait_for_data_request(&listener, &mut bucket_out, "object bucket");
+        let bucket_response = bucket_client.join().expect("bucket client thread");
+        let bucket_output = String::from_utf8(bucket_out).expect("stdout is utf8");
+
+        assert!(bucket_response.contains("RSF/1 executed"));
+        assert!(bucket_response.contains("surface=object"));
+        assert!(bucket_response.contains("detail=create_bucket bucket=media"));
+        assert!(bucket_output.contains("status=executed"));
+        assert!(bucket_output.contains("surface=object"));
+
+        let put_addr = listener.local_addr();
+        let put_frame = encode_data_frame(RawFrame::with_body(
+            WireProtocol::Object,
+            "app-client",
+            Some("app".to_string()),
+            "PUT media/hero.txt",
+            Some("object-put-1".to_string()),
+            b"object-payload".to_vec(),
+        ));
+        let put_client = std::thread::spawn(move || send_data_frame(put_addr, put_frame));
+        let mut put_out = Vec::new();
+        wait_for_data_request(&listener, &mut put_out, "object put");
+        let put_response = put_client.join().expect("put client thread");
+        let put_output = String::from_utf8(put_out).expect("stdout is utf8");
+        let expected_id = format!(
+            "blake3:{}",
+            hex_content_id(&ContentId::for_bytes(b"object-payload"))
+        );
+
+        assert!(put_response.contains("RSF/1 executed"));
+        assert!(put_response.contains("surface=object"));
+        assert!(put_response.contains("detail=put bucket=media key=hero.txt"));
+        assert!(put_response.contains(&expected_id));
+        assert!(put_response.contains("bytes=14"));
+        assert!(put_output.contains("status=executed"));
+        assert!(put_output.contains("surface=object"));
+
+        let reopened = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("rebind data listener");
+        let get_addr = reopened.local_addr();
+        let get_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Object,
+            "app-client",
+            Some("app".to_string()),
+            "GET media/hero.txt",
+            None,
+            0,
+        ));
+        let get_client = std::thread::spawn(move || send_data_frame(get_addr, get_frame));
+        let mut get_out = Vec::new();
+        wait_for_data_request(&reopened, &mut get_out, "object get");
+        let get_response = get_client.join().expect("get client thread");
+        let get_output = String::from_utf8(get_out).expect("stdout is utf8");
+
+        assert!(get_response.contains("RSF/1 executed"));
+        assert!(get_response.contains("surface=object"));
+        assert!(get_response.contains("detail=hit bucket=media key=hero.txt"));
+        assert!(get_response.contains(&expected_id));
+        assert!(get_response.contains("bytes=14"));
+        assert!(get_output.contains("status=executed"));
+        assert!(get_output.contains("surface=object"));
+
+        let _ = std::fs::remove_dir_all(state);
+    }
+
     fn encode_data_frame(frame: RawFrame) -> Vec<u8> {
         WireCodec.encode(&frame).expect("encode wire frame")
     }

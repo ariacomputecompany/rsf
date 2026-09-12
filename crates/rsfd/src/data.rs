@@ -7,6 +7,7 @@ use rsf_admin::AdminPlane;
 use rsf_blob::DurableBlobEngine;
 use rsf_core::{Epoch, ErrorCode, PlacementGroupId, RsfError, RsfResult, blob::ContentId};
 use rsf_kv::{DurableKvEngine, KvBatch, KvMutation};
+use rsf_object::DurableObjectStore;
 use rsf_protocol::{ClientRequestId, VsrBackedFabricRouter};
 use rsf_wire::{
     RequestEnvelope, WireAdapter, WireCodec, WireDecision, WireOperationKind, WireProtocol,
@@ -106,11 +107,17 @@ impl DataPlaneExecutor {
                         reason: err.message,
                     })
             }
+            WireProtocol::Object => {
+                self.execute_object(envelope)
+                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
+                        protocol: WireProtocol::Object.as_str(),
+                        reason: err.message,
+                    })
+            }
             protocol => DataPlaneResponse::Rejected {
                 protocol: protocol.as_str(),
-                reason:
-                    "data-plane execution handoff is currently available for kv and blob requests"
-                        .to_string(),
+                reason: "data-plane execution handoff is currently available for kv, blob, and object requests"
+                    .to_string(),
             },
         }
     }
@@ -234,6 +241,82 @@ impl DataPlaneExecutor {
         }
     }
 
+    fn execute_object(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
+        let command = parse_object_command(&envelope.operation, &envelope.body)?;
+        let mut runtime = self.open_object_runtime()?;
+        match command {
+            ObjectCommand::CreateBucket { bucket } => {
+                let record = runtime.objects.create_bucket(
+                    &mut runtime.router,
+                    PlacementGroupId(1),
+                    bucket,
+                )?;
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "object",
+                    version: Some(record.version.0),
+                    bytes: 0,
+                    detail: format!(
+                        "create_bucket bucket={} placement_group={} log_index={}",
+                        record.name, record.evidence.placement_group.0, record.evidence.log_index.0
+                    ),
+                })
+            }
+            ObjectCommand::Put { bucket, key, bytes } => {
+                let request = client_request_from_envelope_for_surface(&envelope, "object")?;
+                let put = runtime.objects.put(
+                    &mut runtime.router,
+                    PlacementGroupId(1),
+                    PlacementGroupId(1),
+                    request,
+                    bucket,
+                    key,
+                    bytes,
+                )?;
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "object",
+                    version: Some(put.head.version.0),
+                    bytes: put.head.bytes,
+                    detail: format!(
+                        "put bucket={} key={} id=blake3:{} manifest=blake3:{} deduped={} pins={} placement_group={} log_index={}",
+                        put.head.bucket,
+                        put.head.key,
+                        hex_bytes(put.head.content.as_bytes()),
+                        hex_bytes(put.head.manifest_digest.as_bytes()),
+                        put.deduped,
+                        put.pins,
+                        put.head.evidence.placement_group.0,
+                        put.head.evidence.log_index.0
+                    ),
+                })
+            }
+            ObjectCommand::Get { bucket, key } => {
+                let bytes = runtime.objects.read_verified(&bucket, &key)?;
+                let head = runtime
+                    .objects
+                    .head(&bucket, &key)
+                    .expect("object head exists after verified read");
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "object",
+                    version: Some(head.version.0),
+                    bytes: bytes.len() as u64,
+                    detail: format!(
+                        "hit bucket={} key={} id=blake3:{} manifest=blake3:{}",
+                        bucket,
+                        key,
+                        hex_bytes(head.content.as_bytes()),
+                        hex_bytes(head.manifest_digest.as_bytes())
+                    ),
+                })
+            }
+        }
+    }
+
     fn open_kv_runtime(&self) -> RsfResult<KvRuntime> {
         let (router, epoch) = self.open_router()?;
         let kv = DurableKvEngine::open(self.state.join("kv"), epoch)?;
@@ -244,6 +327,12 @@ impl DataPlaneExecutor {
         let (router, _) = self.open_router()?;
         let blobs = DurableBlobEngine::open(self.state.join("blob"))?;
         Ok(BlobRuntime { router, blobs })
+    }
+
+    fn open_object_runtime(&self) -> RsfResult<ObjectRuntime> {
+        let (router, _) = self.open_router()?;
+        let objects = DurableObjectStore::open(self.state.join("object"))?;
+        Ok(ObjectRuntime { router, objects })
     }
 
     fn open_router(&self) -> RsfResult<(VsrBackedFabricRouter, Epoch)> {
@@ -283,6 +372,11 @@ struct BlobRuntime {
     blobs: DurableBlobEngine,
 }
 
+struct ObjectRuntime {
+    router: VsrBackedFabricRouter,
+    objects: DurableObjectStore,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum KvCommand {
     Get { key: String },
@@ -294,6 +388,22 @@ enum KvCommand {
 enum BlobCommand {
     Put { name: String, bytes: Vec<u8> },
     Get { id: ContentId },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ObjectCommand {
+    CreateBucket {
+        bucket: String,
+    },
+    Put {
+        bucket: String,
+        key: String,
+        bytes: Vec<u8>,
+    },
+    Get {
+        bucket: String,
+        key: String,
+    },
 }
 
 fn serve_data_stream(
@@ -431,6 +541,63 @@ fn parse_blob_command(operation: &str, body: &[u8]) -> RsfResult<BlobCommand> {
     }
 }
 
+fn parse_object_command(operation: &str, body: &[u8]) -> RsfResult<ObjectCommand> {
+    let mut parts = operation.split_whitespace();
+    let verb = parts
+        .next()
+        .ok_or_else(|| invalid("object operation must include a verb"))?
+        .to_ascii_uppercase();
+    match verb.as_str() {
+        "CREATE_BUCKET" | "CREATE-BUCKET" | "BUCKET" => {
+            let bucket = required_token(parts.next(), "object bucket name")?;
+            ensure_no_extra(parts.next(), "object bucket create")?;
+            ensure_empty_body(body, "object bucket create")?;
+            validate_object_bucket(&bucket)?;
+            Ok(ObjectCommand::CreateBucket { bucket })
+        }
+        "PUT" | "WRITE" => {
+            let (bucket, key) =
+                parse_object_target(&required_token(parts.next(), "object write target")?)?;
+            ensure_no_extra(parts.next(), "object write")?;
+            if body.is_empty() {
+                return Err(invalid("object write frame body is required"));
+            }
+            Ok(ObjectCommand::Put {
+                bucket,
+                key,
+                bytes: body.to_vec(),
+            })
+        }
+        "GET" | "READ" => {
+            let (bucket, key) =
+                parse_object_target(&required_token(parts.next(), "object read target")?)?;
+            ensure_no_extra(parts.next(), "object read")?;
+            ensure_empty_body(body, "object read")?;
+            Ok(ObjectCommand::Get { bucket, key })
+        }
+        _ => Err(invalid(
+            "object operation must be CREATE_BUCKET, GET, READ, PUT, or WRITE",
+        )),
+    }
+}
+
+fn parse_object_target(value: &str) -> RsfResult<(String, String)> {
+    let (bucket, key) = value
+        .split_once('/')
+        .ok_or_else(|| invalid("object target must be <bucket>/<key>"))?;
+    validate_object_bucket(bucket)?;
+    validate_token(key, "object key")?;
+    Ok((bucket.to_string(), key.to_string()))
+}
+
+fn validate_object_bucket(bucket: &str) -> RsfResult<()> {
+    validate_token(bucket, "object bucket")?;
+    if bucket.contains('/') {
+        return Err(invalid("object bucket must not contain '/'"));
+    }
+    Ok(())
+}
+
 fn ensure_empty_body(body: &[u8], label: &str) -> RsfResult<()> {
     if !body.is_empty() {
         return Err(invalid(format!("{label} operation must not carry a body")));
@@ -502,19 +669,37 @@ fn validate_token(value: &str, label: &str) -> RsfResult<()> {
 }
 
 fn client_request_from_envelope(envelope: &RequestEnvelope) -> RsfResult<ClientRequestId> {
-    let key = envelope
-        .idempotency_key
-        .as_ref()
-        .ok_or_else(|| invalid("kv mutating data-plane request requires an idempotency key"))?;
+    client_request_from_envelope_for_surface(envelope, "kv")
+}
+
+fn client_request_from_envelope_for_surface(
+    envelope: &RequestEnvelope,
+    surface: &str,
+) -> RsfResult<ClientRequestId> {
+    let key = envelope.idempotency_key.as_ref().ok_or_else(|| {
+        invalid(format!(
+            "{surface} mutating data-plane request requires an idempotency key"
+        ))
+    })?;
     Ok(ClientRequestId::new(
         format!(
-            "wire:{}:{}:{}",
+            "wire:{}:{}:{}:{}",
+            surface,
             envelope.principal,
             envelope.namespace.as_deref().unwrap_or(""),
             key
         ),
-        0,
+        stable_request_nonce(key),
     ))
+}
+
+fn stable_request_nonce(value: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn invalid(message: impl Into<String>) -> RsfError {
@@ -679,5 +864,45 @@ mod tests {
             .expect_err("read body");
         assert_eq!(err.code, ErrorCode::InvalidInput);
         assert!(err.message.contains("must not carry a body"));
+    }
+
+    #[test]
+    fn object_command_parser_accepts_bucket_put_and_get() {
+        assert_eq!(
+            parse_object_command("CREATE_BUCKET media", &[]).expect("bucket"),
+            ObjectCommand::CreateBucket {
+                bucket: "media".to_string()
+            }
+        );
+        assert_eq!(
+            parse_object_command("PUT media/hero.txt", b"object-payload").expect("put"),
+            ObjectCommand::Put {
+                bucket: "media".to_string(),
+                key: "hero.txt".to_string(),
+                bytes: b"object-payload".to_vec()
+            }
+        );
+        assert_eq!(
+            parse_object_command("GET media/hero.txt", &[]).expect("get"),
+            ObjectCommand::Get {
+                bucket: "media".to_string(),
+                key: "hero.txt".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn object_command_parser_rejects_malformed_targets_and_payloads() {
+        let err = parse_object_command("PUT media/hero.txt", &[]).expect_err("missing body");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("frame body is required"));
+
+        let err = parse_object_command("GET media/hero.txt", b"body").expect_err("read body");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("must not carry a body"));
+
+        let err = parse_object_command("GET media", &[]).expect_err("missing key");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("<bucket>/<key>"));
     }
 }

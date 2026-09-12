@@ -849,6 +849,7 @@ dependencies = [
  "rsf-control",
  "rsf-core",
  "rsf-kv",
+ "rsf-object",
  "rsf-observability",
  "rsf-policy",
  "rsf-protocol",

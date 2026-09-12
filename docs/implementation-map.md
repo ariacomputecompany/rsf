@@ -1753,10 +1753,11 @@ Current scope:
 - object visibility delayed until manifest commit
 - object bodies stored through `rsf-blob`
 - manifest visibility committed through `rsf-protocol`
+- durable bucket/head index recovery
+- verified object reads over durable blob payloads after reopen
 
 Next scope:
 
-- metadata indexes
 - retention and lifecycle policy: started in `rsf-retention`
 - S3-compatible gateway adapter
 
@@ -1976,11 +1977,11 @@ Current scope:
 - policy status, plan, set, add-region, and idempotent apply
 - durable audit log reads
 - upgrade planning with compatibility gates
-- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed KV request execution including payload-backed KV writes, durable chunk-backed blob PUT/GET execution, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
+- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed KV request execution including payload-backed KV writes, durable chunk-backed blob PUT/GET execution, durable object bucket/PUT/GET execution, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
 
 Next scope:
 
-- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL/object surfaces
+- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL surface
 
 ## Deferred Crates
 

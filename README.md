@@ -63,7 +63,7 @@ The Rust workspace is the production source path for the custom RSF protocol and
 - `crates/rsf-materialize`: executor row materialization from encoded MVCC tuple payloads into SQL-facing query rows with projection and rejection paths.
 - `crates/rsf-membership`: epoch-based membership changes, learner sync, quorum-preserving promotion, and voter-removal safety.
 - `crates/rsf-migration`: durable schema-migration lifecycle for validation, descriptor publication, backfill, index catch-up, resume, completion, and rollback.
-- `crates/rsf-object`: object-store personality over blob chunks and strict manifests.
+- `crates/rsf-object`: object-store personality over durable blob chunks, persisted object heads, and strict manifests.
 - `crates/rsf-objectmeta`: strict object metadata coordinator for buckets, multipart drafts, visible version heads, and metadata rejection paths.
 - `crates/rsf-observability`: typed metrics, audit events, and service health reports.
 - `crates/rsf-page`: relational page/redo adapter with LSN validation and checkpoint summaries.
@@ -110,7 +110,7 @@ The Rust workspace is the production source path for the custom RSF protocol and
 - `crates/rsf-wire`: typed SQL, KV, object, blob, and admin wire-frame normalization with payload-bearing frames before API classification.
 - `crates/rsf-workload`: workload-shape budgets for relational, KV, object, and blob paths without claiming production benchmarks.
 - `crates/rsf-write`: relational write planning across constraints, row KV bytes, index mutations, conflict ranges, and commit intent.
-- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and payload-backed data-plane KV/blob ingress listeners.
+- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and payload-backed data-plane KV/blob/object ingress listeners.
 
 Run:
 

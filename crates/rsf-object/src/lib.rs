@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod durable;
+
 use std::collections::BTreeMap;
 
 use rsf_blob::BlobEngine;
@@ -18,6 +20,8 @@ use rsf_provider::{
     ChunkSurface, ProviderDecision, ProviderDirectory, ProviderQuery, ProviderRecord,
 };
 use rsf_retention::{RetainedObject, RetentionEngine, RetentionPolicy};
+
+pub use durable::{DurableObjectBucket, DurableObjectHead, DurableObjectPut, DurableObjectStore};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Bucket {
