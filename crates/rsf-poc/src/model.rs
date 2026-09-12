@@ -378,8 +378,6 @@ pub struct SimulatedDatabaseState {
     pub testability_replay_ready: u8,
     pub requirement_checks: u8,
     pub requirement_covered: u8,
-    pub requirement_simulated: u8,
-    pub requirement_design_targets: u8,
     pub invariant_checks: u8,
     pub invariant_passed: u8,
     pub invariant_failed: u8,

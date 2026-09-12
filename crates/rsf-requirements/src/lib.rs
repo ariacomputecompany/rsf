@@ -3,8 +3,6 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RequirementStatus {
     Structural,
-    Simulated,
-    DesignTarget,
     Missing,
 }
 
@@ -12,14 +10,12 @@ impl RequirementStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Structural => "structural",
-            Self::Simulated => "simulated",
-            Self::DesignTarget => "design-target",
             Self::Missing => "missing",
         }
     }
 
     pub fn is_covered(self) -> bool {
-        !matches!(self, Self::Missing)
+        matches!(self, Self::Structural)
     }
 }
 
@@ -51,14 +47,6 @@ impl RequirementReport {
 
     pub fn structural(&self) -> usize {
         self.count_status(RequirementStatus::Structural)
-    }
-
-    pub fn simulated(&self) -> usize {
-        self.count_status(RequirementStatus::Simulated)
-    }
-
-    pub fn design_targets(&self) -> usize {
-        self.count_status(RequirementStatus::DesignTarget)
     }
 
     pub fn missing(&self) -> usize {
@@ -664,8 +652,8 @@ impl RequirementAuditor {
                 ),
             ),
             check(
-                "simulation-testability",
-                "Simulation testability",
+                "deterministic-testability",
+                "Deterministic replay testability",
                 input.invariant_failed == 0
                     && input.observability_metrics >= 300
                     && input.testability_checks >= 5
@@ -708,7 +696,7 @@ impl RequirementAuditor {
             ),
             check(
                 "explicit-mode-boundaries",
-                "Explicit consistency and simulation boundaries",
+                "Explicit consistency boundaries",
                 input.auth_grants >= 1
                     && input.quota_policies >= 1
                     && input.rpc_calls >= 1
@@ -760,13 +748,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_poc_state_covers_all_requirement_families() {
+    fn complete_production_state_covers_all_requirement_families() {
         let report = RequirementAuditor::evaluate(&complete_input());
         assert_eq!(report.total(), 15);
         assert_eq!(report.covered(), 15);
         assert_eq!(report.structural(), 15);
-        assert_eq!(report.simulated(), 0);
-        assert_eq!(report.design_targets(), 0);
         assert_eq!(report.missing(), 0);
     }
 

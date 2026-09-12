@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_poc_trace_is_replay_ready() {
+    fn complete_production_trace_is_replay_ready() {
         let report = TestabilityReport::evaluate(&TestabilityInput {
             trace_events: 700,
             trace_services: 70,

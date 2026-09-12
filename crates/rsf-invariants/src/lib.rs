@@ -767,7 +767,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_complete_poc_shape() {
+    fn accepts_complete_production_shape() {
         let report = InvariantChecker::evaluate(&complete_input());
 
         assert!(report.is_ok());

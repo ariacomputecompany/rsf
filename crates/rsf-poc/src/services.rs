@@ -11307,8 +11307,6 @@ impl Observability {
             testability_replay_ready: 0,
             requirement_checks: 0,
             requirement_covered: 0,
-            requirement_simulated: 0,
-            requirement_design_targets: 0,
             invariant_checks: 0,
             invariant_passed: 0,
             invariant_failed: 0,
@@ -13126,8 +13124,6 @@ impl Requirements {
 
         state.requirement_checks = report.total() as u8;
         state.requirement_covered = report.covered() as u8;
-        state.requirement_simulated = report.simulated() as u8;
-        state.requirement_design_targets = report.design_targets() as u8;
 
         for check in &report.checks {
             trace.push(
@@ -13140,12 +13136,10 @@ impl Requirements {
             "requirements",
             "summary",
             format!(
-                "checks={} covered={} structural={} simulated={} design_targets={} missing={}",
+                "checks={} covered={} structural={} missing={}",
                 report.total(),
                 report.covered(),
                 report.structural(),
-                report.simulated(),
-                report.design_targets(),
                 report.missing()
             ),
         );
