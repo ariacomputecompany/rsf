@@ -196,7 +196,7 @@ Deliverables:
 - user-facing API gateway: started with `crates/rsf-api` request classification and auth-gated accept/reject decisions
 - database gateway routing: started with `crates/rsf-gateway` handler selection, request budgets, consistency labels, and catalog placement bindings
 - consistency-mode policy: started with `rsf-consistency` strict-quorum versus availability-first classification and downgrade rejection
-- wire protocol adapters: started with `crates/rsf-wire` SQL, KV, object, blob, and admin frame normalization before API classification, plus `crates/rsf-portal` SQL portal lifecycle evidence
+- wire protocol adapters: started with `crates/rsf-wire` SQL, KV, object, blob, and admin frame normalization before API classification, payload-bearing frames with exact byte-count validation, plus `crates/rsf-portal` SQL portal lifecycle evidence
 - namespace quota admission: started with `crates/rsf-quota` request, row, and byte reservations per namespace/surface
 - internal service RPC envelopes: started with `crates/rsf-rpc` deadline, retry-class, attempt, trace ID, and body-size admission before fabric work
 - relational WAL durability gate: started with `crates/rsf-wal` append, fsync, durable-LSN, and WAL-before-page-flush decisions
@@ -267,7 +267,7 @@ It should support:
 - local segment files and durable policy/admin/protocol stores
 - VSR-backed metadata commits and recovered certificates
 - blob/object/SQL/KV surfaces routed through protocol-backed state
-- state-backed status, audit, TCP health/metrics, canonical `rsf-wire` data-plane ingress admission, durable KV data-plane execution, topology-profile readiness gates, bounded runtime supervision, and stdout progress
+- state-backed status, audit, TCP health/metrics, canonical `rsf-wire` data-plane ingress admission, durable payload-backed KV data-plane execution, topology-profile readiness gates, bounded runtime supervision, and stdout progress
 - ordered KV point writes/reads
 
 The early SQL surface is intentionally narrow. Broader SQL only expands after the storage, metadata, ordered KV, planner/executor, and SQL-pipeline invariants are passing.

@@ -62,6 +62,7 @@ pub struct RawFrame {
     pub operation: String,
     pub idempotency_key: Option<String>,
     pub body_bytes: u64,
+    pub body: Vec<u8>,
 }
 
 impl RawFrame {
@@ -80,6 +81,27 @@ impl RawFrame {
             operation: operation.into(),
             idempotency_key,
             body_bytes,
+            body: Vec::new(),
+        }
+    }
+
+    pub fn with_body(
+        protocol: WireProtocol,
+        principal: impl Into<String>,
+        namespace: Option<String>,
+        operation: impl Into<String>,
+        idempotency_key: Option<String>,
+        body: impl Into<Vec<u8>>,
+    ) -> Self {
+        let body = body.into();
+        Self {
+            protocol,
+            principal: principal.into(),
+            namespace,
+            operation: operation.into(),
+            idempotency_key,
+            body_bytes: body.len() as u64,
+            body,
         }
     }
 }
@@ -106,6 +128,7 @@ pub struct RequestEnvelope {
     pub operation_kind: WireOperationKind,
     pub idempotency_key: Option<String>,
     pub body_bytes: u64,
+    pub body: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -182,6 +205,12 @@ impl WireAdapter {
         if frame.body_bytes > MAX_BODY_BYTES {
             return Ok(reject(frame.protocol, "request body exceeds wire limit"));
         }
+        if frame.body_bytes != frame.body.len() as u64 {
+            return Ok(reject(
+                frame.protocol,
+                "request body byte count must match payload length",
+            ));
+        }
 
         Ok(WireDecision::Accepted(RequestEnvelope {
             protocol: frame.protocol,
@@ -191,6 +220,7 @@ impl WireAdapter {
             operation_kind,
             idempotency_key,
             body_bytes: frame.body_bytes,
+            body: frame.body,
         }))
     }
 }
@@ -219,6 +249,10 @@ impl WireCodec {
             "idempotency key",
         )?;
         out.extend_from_slice(&frame.body_bytes.to_le_bytes());
+        if frame.body_bytes != frame.body.len() as u64 {
+            return Err(invalid("request body byte count must match payload length"));
+        }
+        out.extend_from_slice(&frame.body);
         Ok(out)
     }
 
@@ -240,6 +274,12 @@ impl WireCodec {
             "idempotency key",
         )?;
         let body_bytes = read_u64(bytes, &mut offset)?;
+        if body_bytes > MAX_BODY_BYTES {
+            return Err(corrupt("request body exceeds wire limit"));
+        }
+        let body_len = usize::try_from(body_bytes)
+            .map_err(|_| corrupt("request body length does not fit this platform"))?;
+        let body = take(bytes, &mut offset, body_len)?.to_vec();
         if offset != bytes.len() {
             return Err(corrupt("wire frame has trailing bytes"));
         }
@@ -250,6 +290,7 @@ impl WireCodec {
             operation,
             idempotency_key,
             body_bytes,
+            body,
         })
     }
 
@@ -375,6 +416,11 @@ fn validate_envelope(envelope: &RequestEnvelope) -> RsfResult<()> {
     }
     if envelope.body_bytes > MAX_BODY_BYTES {
         return Err(invalid("wire envelope body exceeds wire limit"));
+    }
+    if envelope.body_bytes != envelope.body.len() as u64 {
+        return Err(invalid(
+            "wire envelope body byte count must match payload length",
+        ));
     }
     Ok(())
 }
@@ -552,7 +598,7 @@ mod tests {
                 Some("app".to_string()),
                 "SELECT * FROM users",
                 None,
-                128,
+                0,
             ))
             .unwrap();
 
@@ -572,7 +618,7 @@ mod tests {
                 Some("app".to_string()),
                 "PUT /media/hero.png",
                 None,
-                256,
+                0,
             ))
             .unwrap();
 
@@ -596,37 +642,37 @@ mod tests {
                     Some("app".to_string()),
                     "SELECT * FROM users",
                     None,
-                    128,
+                    0,
                 ))
                 .unwrap(),
             adapter
-                .decode(RawFrame::new(
+                .decode(RawFrame::with_body(
                     WireProtocol::Blob,
                     "app-client",
                     Some("app".to_string()),
                     "PUT sha256:content",
                     Some("blob-1".to_string()),
-                    512,
+                    vec![0x5a; 512],
                 ))
                 .unwrap(),
         ];
 
         validate_decisions(&decisions).unwrap();
         assert_eq!(protocol_count(&decisions), 2);
-        assert_eq!(accepted_body_bytes(&decisions), 640);
+        assert_eq!(accepted_body_bytes(&decisions), 512);
     }
 
     #[test]
     fn canonical_codec_round_trips_and_admits_normalized_frame() {
         let codec = WireCodec;
         let adapter = WireAdapter;
-        let frame = RawFrame::new(
+        let frame = RawFrame::with_body(
             WireProtocol::Object,
             " app-client ",
             Some(" app ".to_string()),
             " PUT /media/hero.png ",
             Some(" object-1 ".to_string()),
-            256,
+            b"image-bytes".to_vec(),
         );
 
         let encoded = codec.encode(&frame).expect("encode");
@@ -644,6 +690,7 @@ mod tests {
         assert_eq!(envelope.operation, "PUT /media/hero.png");
         assert_eq!(envelope.operation_kind, WireOperationKind::Write);
         assert_eq!(envelope.idempotency_key, Some("object-1".to_string()));
+        assert_eq!(envelope.body, b"image-bytes".to_vec());
     }
 
     #[test]
@@ -670,13 +717,13 @@ mod tests {
     fn canonical_codec_rejects_trailing_bytes() {
         let codec = WireCodec;
         let mut encoded = codec
-            .encode(&RawFrame::new(
+            .encode(&RawFrame::with_body(
                 WireProtocol::Blob,
                 "app-client",
                 Some("app".to_string()),
                 "PUT sha256:content",
                 Some("blob-1".to_string()),
-                512,
+                b"blob bytes".to_vec(),
             ))
             .expect("encode");
         encoded.push(0xff);
@@ -688,16 +735,41 @@ mod tests {
     }
 
     #[test]
+    fn rejects_body_length_without_payload_bytes() {
+        let frame = RawFrame::new(
+            WireProtocol::Blob,
+            "app-client",
+            Some("app".to_string()),
+            "PUT sha256:content",
+            Some("blob-1".to_string()),
+            512,
+        );
+
+        let encode_err = WireCodec.encode(&frame).expect_err("encode mismatch");
+        assert_eq!(encode_err.code, ErrorCode::InvalidInput);
+        assert!(encode_err.message.contains("payload length"));
+
+        let decision = WireAdapter.decode(frame).expect("adapter decision");
+        assert_eq!(
+            decision,
+            WireDecision::Rejected {
+                protocol: WireProtocol::Blob,
+                reason: "request body byte count must match payload length".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn canonical_codec_rejects_truncated_frame() {
         let codec = WireCodec;
         let encoded = codec
-            .encode(&RawFrame::new(
+            .encode(&RawFrame::with_body(
                 WireProtocol::Kv,
                 "app-client",
                 Some("app".to_string()),
                 "WRITE config/a",
                 Some("kv-1".to_string()),
-                16,
+                b"stored-value".to_vec(),
             ))
             .expect("encode");
 
@@ -717,7 +789,7 @@ mod tests {
                 Some("app".to_string()),
                 operation,
                 None,
-                16,
+                0,
             ))
             .unwrap();
 
@@ -739,7 +811,8 @@ mod tests {
             operation: "SELECT * FROM users".to_string(),
             operation_kind: WireOperationKind::Read,
             idempotency_key: None,
-            body_bytes: 16,
+            body_bytes: 0,
+            body: Vec::new(),
         })];
 
         let err = validate_decisions(&decisions).expect_err("noncanonical envelope must fail");
@@ -753,23 +826,23 @@ mod tests {
         let adapter = WireAdapter;
         let decisions = vec![
             adapter
-                .decode(RawFrame::new(
+                .decode(RawFrame::with_body(
                     WireProtocol::Kv,
                     "app-client",
                     Some("app".to_string()),
                     "WRITE config/a",
                     Some("kv-1".to_string()),
-                    16,
+                    b"value-a".to_vec(),
                 ))
                 .unwrap(),
             adapter
-                .decode(RawFrame::new(
+                .decode(RawFrame::with_body(
                     WireProtocol::Kv,
                     "app-client",
                     Some("app".to_string()),
                     "WRITE config/b",
                     Some("kv-1".to_string()),
-                    16,
+                    b"value-b".to_vec(),
                 ))
                 .unwrap(),
         ];
@@ -789,7 +862,8 @@ mod tests {
             operation: "GET /media/hero.png".to_string(),
             operation_kind: WireOperationKind::Write,
             idempotency_key: Some("object-1".to_string()),
-            body_bytes: 16,
+            body_bytes: 0,
+            body: Vec::new(),
         })];
 
         let err = validate_decisions(&decisions).expect_err("kind mismatch must fail");

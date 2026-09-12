@@ -1764,13 +1764,13 @@ mod tests {
         )
         .expect("bind data listener");
         let set_addr = listener.local_addr();
-        let set_frame = encode_data_frame(RawFrame::new(
+        let set_frame = encode_data_frame(RawFrame::with_body(
             WireProtocol::Kv,
             "app-client",
             Some("app".to_string()),
-            "SET user/1 ada",
+            "SET user/1",
             Some("set-user-1".to_string()),
-            0,
+            b"ada".to_vec(),
         ));
         let set_client = std::thread::spawn(move || send_data_frame(set_addr, set_frame));
         let mut set_out = Vec::new();

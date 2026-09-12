@@ -2463,53 +2463,53 @@ impl Wire {
 
     fn frames(principal: &str) -> Vec<RawFrame> {
         vec![
-            RawFrame::new(
+            RawFrame::with_body(
                 WireProtocol::Sql,
                 principal,
                 Some("app".to_string()),
                 "SELECT id,name FROM app.users WHERE active = true LIMIT 1",
                 None,
-                192,
+                vec![0; 192],
             ),
-            RawFrame::new(
+            RawFrame::with_body(
                 WireProtocol::Kv,
                 principal,
                 Some("app".to_string()),
                 "PUT config/gateway",
                 Some("kv-0001".to_string()),
-                128,
+                vec![0; 128],
             ),
-            RawFrame::new(
+            RawFrame::with_body(
                 WireProtocol::Object,
                 principal,
                 Some("app".to_string()),
                 "PUT /media/hero.png",
                 Some("object-0001".to_string()),
-                256,
+                vec![0; 256],
             ),
-            RawFrame::new(
+            RawFrame::with_body(
                 WireProtocol::Blob,
                 principal,
                 Some("app".to_string()),
                 "PUT sha256:hero",
                 Some("blob-0001".to_string()),
-                512,
+                vec![0; 512],
             ),
-            RawFrame::new(
+            RawFrame::with_body(
                 WireProtocol::Admin,
                 principal,
                 None,
                 "JOIN node=5 region=iad",
                 Some("admin-0001".to_string()),
-                64,
+                vec![0; 64],
             ),
-            RawFrame::new(
+            RawFrame::with_body(
                 WireProtocol::Object,
                 principal,
                 Some("app".to_string()),
                 "PUT /media/missing-key.png",
                 None,
-                96,
+                vec![0; 96],
             ),
         ]
     }

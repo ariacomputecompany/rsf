@@ -107,7 +107,7 @@ impl DataPlaneExecutor {
     }
 
     fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_kv_command(&envelope.operation)?;
+        let command = parse_kv_command(&envelope.operation, &envelope.body)?;
         let mut runtime = self.open_kv_runtime()?;
         match command {
             KvCommand::Get { key } => {
@@ -137,7 +137,7 @@ impl DataPlaneExecutor {
                         snapshot,
                         mutations: vec![KvMutation::Set {
                             key: key.as_bytes().to_vec(),
-                            value: value.as_bytes().to_vec(),
+                            value: value.clone(),
                         }],
                     },
                 )?;
@@ -223,7 +223,7 @@ struct KvRuntime {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum KvCommand {
     Get { key: String },
-    Set { key: String, value: String },
+    Set { key: String, value: Vec<u8> },
     Clear { key: String },
 }
 
@@ -290,7 +290,7 @@ fn data_plane_response(decision: WireDecision, executor: &DataPlaneExecutor) -> 
     }
 }
 
-fn parse_kv_command(operation: &str) -> RsfResult<KvCommand> {
+fn parse_kv_command(operation: &str, body: &[u8]) -> RsfResult<KvCommand> {
     let mut parts = operation.split_whitespace();
     let verb = parts
         .next()
@@ -300,23 +300,45 @@ fn parse_kv_command(operation: &str) -> RsfResult<KvCommand> {
         "GET" | "READ" => {
             let key = required_token(parts.next(), "kv read key")?;
             ensure_no_extra(parts.next(), "kv read")?;
+            ensure_empty_body(body, "kv read")?;
             Ok(KvCommand::Get { key })
         }
         "SET" | "PUT" => {
             let key = required_token(parts.next(), "kv write key")?;
-            let value = required_token(parts.next(), "kv write value")?;
+            let inline = parts.next();
             ensure_no_extra(parts.next(), "kv write")?;
+            let value = match (inline, body.is_empty()) {
+                (Some(value), true) => {
+                    validate_token(value, "kv write value")?;
+                    value.as_bytes().to_vec()
+                }
+                (None, false) => body.to_vec(),
+                (Some(_), false) => {
+                    return Err(invalid(
+                        "kv write value must be supplied either as an operation token or a frame body, not both",
+                    ));
+                }
+                (None, true) => return Err(invalid("kv write value or frame body is required")),
+            };
             Ok(KvCommand::Set { key, value })
         }
         "CLEAR" | "DELETE" => {
             let key = required_token(parts.next(), "kv clear key")?;
             ensure_no_extra(parts.next(), "kv clear")?;
+            ensure_empty_body(body, "kv clear")?;
             Ok(KvCommand::Clear { key })
         }
         _ => Err(invalid(
             "kv operation must be GET, SET, PUT, CLEAR, or DELETE",
         )),
     }
+}
+
+fn ensure_empty_body(body: &[u8], label: &str) -> RsfResult<()> {
+    if !body.is_empty() {
+        return Err(invalid(format!("{label} operation must not carry a body")));
+    }
+    Ok(())
 }
 
 fn required_token(value: Option<&str>, label: &str) -> RsfResult<String> {
@@ -446,20 +468,27 @@ mod tests {
     #[test]
     fn kv_command_parser_accepts_read_write_and_clear() {
         assert_eq!(
-            parse_kv_command("GET user/1").expect("get"),
+            parse_kv_command("GET user/1", &[]).expect("get"),
             KvCommand::Get {
                 key: "user/1".to_string()
             }
         );
         assert_eq!(
-            parse_kv_command("SET user/1 ada").expect("set"),
+            parse_kv_command("SET user/1 ada", &[]).expect("set"),
             KvCommand::Set {
                 key: "user/1".to_string(),
-                value: "ada".to_string()
+                value: b"ada".to_vec()
             }
         );
         assert_eq!(
-            parse_kv_command("CLEAR user/1").expect("clear"),
+            parse_kv_command("SET user/2", b"grace").expect("body set"),
+            KvCommand::Set {
+                key: "user/2".to_string(),
+                value: b"grace".to_vec()
+            }
+        );
+        assert_eq!(
+            parse_kv_command("CLEAR user/1", &[]).expect("clear"),
             KvCommand::Clear {
                 key: "user/1".to_string()
             }
@@ -468,8 +497,19 @@ mod tests {
 
     #[test]
     fn kv_command_parser_rejects_ambiguous_operations() {
-        let err = parse_kv_command("SET user/1 ada extra").expect_err("extra field rejected");
+        let err = parse_kv_command("SET user/1 ada extra", &[]).expect_err("extra field rejected");
         assert_eq!(err.code, ErrorCode::InvalidInput);
         assert!(err.message.contains("too many fields"));
+
+        let err = parse_kv_command("SET user/1 ada", b"body").expect_err("ambiguous value");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(
+            err.message
+                .contains("either as an operation token or a frame body")
+        );
+
+        let err = parse_kv_command("GET user/1", b"body").expect_err("read body");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("must not carry a body"));
     }
 }

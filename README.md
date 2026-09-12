@@ -107,10 +107,10 @@ The Rust workspace is the production source path for the custom RSF protocol and
 - `crates/rsf-vsr`: VSR-style replicated metadata cell with prepare, quorum ack, commit, and view-change decisions.
 - `crates/rsf-watch`: ordered KV watch subscriptions, prefix filtering, cursors, and resumable delivery.
 - `crates/rsf-wal`: relational redo durability gate with durable-LSN and WAL-before-page-flush decisions.
-- `crates/rsf-wire`: typed SQL, KV, object, blob, and admin wire-frame normalization before API classification.
+- `crates/rsf-wire`: typed SQL, KV, object, blob, and admin wire-frame normalization with payload-bearing frames before API classification.
 - `crates/rsf-workload`: workload-shape budgets for relational, KV, object, and blob paths without claiming production benchmarks.
 - `crates/rsf-write`: relational write planning across constraints, row KV bytes, index mutations, conflict ranges, and commit intent.
-- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and data-plane KV ingress listeners.
+- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and payload-backed data-plane KV ingress listeners.
 
 Run:
 
