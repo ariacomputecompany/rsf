@@ -97,7 +97,7 @@ impl DurableAuditLog {
             pg: AUDIT_LOG_PG,
             epoch: Epoch(0),
             index: sequence,
-            kind: WalRecordKind::Policy,
+            kind: WalRecordKind::Observability,
             previous_hash,
             payload: &payload,
         })?;
@@ -243,10 +243,7 @@ fn decode_records<'a>(
 ) -> RsfResult<Vec<AuditRecord>> {
     let mut audit = Vec::new();
     for record in records {
-        if record.pg == AUDIT_LOG_PG
-            && record.kind == WalRecordKind::Policy
-            && is_audit_payload(&record.payload)
-        {
+        if record.pg == AUDIT_LOG_PG && record.kind == WalRecordKind::Observability {
             audit.push(AuditRecord {
                 sequence: record.index,
                 event: decode_audit_event(&record.payload)?,
@@ -430,6 +427,7 @@ fn read_string(bytes: &[u8], offset: usize) -> RsfResult<(String, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsf_storage::SegmentScanFilter;
 
     #[test]
     fn counters_accumulate_saturating_values() {
@@ -565,6 +563,19 @@ mod tests {
         assert_eq!(recovered[0].event.action, "cluster.init");
         assert_eq!(recovered[1].event.pg, Some(PlacementGroupId(3)));
 
+        let store = SegmentStore::open(&path).expect("open segment store");
+        let scan = store
+            .scan(SegmentScanFilter {
+                pg: Some(AUDIT_LOG_PG),
+            })
+            .expect("scan audit log");
+        assert_eq!(scan.wal_records.len(), 2);
+        assert!(
+            scan.wal_records
+                .iter()
+                .all(|record| record.kind == WalRecordKind::Observability)
+        );
+
         let _ = std::fs::remove_dir_all(path);
     }
 
@@ -605,6 +616,29 @@ mod tests {
         let err = decode_audit_event(&encoded).expect_err("trailing bytes rejected");
 
         assert_eq!(err.code, ErrorCode::CorruptionDetected);
+    }
+
+    #[test]
+    fn durable_audit_log_recovery_rejects_malformed_observability_record() {
+        let path = test_path("durable_audit_log_rejects_malformed_observability_record");
+        let mut store = SegmentStore::open(&path).expect("open segment store");
+        store
+            .append_wal(WalAppend {
+                pg: AUDIT_LOG_PG,
+                epoch: Epoch(0),
+                index: LogIndex(1),
+                kind: WalRecordKind::Observability,
+                previous_hash: [0; 32],
+                payload: b"not-audit",
+            })
+            .expect("append malformed observability record");
+
+        let err =
+            DurableAuditLog::recover(&path).expect_err("malformed audit record must fail recovery");
+        assert_eq!(err.code, ErrorCode::CorruptionDetected);
+        assert!(err.message.contains("invalid magic"));
+
+        let _ = std::fs::remove_dir_all(path);
     }
 
     fn test_path(name: &str) -> std::path::PathBuf {
