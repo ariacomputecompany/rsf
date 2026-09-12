@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_core::{
     CommitVersion, ErrorCode, RsfError, RsfResult,
-    catalog::{ColumnType, TableDescriptor},
+    catalog::{ColumnDescriptor, ColumnType, TableDescriptor},
 };
 
 const MAGIC: &[u8; 5] = b"RSFR1";
@@ -61,6 +61,7 @@ impl RowCodec {
         input: BTreeMap<String, RowValue>,
         policy: RowCodecPolicy,
     ) -> RsfResult<EncodedRow> {
+        validate_descriptor(table)?;
         let mut values = input;
         let mut defaults_applied = 0;
         let mut generated_applied = 0;
@@ -107,13 +108,7 @@ impl RowCodec {
 
         for column in &table.columns {
             let value = values.get(&column.name).cloned().unwrap_or(RowValue::Null);
-            if matches!(value, RowValue::Null) && !column.nullable {
-                return Err(invalid(format!(
-                    "required column {} is missing",
-                    column.name
-                )));
-            }
-            validate_value(&column.ty, &value, &column.name)?;
+            validate_column_value(column, &value)?;
             let value_bytes = value_payload(&value);
             push_string(&mut bytes, &column.name)?;
             bytes.push(type_tag(&value));
@@ -131,6 +126,7 @@ impl RowCodec {
     }
 
     pub fn decode(&self, table: &TableDescriptor, bytes: &[u8]) -> RsfResult<DecodedRow> {
+        validate_descriptor(table)?;
         let mut cursor = Cursor::new(bytes);
         cursor.expect_magic(MAGIC)?;
         let schema_version = CommitVersion(cursor.u64()?);
@@ -154,7 +150,7 @@ impl RowCodec {
             let tag = cursor.u8()?;
             let payload = cursor.bytes()?;
             let value = decode_value(tag, payload)?;
-            validate_value(&expected.ty, &value, &expected.name)?;
+            validate_column_value(expected, &value)?;
             values.insert(name, value);
         }
         cursor.finish()?;
@@ -165,6 +161,25 @@ impl RowCodec {
             values,
         })
     }
+}
+
+fn validate_descriptor(table: &TableDescriptor) -> RsfResult<()> {
+    let mut names = BTreeSet::new();
+    for column in &table.columns {
+        if column.name.trim().is_empty() {
+            return Err(invalid(format!(
+                "table {} contains a blank column name",
+                table.name.0
+            )));
+        }
+        if !names.insert(column.name.as_str()) {
+            return Err(invalid(format!(
+                "table {} contains duplicate column {}",
+                table.name.0, column.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn ensure_column(table: &TableDescriptor, column: &str) -> RsfResult<()> {
@@ -180,6 +195,16 @@ fn ensure_column(table: &TableDescriptor, column: &str) -> RsfResult<()> {
             table.name.0
         )))
     }
+}
+
+fn validate_column_value(column: &ColumnDescriptor, value: &RowValue) -> RsfResult<()> {
+    if matches!(value, RowValue::Null) && !column.nullable {
+        return Err(invalid(format!(
+            "required column {} is missing or null",
+            column.name
+        )));
+    }
+    validate_value(&column.ty, value, &column.name)
 }
 
 fn validate_value(expected: &ColumnType, value: &RowValue, column: &str) -> RsfResult<()> {
@@ -463,6 +488,73 @@ mod tests {
 
         let err = RowCodec.decode(&table(), &encoded).unwrap_err();
         assert!(err.message.contains("trailing bytes"));
+    }
+
+    #[test]
+    fn decode_rejects_null_required_column() {
+        let mut nullable = table();
+        nullable.columns[1].nullable = true;
+        let encoded = RowCodec
+            .encode(
+                &nullable,
+                BTreeMap::from([
+                    ("id".to_string(), RowValue::Int64(7)),
+                    ("active".to_string(), RowValue::Bool(true)),
+                    ("name_len".to_string(), RowValue::Int64(0)),
+                ]),
+                RowCodecPolicy {
+                    schema_version: CommitVersion(3),
+                    defaults: BTreeMap::new(),
+                    generated: Vec::new(),
+                },
+            )
+            .expect("nullable descriptor should encode null name");
+
+        let err = RowCodec.decode(&table(), &encoded.bytes).unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(
+            err.message
+                .contains("required column name is missing or null")
+        );
+    }
+
+    #[test]
+    fn duplicate_descriptor_columns_are_error() {
+        let mut duplicate = table();
+        duplicate.columns[1].name = "id".to_string();
+
+        let err = RowCodec
+            .encode(
+                &duplicate,
+                BTreeMap::from([
+                    ("id".to_string(), RowValue::Int64(7)),
+                    ("active".to_string(), RowValue::Bool(true)),
+                    ("name_len".to_string(), RowValue::Int64(3)),
+                ]),
+                RowCodecPolicy {
+                    schema_version: CommitVersion(3),
+                    defaults: BTreeMap::new(),
+                    generated: Vec::new(),
+                },
+            )
+            .expect_err("duplicate descriptor columns should fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate column id"));
+    }
+
+    #[test]
+    fn blank_descriptor_columns_are_error() {
+        let mut blank = table();
+        blank.columns[1].name = " ".to_string();
+
+        let err = RowCodec
+            .decode(&blank, &[])
+            .expect_err("blank descriptor columns should fail before decoding bytes");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("blank column name"));
     }
 
     fn table() -> TableDescriptor {
