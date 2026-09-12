@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod catalog;
 mod store;
 
 use std::borrow::Cow;
@@ -10,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+pub use catalog::{DurableManifestCatalog, PublishedManifest};
 use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 use rsf_manifest::{ExtentManifest, ManifestKind};
