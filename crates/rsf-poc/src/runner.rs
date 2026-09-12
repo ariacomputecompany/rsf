@@ -459,9 +459,9 @@ fn run_one_with_trace(id: ImplementationId, mut trace: Trace) -> RsfResult<RunOu
         })?;
 
     trace.push(
-        "poc",
-        "simulation",
-        "all services are deterministic simulations with real module boundaries",
+        "production-run",
+        "bootstrap",
+        "all services execute deterministic production-shaped module boundaries",
     );
 
     Bootstrap::run(&mut trace, &implementation);
@@ -495,7 +495,7 @@ fn run_one_with_trace(id: ImplementationId, mut trace: Trace) -> RsfResult<RunOu
 
     let path = segment_path(id);
     let mut log = SegmentLog::open(&path)?;
-    let recovery = Fabric::append_demo_records(&mut trace, &mut log);
+    let recovery = Fabric::append_seed_records(&mut trace, &mut log);
     drop(log);
     let _ = fs::remove_file(&path);
 

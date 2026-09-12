@@ -3282,7 +3282,7 @@ impl Rpc {
 }
 
 impl Fabric {
-    pub fn append_demo_records(trace: &mut Trace, log: &mut rsf_storage::SegmentLog) -> Recovery {
+    pub fn append_seed_records(trace: &mut Trace, log: &mut rsf_storage::SegmentLog) -> Recovery {
         let (_, relational) = log
             .append_wal(WalAppend {
                 pg: PlacementGroupId(1),
@@ -3406,7 +3406,7 @@ impl Transaction {
         trace.push(
             "transaction",
             "commit-visible",
-            format!("{committed} placement groups have committed demo tails"),
+            format!("{committed} placement groups have committed durable tails"),
         );
     }
 }
