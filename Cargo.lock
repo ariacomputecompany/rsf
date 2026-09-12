@@ -538,6 +538,7 @@ dependencies = [
  "rsf-backup",
  "rsf-core",
  "rsf-snapshot",
+ "rsf-storage",
 ]
 
 [[package]]

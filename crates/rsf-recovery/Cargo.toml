@@ -9,6 +9,7 @@ rust-version.workspace = true
 rsf-backup = { path = "../rsf-backup" }
 rsf-core = { path = "../rsf-core" }
 rsf-snapshot = { path = "../rsf-snapshot" }
+rsf-storage = { path = "../rsf-storage" }
 
 [lib]
 path = "src/lib.rs"

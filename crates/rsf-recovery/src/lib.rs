@@ -2,6 +2,12 @@
 
 use std::collections::BTreeSet;
 
+mod ledger;
+
+pub use ledger::{
+    DurableRecoveryLedger, RecoveryOperation, RecoveryOperationId, RecoveryOperationState,
+};
+
 use rsf_backup::{BackupItemKind, BackupPlanner, RestoreExecution, SnapshotManifest};
 use rsf_core::{CommitVersion, ErrorCode, RsfError, RsfResult};
 use rsf_snapshot::{DatabaseSnapshot, SnapshotRootKind};

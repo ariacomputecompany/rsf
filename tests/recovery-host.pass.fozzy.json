@@ -12,7 +12,11 @@
         "-p",
         "rsf-snapshot",
         "-p",
-        "rsf-backup"
+        "rsf-backup",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-core"
       ],
       "exit_code": 0,
       "stdout": "",
@@ -29,7 +33,11 @@
         "-p",
         "rsf-snapshot",
         "-p",
-        "rsf-backup"
+        "rsf-backup",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-core"
       ],
       "expect_exit": 0
     }
