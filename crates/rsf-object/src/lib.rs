@@ -1159,10 +1159,10 @@ mod tests {
             .expect("cold put");
 
         objects
-            .quarantine_cold_shard(&content, 1, "simulated data shard loss")
+            .quarantine_cold_shard(&content, 1, "injected data shard loss")
             .expect("quarantine data shard");
         objects
-            .quarantine_cold_shard(&content, 2, "simulated second data shard loss")
+            .quarantine_cold_shard(&content, 2, "injected second data shard loss")
             .expect("quarantine second data shard");
         assert_eq!(
             objects
@@ -1195,13 +1195,13 @@ mod tests {
             .expect("cold put");
 
         objects
-            .quarantine_cold_shard(&content, 0, "simulated data shard loss")
+            .quarantine_cold_shard(&content, 0, "injected data shard loss")
             .expect("quarantine first data shard");
         objects
-            .quarantine_cold_shard(&content, 1, "simulated data shard loss")
+            .quarantine_cold_shard(&content, 1, "injected data shard loss")
             .expect("quarantine second data shard");
         objects
-            .quarantine_cold_shard(&content, 2, "simulated data shard loss")
+            .quarantine_cold_shard(&content, 2, "injected data shard loss")
             .expect("quarantine third data shard");
 
         let err = objects
