@@ -68,7 +68,9 @@ impl DeploymentPackageManifest {
             if key.is_empty() || value.is_empty() {
                 return Err(invalid("manifest keys and values must not be empty"));
             }
-            fields.insert(key.to_string(), value.to_string());
+            if fields.insert(key.to_string(), value.to_string()).is_some() {
+                return Err(invalid(format!("duplicate manifest field '{key}'")));
+            }
         }
 
         let id = take(&mut fields, "id")?;
@@ -190,55 +192,24 @@ impl DeploymentPlanner {
                 role: DeploymentRole::Storage,
                 region: region.clone(),
             });
-
-            match node {
-                0 => {
-                    roles.push(RoleAssignment {
-                        node: id,
-                        role: DeploymentRole::Gateway,
-                        region: region.clone(),
-                    });
-                    roles.push(RoleAssignment {
-                        node: id,
-                        role: DeploymentRole::Sql,
-                        region,
-                    });
-                }
-                1 => {
-                    roles.push(RoleAssignment {
-                        node: id,
-                        role: DeploymentRole::Metadata,
-                        region: region.clone(),
-                    });
-                    roles.push(RoleAssignment {
-                        node: id,
-                        role: DeploymentRole::Object,
-                        region,
-                    });
-                }
-                2 => {
-                    roles.push(RoleAssignment {
-                        node: id,
-                        role: DeploymentRole::Blob,
-                        region: region.clone(),
-                    });
-                    roles.push(RoleAssignment {
-                        node: id,
-                        role: DeploymentRole::BackgroundWorker,
-                        region,
-                    });
-                }
-                _ if node % 2 == 0 => roles.push(RoleAssignment {
-                    node: id,
-                    role: DeploymentRole::BackgroundWorker,
-                    region,
-                }),
-                _ => roles.push(RoleAssignment {
-                    node: id,
-                    role: DeploymentRole::Gateway,
-                    region,
-                }),
-            }
+        }
+        for (index, role) in [
+            DeploymentRole::Gateway,
+            DeploymentRole::Sql,
+            DeploymentRole::Metadata,
+            DeploymentRole::Object,
+            DeploymentRole::Blob,
+            DeploymentRole::BackgroundWorker,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let node = index % usize::from(profile.nodes);
+            roles.push(RoleAssignment {
+                node: NodeId(node as u64),
+                role,
+                region: profile.regions[node % profile.regions.len()].clone(),
+            });
         }
 
         let roles_present = roles
@@ -295,46 +266,54 @@ fn validate_profile(profile: &DeploymentProfile) -> RsfResult<()> {
     if profile.regions.is_empty() {
         return Err(invalid("deployment needs at least one region"));
     }
-    if profile.storage_label.trim().is_empty() {
-        return Err(invalid("storage label must not be empty"));
-    }
-    if profile.consensus_label.trim().is_empty() {
-        return Err(invalid("consensus label must not be empty"));
-    }
+    validate_unique_regions(&profile.regions)?;
+    validate_label("implementation slug", &profile.implementation)?;
+    validate_label("storage label", &profile.storage_label)?;
+    validate_label("consensus label", &profile.consensus_label)?;
     Ok(())
 }
 
 fn validate_package(manifest: &DeploymentPackageManifest) -> RsfResult<()> {
-    if manifest.id.trim().is_empty() {
-        return Err(invalid("manifest id must not be empty"));
-    }
-    if manifest.name.trim().is_empty() {
-        return Err(invalid("manifest name must not be empty"));
-    }
+    validate_label("manifest id", &manifest.id)?;
+    validate_label("manifest name", &manifest.name)?;
     if manifest.nodes == 0 {
         return Err(invalid("manifest nodes must be greater than zero"));
     }
-    if manifest.regions.is_empty()
-        || manifest
-            .regions
-            .iter()
-            .any(|region| region.as_str().is_empty())
-    {
+    if manifest.regions.is_empty() {
         return Err(invalid("manifest regions must not be empty"));
     }
-    for value in [
-        &manifest.placement,
-        &manifest.consensus,
-        &manifest.relational,
-        &manifest.object,
-        &manifest.blob,
-        &manifest.kv,
+    validate_unique_regions(&manifest.regions)?;
+    for (label, value) in [
+        ("manifest placement", &manifest.placement),
+        ("manifest consensus", &manifest.consensus),
+        ("manifest relational", &manifest.relational),
+        ("manifest object", &manifest.object),
+        ("manifest blob", &manifest.blob),
+        ("manifest kv", &manifest.kv),
     ] {
-        if value.trim().is_empty() {
-            return Err(invalid("manifest architecture fields must not be empty"));
+        validate_label(label, value)?;
+    }
+    Ok(())
+}
+
+fn validate_unique_regions(regions: &[RegionId]) -> RsfResult<()> {
+    let mut seen = BTreeSet::new();
+    for region in regions {
+        if !seen.insert(region.as_str()) {
+            return Err(invalid(format!("duplicate deployment region {}", region)));
         }
     }
     Ok(())
+}
+
+fn validate_label(label: &str, value: &str) -> RsfResult<()> {
+    if value.trim().is_empty() {
+        Err(invalid(format!("{label} must not be empty")))
+    } else if value != value.trim() {
+        Err(invalid(format!("{label} must not contain edge whitespace")))
+    } else {
+        Ok(())
+    }
 }
 
 fn take(fields: &mut std::collections::BTreeMap<String, String>, key: &str) -> RsfResult<String> {
@@ -389,6 +368,36 @@ mod tests {
     }
 
     #[test]
+    fn single_node_profile_still_assigns_every_required_role() {
+        let manifest = DeploymentPlanner
+            .plan(profile("single-node-production", 1))
+            .unwrap();
+        let roles = manifest
+            .roles
+            .iter()
+            .map(|assignment| assignment.role)
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(manifest.volumes.len(), 1);
+        for required in [
+            DeploymentRole::ControlPlane,
+            DeploymentRole::Gateway,
+            DeploymentRole::Metadata,
+            DeploymentRole::Storage,
+            DeploymentRole::Sql,
+            DeploymentRole::Object,
+            DeploymentRole::Blob,
+            DeploymentRole::BackgroundWorker,
+        ] {
+            assert!(
+                roles.contains(&required),
+                "missing role {}",
+                required.as_str()
+            );
+        }
+    }
+
+    #[test]
     fn rejects_empty_regions() {
         let err = DeploymentPlanner
             .plan(DeploymentProfile {
@@ -401,6 +410,22 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn rejects_duplicate_profile_regions() {
+        let mut profile = profile("duplicate-region", 3);
+        profile.regions = vec![
+            RegionId::new("iad").expect("region"),
+            RegionId::new("iad").expect("region"),
+        ];
+
+        let err = DeploymentPlanner
+            .plan(profile)
+            .expect_err("duplicate deployment regions must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate deployment region"));
     }
 
     #[test]
@@ -432,6 +457,53 @@ mod tests {
             vec!["iad", "ord"]
         );
         assert_eq!(manifest.deployment_profile().nodes, 5);
+    }
+
+    #[test]
+    fn package_manifest_rejects_duplicate_fields() {
+        let err = DeploymentPackageManifest::parse(
+            "
+            id: universal-vsr-rados
+            id: overwritten
+            name: Universal VSR-RADOS Fabric
+            confidence: 91
+            nodes: 5
+            regions: iad,ord
+            placement: RADOS-style placement groups
+            consensus: Viewstamped Replication
+            relational: ordered KV-backed tables
+            object: strict manifests
+            blob: content-addressed chunks
+            kv: MVCC ordered keys
+            ",
+        )
+        .expect_err("duplicate manifest fields must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate manifest field"));
+    }
+
+    #[test]
+    fn package_manifest_rejects_duplicate_regions() {
+        let err = DeploymentPackageManifest::parse(
+            "
+            id: universal-vsr-rados
+            name: Universal VSR-RADOS Fabric
+            confidence: 91
+            nodes: 5
+            regions: iad,iad
+            placement: RADOS-style placement groups
+            consensus: Viewstamped Replication
+            relational: ordered KV-backed tables
+            object: strict manifests
+            blob: content-addressed chunks
+            kv: MVCC ordered keys
+            ",
+        )
+        .expect_err("duplicate manifest regions must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate deployment region"));
     }
 
     fn profile(implementation: &str, nodes: u8) -> DeploymentProfile {
