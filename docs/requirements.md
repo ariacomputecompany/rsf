@@ -29,13 +29,13 @@ The internal storage fabric must support the full database, but the delivered sy
 - recovery
 - repair
 - observability
-- named invariant checking against the full-database POC run
+- named invariant checking against deterministic full-database evidence
 - deterministic testing
 
-The POC also emits a product-requirement audit. Each audited requirement family
-is labeled as structural evidence, simulated evidence, design-target evidence,
-or missing evidence, so the project does not quietly confuse a storage substrate
-with the full database product.
+The requirement audit records whether each family is backed by production-ready
+source evidence, deterministic recovery evidence, verification-only evidence, or
+an explicit remaining gap, so the project does not quietly confuse a storage
+substrate with the full database product.
 
 ## Non-Negotiable Requirements
 
@@ -136,7 +136,7 @@ with the full database product.
 
 ## Performance Requirements
 
-These are first structural workload-shape targets in the POC, not yet measured
+These are first structural workload-shape targets. They are not yet measured
 production benchmark claims:
 
 - Single-region strict writes should complete in one quorum replication path plus local fsync batching.

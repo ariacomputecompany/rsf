@@ -53,7 +53,7 @@ checksum: 8 bytes  little-endian u64
 payload:  len bytes
 ```
 
-The current checksum is deliberately simple and dependency-free. It is a scaffold checksum, not the final cryptographic digest. The final storage engine needs a stronger checksum/hash strategy before real data is trusted.
+Segment envelopes carry an explicit checksum policy. New records use BLAKE3-derived checksums, while legacy FNV records are accepted only for recovery compatibility and are never the default write policy. WAL payload hashes and record hashes are full BLAKE3 digests that bind payload bytes, placement group, epoch, log index, record kind, and the previous hash-chain link.
 
 Current WAL payload shape:
 

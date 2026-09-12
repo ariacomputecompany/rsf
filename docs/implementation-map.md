@@ -560,7 +560,7 @@ Next scope:
 
 ### rsf-backup
 
-Owns full-database snapshot, restore planning, and simulated restore-execution contracts.
+Owns full-database snapshot, restore planning, and durable restore lifecycle contracts.
 
 Current scope:
 
@@ -571,8 +571,8 @@ Current scope:
 - KV, SQL, object-manifest, and blob-chunk backup items
 - checksum and byte-count validation
 - restore-plan validation requiring catalog and transaction-log roots
-- simulated restore execution covering catalog, transaction-log, KV, SQL, object, and blob items
-- POC integration for a full database snapshot after data personalities run
+- restore execution evidence covering catalog, transaction-log, KV, SQL, object, and blob items
+- durable restore operation replay for planned, started, completed, and failed lifecycle states
 
 Next scope:
 

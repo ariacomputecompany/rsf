@@ -17,7 +17,7 @@ Required controls:
 - seed
 - schedule
 - message delay/drop/duplicate/reorder
-- deterministic message delay/drop controls: started in `rsf-sim` and POC fault logs
+- deterministic message delay/drop controls: started in `rsf-sim`, protocol transport tests, and fault logs
 - disk write success/failure/torn write
 - clock/timer progression
 - process crash/restart
@@ -29,16 +29,16 @@ Required controls:
 Core invariants:
 
 - no acknowledged write is lost
-- committed storage-tail evidence: started with `rsf-invariants` POC checks over recovered placement-group commit tails, committed prefixes, and manifest coverage proofs
+- committed storage-tail evidence: started with `rsf-invariants` checks over recovered placement-group commit tails, committed prefixes, and manifest coverage proofs
 - no stale primary commits
 - stale primary rejection evidence: started with `rsf-invariants` checks over VSR stale-primary and lease fence rejections
-- stale primary fence rejection: started in `rsf-lease` unit tests and POC lease service logs
+- stale primary fence rejection: started in `rsf-lease` unit tests, durable lease recovery tests, and protocol stale-primary tests
 - no two primaries commit conflicting entries for the same epoch/index
 - committed log prefix is stable
 - recovery never rolls back below a committed quorum point
 - object manifest visibility is atomic
 - chunk hash always verifies: started with `rsf-chunkstore` verified reads and `rsf-invariants` checks over chunkstore verification, dedupe, and rejection evidence
-- relational table and index updates commit together: started with `rsf-relcommit` row/index commit-group audits, partial-group rejection, POC relcommit logs, and `rsf-invariants` relational commit-group atomicity coverage
+- relational table and index updates commit together: started with `rsf-relcommit` row/index commit-group audits, partial-group rejection, SQL DML protocol commits, and `rsf-invariants` relational commit-group atomicity coverage
 - deferred relational constraints resolve at commit time: started with `rsf-deferred` transaction-local foreign-key obligations, transaction-local reference satisfaction, missing-reference rejection, and `rsf-invariants` deferred constraint coverage
 - schema migrations advance through a durable lifecycle: started with `rsf-migration` validation, descriptor publication, backfill, index catch-up, resume, completion, rollback, rejected post-rollback advance, and `rsf-invariants` schema migration lifecycle coverage
 - SQL requests validate before physical execution: started with `rsf-sqlpipeline` composed bind/auth/logical/physical/execute reports and `rsf-invariants` SQL pipeline coverage checks
@@ -54,12 +54,12 @@ Core invariants:
 - relational vacuum preserves oldest-snapshot safety: started with `rsf-vacuum` prune/retain planning over tuple chains, reclaimed-byte accounting, empty-chain rejection, and `rsf-invariants` relational vacuum safety coverage
 - relational row materialization preserves executor handoff: started with `rsf-materialize` full-row materialization, explicit projection, table/projection rejection, and `rsf-invariants` relational row materialization coverage
 - primary indexes preserve row identity: started with `rsf-primary` insert, lookup, update, delete, duplicate-key rejection, missing-key lookup, and `rsf-invariants` primary-index identity coverage
-- ordered range split boundaries remain non-overlapping: started with `rsf-range` split non-overlap checks, overlap rejection evidence, POC range logs, requirement coverage, and `rsf-invariants` ordered range non-overlap coverage
+- ordered range split boundaries remain non-overlapping: started with `rsf-range` split non-overlap checks, overlap rejection evidence, durable range recovery, requirement coverage, and `rsf-invariants` ordered range non-overlap coverage
 - multi-surface extent layout remains format-independent: started with `rsf-invariants` checks over manifest coverage and overlap rejection
 - local checkpoint compaction preserves required roots: started with `rsf-checkpoint` root/segment planning and `rsf-invariants` checks over retained roots, compacted segments, reclaimable bytes, and regression rejection
-- snapshot and recovery root inventories match: started with `rsf-invariants` checks over POC snapshot/recovery roots
-- learner promotion preserves quorum intersection: started with `rsf-membership` old/new quorum intersection proofs, POC membership logs, requirement coverage, and `rsf-invariants` learner-promotion quorum-intersection coverage
-- rebalancing preserves placement policy: started with `rsf-rebalance` per-move placement-policy proofs, POC rebalance logs, requirement coverage, and `rsf-invariants` rebalance placement-policy coverage
+- snapshot and recovery root inventories match: started with `rsf-invariants` checks over durable snapshot, superblock, backup, and recovery roots
+- learner promotion preserves quorum intersection: started with `rsf-membership` old/new quorum intersection proofs, durable admin membership recovery, requirement coverage, and `rsf-invariants` learner-promotion quorum-intersection coverage
+- rebalancing preserves placement policy: started with `rsf-rebalance` per-move placement-policy proofs, durable rebalance recovery, requirement coverage, and `rsf-invariants` rebalance placement-policy coverage
 
 ### Fault Matrix
 
@@ -153,14 +153,14 @@ Current host-backed VSR scenario:
 - Host-backed replay result: pass, run id `2e3d49d7-0395-4e8d-affa-17b1ea7f6c41`
 - Host-backend trace verification, replay, and CI result: pass
 
-Current host-backed POC scenario:
+Current host-backed legacy POC scenario:
 
 - [poc-host.pass.fozzy.json](../tests/poc-host.pass.fozzy.json)
 - Command: `fozzy run tests/poc-host.pass.fozzy.json --det --host-backends --record artifacts/poc-host-20260910.trace.fozzy --json`
 - Host-backend result: pass, run id `4ac34123-8fb0-4922-b50b-9bae07f0aa5a`
 - Host-backend trace verification, replay, and CI result: pass
 
-Current host-backed POC artifact scenario:
+Current host-backed legacy POC artifact scenario:
 
 - [poc-output-host.pass.fozzy.json](../tests/poc-output-host.pass.fozzy.json)
 - Strict doctor command: `fozzy doctor --deep --scenario tests/poc-output-host.pass.fozzy.json --runs 5 --seed 245 --json`
