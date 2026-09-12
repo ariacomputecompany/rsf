@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeSet;
+
 use rsf_core::{ErrorCode, RsfError, RsfResult};
 
 const FRAME_MAGIC: &[u8; 4] = b"RSFW";
@@ -292,6 +294,88 @@ pub fn validate_decisions(decisions: &[WireDecision]) -> RsfResult<()> {
             "wire decision set must not be empty",
         ));
     }
+    let mut mutating_keys = BTreeSet::new();
+    for decision in decisions {
+        match decision {
+            WireDecision::Accepted(envelope) => {
+                validate_envelope(envelope)?;
+                if envelope.operation_kind.mutates_state()
+                    && requires_idempotency(envelope.protocol)
+                    && !mutating_keys.insert((
+                        envelope.protocol,
+                        envelope.namespace.clone(),
+                        envelope
+                            .idempotency_key
+                            .as_ref()
+                            .expect("validated mutating envelope has idempotency key")
+                            .clone(),
+                    ))
+                {
+                    return Err(invalid(
+                        "wire decision set contains duplicate mutating idempotency key",
+                    ));
+                }
+            }
+            WireDecision::Rejected { reason, .. } => {
+                validate_field(reason, MAX_OPERATION_BYTES, "rejection reason")?;
+                if reason.trim().is_empty() {
+                    return Err(invalid("wire rejection reason must not be empty"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_envelope(envelope: &RequestEnvelope) -> RsfResult<()> {
+    if normalize_required(&envelope.principal, MAX_PRINCIPAL_BYTES, "principal")?
+        != envelope.principal
+    {
+        return Err(invalid("wire envelope principal is not canonical"));
+    }
+    if normalize_required(&envelope.operation, MAX_OPERATION_BYTES, "operation")?
+        != envelope.operation
+    {
+        return Err(invalid("wire envelope operation is not canonical"));
+    }
+    match envelope.protocol {
+        WireProtocol::Sql | WireProtocol::Kv | WireProtocol::Object | WireProtocol::Blob => {
+            let Some(namespace) = envelope.namespace.as_deref() else {
+                return Err(invalid("wire envelope namespace is required"));
+            };
+            if normalize_required(namespace, MAX_NAMESPACE_BYTES, "namespace")? != namespace {
+                return Err(invalid("wire envelope namespace is not canonical"));
+            }
+        }
+        WireProtocol::Admin => {
+            if envelope.namespace.is_some() {
+                return Err(invalid("wire admin envelope must not carry a namespace"));
+            }
+        }
+    }
+    if classify_operation(envelope.protocol, &envelope.operation) != envelope.operation_kind {
+        return Err(invalid(
+            "wire envelope operation kind does not match operation text",
+        ));
+    }
+    if envelope.operation_kind.mutates_state() && requires_idempotency(envelope.protocol) {
+        let Some(idempotency_key) = envelope.idempotency_key.as_deref() else {
+            return Err(invalid(
+                "wire envelope mutating protocol requires idempotency key",
+            ));
+        };
+        if normalize_required(
+            idempotency_key,
+            MAX_IDEMPOTENCY_KEY_BYTES,
+            "idempotency key",
+        )? != idempotency_key
+        {
+            return Err(invalid("wire envelope idempotency key is not canonical"));
+        }
+    }
+    if envelope.body_bytes > MAX_BODY_BYTES {
+        return Err(invalid("wire envelope body exceeds wire limit"));
+    }
     Ok(())
 }
 
@@ -520,7 +604,7 @@ mod tests {
                     WireProtocol::Blob,
                     "app-client",
                     Some("app".to_string()),
-                    "PUT sha256:demo",
+                    "PUT sha256:content",
                     Some("blob-1".to_string()),
                     512,
                 ))
@@ -644,5 +728,73 @@ mod tests {
                 reason: format!("operation exceeds {MAX_OPERATION_BYTES} bytes")
             }
         );
+    }
+
+    #[test]
+    fn validate_decisions_rejects_noncanonical_accepted_envelope() {
+        let decisions = vec![WireDecision::Accepted(RequestEnvelope {
+            protocol: WireProtocol::Sql,
+            principal: " app-client ".to_string(),
+            namespace: Some("app".to_string()),
+            operation: "SELECT * FROM users".to_string(),
+            operation_kind: WireOperationKind::Read,
+            idempotency_key: None,
+            body_bytes: 16,
+        })];
+
+        let err = validate_decisions(&decisions).expect_err("noncanonical envelope must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("principal is not canonical"));
+    }
+
+    #[test]
+    fn validate_decisions_rejects_duplicate_mutating_idempotency_key() {
+        let adapter = WireAdapter;
+        let decisions = vec![
+            adapter
+                .decode(RawFrame::new(
+                    WireProtocol::Kv,
+                    "app-client",
+                    Some("app".to_string()),
+                    "WRITE config/a",
+                    Some("kv-1".to_string()),
+                    16,
+                ))
+                .unwrap(),
+            adapter
+                .decode(RawFrame::new(
+                    WireProtocol::Kv,
+                    "app-client",
+                    Some("app".to_string()),
+                    "WRITE config/b",
+                    Some("kv-1".to_string()),
+                    16,
+                ))
+                .unwrap(),
+        ];
+
+        let err = validate_decisions(&decisions).expect_err("duplicate idempotency must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate mutating idempotency key"));
+    }
+
+    #[test]
+    fn validate_decisions_rejects_operation_kind_mismatch() {
+        let decisions = vec![WireDecision::Accepted(RequestEnvelope {
+            protocol: WireProtocol::Object,
+            principal: "app-client".to_string(),
+            namespace: Some("app".to_string()),
+            operation: "GET /media/hero.png".to_string(),
+            operation_kind: WireOperationKind::Write,
+            idempotency_key: Some("object-1".to_string()),
+            body_bytes: 16,
+        })];
+
+        let err = validate_decisions(&decisions).expect_err("kind mismatch must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("operation kind"));
     }
 }
