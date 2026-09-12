@@ -39,7 +39,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--profile <standalone|regional|multi-region>] | policy]"
+    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | policy]"
         .to_string()
 }
 
@@ -49,6 +49,17 @@ fn run_serve_cli(args: &[String]) -> Result<(), String> {
             value
                 .parse::<u64>()
                 .map_err(|_| "--tick-ms must be a positive integer".to_string())
+        })
+        .transpose()?;
+    let max_consecutive_errors = optional_flag(args, "--max-consecutive-errors")
+        .map(|value| {
+            let parsed = value
+                .parse::<u32>()
+                .map_err(|_| "--max-consecutive-errors must be a positive integer".to_string())?;
+            if parsed == 0 {
+                return Err("--max-consecutive-errors must be greater than zero".to_string());
+            }
+            Ok(parsed)
         })
         .transpose()?;
     let config = resolve_daemon_config(
@@ -67,6 +78,7 @@ fn run_serve_cli(args: &[String]) -> Result<(), String> {
             profile: optional_flag(args, "--profile")
                 .map(OperatorProfile::parse)
                 .transpose()?,
+            max_consecutive_errors,
         },
         std::env::vars(),
     )?;
@@ -1764,6 +1776,7 @@ mod tests {
                 tick: Duration::from_millis(1),
                 listen: None,
                 profile: OperatorProfile::Standalone,
+                max_consecutive_errors: 3,
             },
             &mut out,
         )
@@ -1887,6 +1900,7 @@ mod tests {
                 tick: Duration::from_millis(1),
                 listen: None,
                 profile: OperatorProfile::Standalone,
+                max_consecutive_errors: 3,
             },
             &mut out,
         )

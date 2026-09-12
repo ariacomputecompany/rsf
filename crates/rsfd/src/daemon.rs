@@ -18,6 +18,7 @@ pub struct DaemonConfig {
     pub tick: Duration,
     pub listen: Option<SocketAddr>,
     pub profile: OperatorProfile,
+    pub max_consecutive_errors: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -144,18 +145,98 @@ pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), Stri
         )
         .map_err(|err| err.to_string())?;
     }
+    run_daemon_loop(
+        &config,
+        listener.as_ref(),
+        out,
+        load_snapshot_for_profile,
+        std::thread::sleep,
+    )
+}
+
+fn run_daemon_loop(
+    config: &DaemonConfig,
+    listener: Option<&HealthListener>,
+    out: &mut impl Write,
+    mut load_snapshot: impl FnMut(&Path, OperatorProfile) -> Result<DaemonSnapshot, String>,
+    mut sleep: impl FnMut(Duration),
+) -> Result<(), String> {
     let mut tick = 0_u64;
+    let mut supervisor = SupervisorState::new(config.max_consecutive_errors);
     loop {
-        let snapshot = load_snapshot_for_profile(&config.state, config.profile)?;
-        emit_snapshot(out, &config, tick, &snapshot)?;
-        if let Some(listener) = &listener {
-            listener.serve_pending(&snapshot)?;
+        match run_daemon_tick(config, listener, out, tick, &mut load_snapshot) {
+            Ok(()) => supervisor.record_success(),
+            Err(err) => {
+                if config.once {
+                    return Err(err);
+                }
+                let failure = supervisor.record_error(err);
+                emit_supervision_failure(out, tick, &failure)?;
+                if failure.should_stop {
+                    return Err(format!(
+                        "daemon supervision stopped after {} consecutive runtime errors; last error: {}",
+                        failure.consecutive_errors, failure.error
+                    ));
+                }
+            }
         }
         if config.once {
             return Ok(());
         }
         tick += 1;
-        std::thread::sleep(config.tick);
+        sleep(config.tick);
+    }
+}
+
+fn run_daemon_tick(
+    config: &DaemonConfig,
+    listener: Option<&HealthListener>,
+    out: &mut impl Write,
+    tick: u64,
+    load_snapshot: &mut impl FnMut(&Path, OperatorProfile) -> Result<DaemonSnapshot, String>,
+) -> Result<(), String> {
+    let snapshot = load_snapshot(&config.state, config.profile)?;
+    emit_snapshot(out, config, tick, &snapshot)?;
+    if let Some(listener) = listener {
+        listener.serve_pending(&snapshot)?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SupervisionFailure {
+    pub error: String,
+    pub consecutive_errors: u32,
+    pub max_consecutive_errors: u32,
+    pub should_stop: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SupervisorState {
+    consecutive_errors: u32,
+    max_consecutive_errors: u32,
+}
+
+impl SupervisorState {
+    pub fn new(max_consecutive_errors: u32) -> Self {
+        Self {
+            consecutive_errors: 0,
+            max_consecutive_errors,
+        }
+    }
+
+    pub fn record_success(&mut self) {
+        self.consecutive_errors = 0;
+    }
+
+    pub fn record_error(&mut self, error: String) -> SupervisionFailure {
+        self.consecutive_errors = self.consecutive_errors.saturating_add(1);
+        SupervisionFailure {
+            error,
+            consecutive_errors: self.consecutive_errors,
+            max_consecutive_errors: self.max_consecutive_errors,
+            should_stop: self.consecutive_errors >= self.max_consecutive_errors,
+        }
     }
 }
 
@@ -565,6 +646,9 @@ fn validate_config(config: &DaemonConfig) -> Result<(), String> {
     if config.tick.is_zero() {
         return Err("daemon tick interval must be greater than zero".to_string());
     }
+    if config.max_consecutive_errors == 0 {
+        return Err("daemon max consecutive errors must be greater than zero".to_string());
+    }
     if !config.state.exists() {
         return Err(format!(
             "daemon state path does not exist: {}",
@@ -581,6 +665,24 @@ fn validate_config(config: &DaemonConfig) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn emit_supervision_failure(
+    out: &mut impl Write,
+    tick: u64,
+    failure: &SupervisionFailure,
+) -> Result<(), String> {
+    writeln!(
+        out,
+        "daemon supervision tick={} status=runtime-error consecutive_errors={} max_consecutive_errors={} action={} error={}",
+        tick,
+        failure.consecutive_errors,
+        failure.max_consecutive_errors,
+        if failure.should_stop { "stop" } else { "retry" },
+        failure.error
+    )
+    .map_err(|err| err.to_string())?;
+    out.flush().map_err(|err| err.to_string())
 }
 
 fn emit_snapshot(
@@ -724,4 +826,136 @@ fn format_u64_list(values: &[u64]) -> String {
         .map(u64::to_string)
         .collect::<Vec<_>>()
         .join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn supervisor_resets_after_successful_tick() {
+        let state = std::env::temp_dir().join("rsfd-supervisor-resets-after-success");
+        let config = test_config(state);
+        let mut supervisor = SupervisorState::new(config.max_consecutive_errors);
+
+        let first = supervisor.record_error("first failure".to_string());
+        assert_eq!(first.consecutive_errors, 1);
+        assert!(!first.should_stop);
+
+        supervisor.record_success();
+        let second = supervisor.record_error("second failure".to_string());
+
+        assert_eq!(second.consecutive_errors, 1);
+        assert!(!second.should_stop);
+    }
+
+    #[test]
+    fn supervised_loop_stops_after_consecutive_runtime_errors() {
+        let state = std::env::temp_dir().join("rsfd-supervised-loop-stops");
+        let config = DaemonConfig {
+            state,
+            once: false,
+            tick: Duration::from_millis(1),
+            listen: None,
+            profile: OperatorProfile::Standalone,
+            max_consecutive_errors: 2,
+        };
+        let mut out = Vec::new();
+        let sleeps = Cell::new(0_u32);
+
+        let err = run_daemon_loop(
+            &config,
+            None,
+            &mut out,
+            |_state, _profile| Err("protocol router temporarily unavailable".to_string()),
+            |_| sleeps.set(sleeps.get().saturating_add(1)),
+        )
+        .expect_err("supervisor stops at configured threshold");
+        let output = String::from_utf8(out).expect("supervisor output is utf8");
+
+        assert!(err.contains("stopped after 2 consecutive runtime errors"));
+        assert_eq!(sleeps.get(), 1);
+        assert!(output.contains("status=runtime-error consecutive_errors=1"));
+        assert!(output.contains("action=retry"));
+        assert!(output.contains("status=runtime-error consecutive_errors=2"));
+        assert!(output.contains("action=stop"));
+    }
+
+    #[test]
+    fn supervised_loop_clears_error_count_after_recovery() {
+        let state = std::env::temp_dir().join("rsfd-supervised-loop-recovers");
+        let config = DaemonConfig {
+            state,
+            once: false,
+            tick: Duration::from_millis(1),
+            listen: None,
+            profile: OperatorProfile::Standalone,
+            max_consecutive_errors: 2,
+        };
+        let mut out = Vec::new();
+        let calls = Cell::new(0_u32);
+
+        let err = run_daemon_loop(
+            &config,
+            None,
+            &mut out,
+            |_state, _profile| {
+                let call = calls.get().saturating_add(1);
+                calls.set(call);
+                match call {
+                    1 => Err("first transient failure".to_string()),
+                    2 => Ok(test_snapshot()),
+                    _ => Err("second transient failure".to_string()),
+                }
+            },
+            |_tick| {},
+        )
+        .expect_err("second post-recovery error eventually reaches threshold");
+        let output = String::from_utf8(out).expect("supervisor output is utf8");
+
+        assert!(err.contains("stopped after 2 consecutive runtime errors"));
+        assert_eq!(calls.get(), 4);
+        assert_eq!(output.matches("consecutive_errors=1").count(), 2);
+        assert!(output.contains("daemon tick=1"));
+        assert!(output.contains("readiness=ready"));
+    }
+
+    fn test_config(state: PathBuf) -> DaemonConfig {
+        DaemonConfig {
+            state,
+            once: false,
+            tick: Duration::from_millis(1),
+            listen: None,
+            profile: OperatorProfile::Standalone,
+            max_consecutive_errors: 2,
+        }
+    }
+
+    fn test_snapshot() -> DaemonSnapshot {
+        DaemonSnapshot {
+            profile: OperatorProfile::Standalone,
+            required_voters: 1,
+            required_storage_nodes: 1,
+            required_gateway_nodes: 1,
+            required_policy_regions: 1,
+            cluster_epoch: 1,
+            nodes: 1,
+            promoted_voters: 1,
+            storage_nodes: 1,
+            gateway_nodes: 1,
+            policy_regions: 1,
+            policy_version: 1,
+            policy_min_replicas: 1,
+            policy_placement_groups: 1,
+            protocol_placement_version: 1,
+            protocol_placement_groups: 1,
+            protocol_group_ids: vec![1],
+            protocol_latest_version: 1,
+            protocol_certificate_count: 1,
+            protocol_max_log_index: 1,
+            ready: true,
+            readiness: "ready: test snapshot".to_string(),
+        }
+    }
 }

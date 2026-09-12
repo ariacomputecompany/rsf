@@ -11,6 +11,7 @@ pub const ENV_ONCE: &str = "RSFD_ONCE";
 pub const ENV_TICK_MS: &str = "RSFD_TICK_MS";
 pub const ENV_LISTEN: &str = "RSFD_LISTEN";
 pub const ENV_PROFILE: &str = "RSFD_PROFILE";
+pub const ENV_MAX_CONSECUTIVE_ERRORS: &str = "RSFD_MAX_CONSECUTIVE_ERRORS";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServeConfigOverrides {
@@ -20,6 +21,7 @@ pub struct ServeConfigOverrides {
     pub tick_ms: Option<u64>,
     pub listen: Option<SocketAddr>,
     pub profile: Option<OperatorProfile>,
+    pub max_consecutive_errors: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -29,6 +31,7 @@ struct ServeConfig {
     tick_ms: Option<u64>,
     listen: Option<SocketAddr>,
     profile: Option<OperatorProfile>,
+    max_consecutive_errors: Option<u32>,
 }
 
 pub fn resolve_daemon_config(
@@ -60,6 +63,7 @@ pub fn resolve_daemon_config(
         tick: Duration::from_millis(tick_ms),
         listen: resolved.listen,
         profile: resolved.profile.unwrap_or_default(),
+        max_consecutive_errors: resolved.max_consecutive_errors.unwrap_or(3),
     })
 }
 
@@ -106,6 +110,10 @@ fn apply_env(config: &mut ServeConfig, env: &BTreeMap<String, String>) -> Result
     if let Some(value) = env.get(ENV_PROFILE) {
         config.profile = Some(OperatorProfile::parse(value)?);
     }
+    if let Some(value) = env.get(ENV_MAX_CONSECUTIVE_ERRORS) {
+        config.max_consecutive_errors =
+            Some(parse_u32_positive(value, ENV_MAX_CONSECUTIVE_ERRORS)?);
+    }
     Ok(())
 }
 
@@ -125,6 +133,9 @@ fn apply_cli(config: &mut ServeConfig, cli: ServeConfigOverrides) {
     if let Some(profile) = cli.profile {
         config.profile = Some(profile);
     }
+    if let Some(max_consecutive_errors) = cli.max_consecutive_errors {
+        config.max_consecutive_errors = Some(max_consecutive_errors);
+    }
 }
 
 fn apply_pair(
@@ -139,6 +150,12 @@ fn apply_pair(
         "tick_ms" => config.tick_ms = Some(parse_u64(unquote(value), "tick_ms")?),
         "listen" => config.listen = Some(parse_socket_addr(unquote(value), "listen")?),
         "profile" => config.profile = Some(OperatorProfile::parse(unquote(value))?),
+        "max_consecutive_errors" => {
+            config.max_consecutive_errors = Some(parse_u32_positive(
+                unquote(value),
+                "max_consecutive_errors",
+            )?)
+        }
         "" => return Err(format!("{source} contains an empty key")),
         other => return Err(format!("{source} contains unknown key {other}")),
     }
@@ -164,6 +181,16 @@ fn parse_u64(value: &str, name: &str) -> Result<u64, String> {
     value
         .parse::<u64>()
         .map_err(|_| format!("{name} must be a non-negative integer"))
+}
+
+fn parse_u32_positive(value: &str, name: &str) -> Result<u32, String> {
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|_| format!("{name} must be a positive integer"))?;
+    if parsed == 0 {
+        return Err(format!("{name} must be greater than zero"));
+    }
+    Ok(parsed)
 }
 
 fn parse_socket_addr(value: &str, name: &str) -> Result<SocketAddr, String> {
@@ -197,6 +224,7 @@ mod tests {
                 tick_ms: None,
                 listen: None,
                 profile: None,
+                max_consecutive_errors: None,
             },
             [
                 (ENV_STATE.to_string(), "/env/state".to_string()),
@@ -210,6 +238,7 @@ mod tests {
         assert_eq!(config.tick, Duration::from_millis(25));
         assert_eq!(config.listen, None);
         assert_eq!(config.profile, OperatorProfile::Standalone);
+        assert_eq!(config.max_consecutive_errors, 3);
 
         let _ = std::fs::remove_file(path);
     }
@@ -327,6 +356,48 @@ mod tests {
         .expect_err("invalid profile rejected");
 
         assert!(err.contains("operator profile"));
+    }
+
+    #[test]
+    fn supervision_error_limit_resolves_from_config_env_and_cli() {
+        let path = test_path("supervision_error_limit_resolves_from_config_env_and_cli");
+        std::fs::write(
+            &path,
+            "state = \"/config/state\"\nmax_consecutive_errors = 4\n",
+        )
+        .expect("write config");
+
+        let config = resolve_daemon_config(
+            ServeConfigOverrides {
+                config: Some(path.clone()),
+                max_consecutive_errors: Some(6),
+                ..ServeConfigOverrides::default()
+            },
+            [
+                (ENV_STATE.to_string(), "/env/state".to_string()),
+                (ENV_MAX_CONSECUTIVE_ERRORS.to_string(), "5".to_string()),
+            ],
+        )
+        .expect("resolve supervision");
+
+        assert_eq!(config.state, PathBuf::from("/env/state"));
+        assert_eq!(config.max_consecutive_errors, 6);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn zero_supervision_error_limit_is_rejected() {
+        let err = resolve_daemon_config(
+            ServeConfigOverrides {
+                state: Some(PathBuf::from("/tmp/rsf")),
+                ..ServeConfigOverrides::default()
+            },
+            [(ENV_MAX_CONSECUTIVE_ERRORS.to_string(), "0".to_string())],
+        )
+        .expect_err("zero supervision limit rejected");
+
+        assert!(err.contains("greater than zero"));
     }
 
     #[test]
