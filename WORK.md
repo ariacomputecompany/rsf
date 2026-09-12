@@ -157,5 +157,3 @@ The goal is complete only when:
 - `WORK.md` items are implemented or explicitly superseded by stronger production implementation.
 - the custom RSF protocol has durable replicated state, real recovery, policy control, and end-to-end database surfaces.
 - every production surface has deterministic tests, recovery tests, and observability.
-
-Until then, keep the goal active.

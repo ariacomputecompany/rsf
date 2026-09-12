@@ -103,6 +103,7 @@ impl SchemaPlanner {
                     }
                     if !column.nullable {
                         requires_backfill = true;
+                        old_writers = false;
                     }
                     descriptor.columns.push(column.clone());
                     steps.push(MigrationStep::PublishDescriptor {
@@ -137,7 +138,14 @@ impl SchemaPlanner {
                     if columns.is_empty() {
                         return Err(invalid("index must include at least one column"));
                     }
+                    let mut indexed_columns = BTreeSet::new();
                     for column in columns {
+                        validate_name("index column", column)?;
+                        if !indexed_columns.insert(column.clone()) {
+                            return Err(invalid(format!(
+                                "index {name} references duplicate column {column}"
+                            )));
+                        }
                         if !descriptor
                             .columns
                             .iter()
@@ -296,6 +304,7 @@ mod tests {
             .unwrap();
 
         assert!(plan.compatibility.requires_backfill);
+        assert!(!plan.compatibility.old_writers);
         assert!(plan.steps.iter().any(|step| {
             matches!(
                 step,
@@ -348,6 +357,28 @@ mod tests {
             .expect_err("primary key drop must fail");
 
         assert_eq!(err.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn duplicate_index_columns_are_rejected() {
+        let err = SchemaPlanner
+            .plan(
+                SchemaMigration {
+                    id: "users_bad_index".to_string(),
+                    table: users(),
+                    from: SchemaVersion(CommitVersion(10)),
+                    changes: vec![SchemaChange::AddIndex {
+                        name: "users_name_dup".to_string(),
+                        columns: vec!["name".to_string(), "name".to_string()],
+                    }],
+                },
+                SchemaVersion(CommitVersion(11)),
+                &MigrationPolicy::default(),
+            )
+            .expect_err("duplicate index columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate column name"));
     }
 
     fn users() -> TableDescriptor {
