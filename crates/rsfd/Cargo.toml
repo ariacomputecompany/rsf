@@ -13,6 +13,7 @@ rsf-observability = { path = "../rsf-observability" }
 rsf-policy = { path = "../rsf-policy" }
 rsf-protocol = { path = "../rsf-protocol" }
 rsf-upgrade = { path = "../rsf-upgrade" }
+rsf-wire = { path = "../rsf-wire" }
 
 [[bin]]
 name = "rsfd"

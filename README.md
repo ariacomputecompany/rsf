@@ -110,7 +110,7 @@ The Rust workspace is the production source path for the custom RSF protocol and
 - `crates/rsf-wire`: typed SQL, KV, object, blob, and admin wire-frame normalization before API classification.
 - `crates/rsf-workload`: workload-shape budgets for relational, KV, object, and blob paths without claiming production benchmarks.
 - `crates/rsf-write`: relational write planning across constraints, row KV bytes, index mutations, conflict ranges, and commit intent.
-- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation.
+- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and data-plane ingress listeners.
 
 Run:
 
@@ -121,7 +121,7 @@ cargo run -p rsfd -- init --state ./run/rsf --token local-dev-token --node-key n
 cargo run -p rsfd -- status --state ./run/rsf
 cargo run -p rsfd -- policy status --state ./run/rsf
 cargo run -p rsfd -- policy plan --state ./run/rsf
-cargo run -p rsfd -- serve --state ./run/rsf --listen 127.0.0.1:7000 --profile standalone --max-consecutive-errors 3 --once
+cargo run -p rsfd -- serve --state ./run/rsf --listen 127.0.0.1:7000 --data-listen 127.0.0.1:7001 --profile standalone --max-consecutive-errors 3 --once
 ```
 
 ## Working Thesis

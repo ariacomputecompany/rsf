@@ -257,7 +257,7 @@ rsfd init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --
 rsfd join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id>
 rsfd policy plan --state <dir>
 rsfd policy apply --state <dir>
-rsfd serve --state <dir> --listen <ip:port> --profile <standalone|regional|multi-region> --max-consecutive-errors <n>
+rsfd serve --state <dir> --listen <ip:port> --data-listen <ip:port> --profile <standalone|regional|multi-region> --max-consecutive-errors <n>
 ```
 
 It should support:
@@ -267,7 +267,7 @@ It should support:
 - local segment files and durable policy/admin/protocol stores
 - VSR-backed metadata commits and recovered certificates
 - blob/object/SQL/KV surfaces routed through protocol-backed state
-- state-backed status, audit, TCP health/metrics, topology-profile readiness gates, bounded runtime supervision, and stdout progress
+- state-backed status, audit, TCP health/metrics, canonical `rsf-wire` data-plane ingress admission, topology-profile readiness gates, bounded runtime supervision, and stdout progress
 - ordered KV point writes/reads
 
 The early SQL surface is intentionally narrow. Broader SQL only expands after the storage, metadata, ordered KV, planner/executor, and SQL-pipeline invariants are passing.

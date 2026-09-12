@@ -2,6 +2,7 @@
 
 mod config;
 mod daemon;
+mod data;
 
 use std::time::Duration;
 
@@ -39,7 +40,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | policy]"
+    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--data-listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | policy]"
         .to_string()
 }
 
@@ -72,6 +73,13 @@ fn run_serve_cli(args: &[String]) -> Result<(), String> {
                 .map(|value| {
                     value.parse().map_err(|_| {
                         "--listen must be an IP socket address like 127.0.0.1:8080".to_string()
+                    })
+                })
+                .transpose()?,
+            data_listen: optional_flag(args, "--data-listen")
+                .map(|value| {
+                    value.parse().map_err(|_| {
+                        "--data-listen must be an IP socket address like 127.0.0.1:9000".to_string()
                     })
                 })
                 .transpose()?,
@@ -1775,6 +1783,7 @@ mod tests {
                 once: true,
                 tick: Duration::from_millis(1),
                 listen: None,
+                data_listen: Some("127.0.0.1:0".parse().expect("data listener addr")),
                 profile: OperatorProfile::Standalone,
                 max_consecutive_errors: 3,
             },
@@ -1785,6 +1794,8 @@ mod tests {
 
         assert!(output.contains("daemon tick=0"));
         assert!(output.contains("readiness=ready"));
+        assert!(output.contains("daemon data_listener addr=127.0.0.1:"));
+        assert!(output.contains("protocol=rsf-wire"));
         assert!(output.contains("daemon profile=standalone"));
         assert!(output.contains("daemon cluster"));
         assert!(output.contains("daemon policy"));
@@ -1899,6 +1910,7 @@ mod tests {
                 once: true,
                 tick: Duration::from_millis(1),
                 listen: None,
+                data_listen: None,
                 profile: OperatorProfile::Standalone,
                 max_consecutive_errors: 3,
             },

@@ -10,6 +10,7 @@ pub const ENV_STATE: &str = "RSFD_STATE";
 pub const ENV_ONCE: &str = "RSFD_ONCE";
 pub const ENV_TICK_MS: &str = "RSFD_TICK_MS";
 pub const ENV_LISTEN: &str = "RSFD_LISTEN";
+pub const ENV_DATA_LISTEN: &str = "RSFD_DATA_LISTEN";
 pub const ENV_PROFILE: &str = "RSFD_PROFILE";
 pub const ENV_MAX_CONSECUTIVE_ERRORS: &str = "RSFD_MAX_CONSECUTIVE_ERRORS";
 
@@ -20,6 +21,7 @@ pub struct ServeConfigOverrides {
     pub once: Option<bool>,
     pub tick_ms: Option<u64>,
     pub listen: Option<SocketAddr>,
+    pub data_listen: Option<SocketAddr>,
     pub profile: Option<OperatorProfile>,
     pub max_consecutive_errors: Option<u32>,
 }
@@ -30,6 +32,7 @@ struct ServeConfig {
     once: Option<bool>,
     tick_ms: Option<u64>,
     listen: Option<SocketAddr>,
+    data_listen: Option<SocketAddr>,
     profile: Option<OperatorProfile>,
     max_consecutive_errors: Option<u32>,
 }
@@ -62,6 +65,7 @@ pub fn resolve_daemon_config(
         once: resolved.once.unwrap_or(false),
         tick: Duration::from_millis(tick_ms),
         listen: resolved.listen,
+        data_listen: resolved.data_listen,
         profile: resolved.profile.unwrap_or_default(),
         max_consecutive_errors: resolved.max_consecutive_errors.unwrap_or(3),
     })
@@ -107,6 +111,9 @@ fn apply_env(config: &mut ServeConfig, env: &BTreeMap<String, String>) -> Result
     if let Some(value) = env.get(ENV_LISTEN) {
         config.listen = Some(parse_socket_addr(value, ENV_LISTEN)?);
     }
+    if let Some(value) = env.get(ENV_DATA_LISTEN) {
+        config.data_listen = Some(parse_socket_addr(value, ENV_DATA_LISTEN)?);
+    }
     if let Some(value) = env.get(ENV_PROFILE) {
         config.profile = Some(OperatorProfile::parse(value)?);
     }
@@ -130,6 +137,9 @@ fn apply_cli(config: &mut ServeConfig, cli: ServeConfigOverrides) {
     if let Some(listen) = cli.listen {
         config.listen = Some(listen);
     }
+    if let Some(data_listen) = cli.data_listen {
+        config.data_listen = Some(data_listen);
+    }
     if let Some(profile) = cli.profile {
         config.profile = Some(profile);
     }
@@ -149,6 +159,9 @@ fn apply_pair(
         "once" => config.once = Some(parse_bool(unquote(value), "once")?),
         "tick_ms" => config.tick_ms = Some(parse_u64(unquote(value), "tick_ms")?),
         "listen" => config.listen = Some(parse_socket_addr(unquote(value), "listen")?),
+        "data_listen" => {
+            config.data_listen = Some(parse_socket_addr(unquote(value), "data_listen")?)
+        }
         "profile" => config.profile = Some(OperatorProfile::parse(unquote(value))?),
         "max_consecutive_errors" => {
             config.max_consecutive_errors = Some(parse_u32_positive(
@@ -223,6 +236,7 @@ mod tests {
                 once: Some(true),
                 tick_ms: None,
                 listen: None,
+                data_listen: None,
                 profile: None,
                 max_consecutive_errors: None,
             },
@@ -237,6 +251,7 @@ mod tests {
         assert!(config.once);
         assert_eq!(config.tick, Duration::from_millis(25));
         assert_eq!(config.listen, None);
+        assert_eq!(config.data_listen, None);
         assert_eq!(config.profile, OperatorProfile::Standalone);
         assert_eq!(config.max_consecutive_errors, 3);
 
@@ -290,7 +305,7 @@ mod tests {
         let path = test_path("listener_address_resolves_from_config_env_and_cli");
         std::fs::write(
             &path,
-            "state = \"/config/state\"\nonce = true\nlisten = \"127.0.0.1:7100\"\n",
+            "state = \"/config/state\"\nonce = true\nlisten = \"127.0.0.1:7100\"\ndata_listen = \"127.0.0.1:8100\"\n",
         )
         .expect("write config");
 
@@ -298,11 +313,13 @@ mod tests {
             ServeConfigOverrides {
                 config: Some(path.clone()),
                 listen: Some("127.0.0.1:7300".parse().expect("cli addr")),
+                data_listen: Some("127.0.0.1:8300".parse().expect("cli data addr")),
                 ..ServeConfigOverrides::default()
             },
             [
                 (ENV_STATE.to_string(), "/env/state".to_string()),
                 (ENV_LISTEN.to_string(), "127.0.0.1:7200".to_string()),
+                (ENV_DATA_LISTEN.to_string(), "127.0.0.1:8200".to_string()),
             ],
         )
         .expect("resolve listener");
@@ -311,6 +328,10 @@ mod tests {
         assert_eq!(
             config.listen,
             Some("127.0.0.1:7300".parse().expect("resolved addr"))
+        );
+        assert_eq!(
+            config.data_listen,
+            Some("127.0.0.1:8300".parse().expect("resolved data addr"))
         );
 
         let _ = std::fs::remove_file(path);

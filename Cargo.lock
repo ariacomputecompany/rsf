@@ -850,6 +850,7 @@ dependencies = [
  "rsf-policy",
  "rsf-protocol",
  "rsf-upgrade",
+ "rsf-wire",
 ]
 
 [[package]]

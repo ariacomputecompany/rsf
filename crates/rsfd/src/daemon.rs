@@ -4,6 +4,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::data::DataPlaneListener;
 use rsf_admin::{AdminPlane, AdmissionState};
 use rsf_core::cluster::NodeRole;
 use rsf_core::{Epoch, LogIndex, PlacementGroupId};
@@ -17,6 +18,7 @@ pub struct DaemonConfig {
     pub once: bool,
     pub tick: Duration,
     pub listen: Option<SocketAddr>,
+    pub data_listen: Option<SocketAddr>,
     pub profile: OperatorProfile,
     pub max_consecutive_errors: u32,
 }
@@ -137,6 +139,10 @@ pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), Stri
         Some(addr) => Some(HealthListener::bind(addr)?),
         None => None,
     };
+    let data_listener = match config.data_listen {
+        Some(addr) => Some(DataPlaneListener::bind(addr)?),
+        None => None,
+    };
     if let Some(listener) = &listener {
         writeln!(
             out,
@@ -145,9 +151,18 @@ pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), Stri
         )
         .map_err(|err| err.to_string())?;
     }
+    if let Some(listener) = &data_listener {
+        writeln!(
+            out,
+            "daemon data_listener addr={} protocol=rsf-wire framing=u32-le-length-prefixed",
+            listener.local_addr()
+        )
+        .map_err(|err| err.to_string())?;
+    }
     run_daemon_loop(
         &config,
         listener.as_ref(),
+        data_listener.as_ref(),
         out,
         load_snapshot_for_profile,
         std::thread::sleep,
@@ -157,6 +172,7 @@ pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), Stri
 fn run_daemon_loop(
     config: &DaemonConfig,
     listener: Option<&HealthListener>,
+    data_listener: Option<&DataPlaneListener>,
     out: &mut impl Write,
     mut load_snapshot: impl FnMut(&Path, OperatorProfile) -> Result<DaemonSnapshot, String>,
     mut sleep: impl FnMut(Duration),
@@ -164,7 +180,14 @@ fn run_daemon_loop(
     let mut tick = 0_u64;
     let mut supervisor = SupervisorState::new(config.max_consecutive_errors);
     loop {
-        match run_daemon_tick(config, listener, out, tick, &mut load_snapshot) {
+        match run_daemon_tick(
+            config,
+            listener,
+            data_listener,
+            out,
+            tick,
+            &mut load_snapshot,
+        ) {
             Ok(()) => supervisor.record_success(),
             Err(err) => {
                 if config.once {
@@ -191,6 +214,7 @@ fn run_daemon_loop(
 fn run_daemon_tick(
     config: &DaemonConfig,
     listener: Option<&HealthListener>,
+    data_listener: Option<&DataPlaneListener>,
     out: &mut impl Write,
     tick: u64,
     load_snapshot: &mut impl FnMut(&Path, OperatorProfile) -> Result<DaemonSnapshot, String>,
@@ -199,6 +223,9 @@ fn run_daemon_tick(
     emit_snapshot(out, config, tick, &snapshot)?;
     if let Some(listener) = listener {
         listener.serve_pending(&snapshot)?;
+    }
+    if let Some(listener) = data_listener {
+        listener.serve_pending(out)?;
     }
     Ok(())
 }
@@ -858,6 +885,7 @@ mod tests {
             once: false,
             tick: Duration::from_millis(1),
             listen: None,
+            data_listen: None,
             profile: OperatorProfile::Standalone,
             max_consecutive_errors: 2,
         };
@@ -866,6 +894,7 @@ mod tests {
 
         let err = run_daemon_loop(
             &config,
+            None,
             None,
             &mut out,
             |_state, _profile| Err("protocol router temporarily unavailable".to_string()),
@@ -890,6 +919,7 @@ mod tests {
             once: false,
             tick: Duration::from_millis(1),
             listen: None,
+            data_listen: None,
             profile: OperatorProfile::Standalone,
             max_consecutive_errors: 2,
         };
@@ -898,6 +928,7 @@ mod tests {
 
         let err = run_daemon_loop(
             &config,
+            None,
             None,
             &mut out,
             |_state, _profile| {
@@ -927,6 +958,7 @@ mod tests {
             once: false,
             tick: Duration::from_millis(1),
             listen: None,
+            data_listen: None,
             profile: OperatorProfile::Standalone,
             max_consecutive_errors: 2,
         }
