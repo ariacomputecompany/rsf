@@ -148,7 +148,7 @@ The source path must encode this as one system:
 
 ## Completion Audit Remaining
 
-- Audit remaining service crates that are still described as contract-level or deterministic POC logic before treating the source path as fully production.
+- Audit stale POC-era documentation before treating the source path as fully production.
 
 ## Completion Definition
 

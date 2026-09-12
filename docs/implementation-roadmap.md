@@ -94,7 +94,7 @@ Deliverables:
 
 - chunk write: started in `crates/rsf-blob`
 - chunk read: started with verified reads by content ID
-- content ID: started with deterministic demo digests
+- content ID: implemented with BLAKE3-backed typed content identities
 - dedupe index: started with duplicate content collapsing to one stored chunk
 - retention pin: started with protocol-committed blob pins and lifecycle release decisions in `rsf-retention`
 - provider discovery: started with `rsf-provider` content advertisements, locality-aware provider selection, degraded quorum reporting, and missing-content rejection
@@ -141,7 +141,7 @@ Invariant:
 
 Deliverables:
 
-- deployable package envelope: started with `rsf-deployment` role assignments, service endpoints, durable volumes, and readiness probes for each simulated architecture
+- deployable package envelope: started with `rsf-deployment` package/profile validation, rollout lifecycle recovery, role assignments, service endpoints, durable volumes, and readiness probes
 - catalog: started with database-wide table descriptors in `crates/rsf-catalog`
 - schema records: started with protocol-committed table/index changes
 - schema migration lifecycle: started with `rsf-migration` durable migration progress through validation, descriptor publication, backfill, index catch-up, resume, completion, rollback, and rejected post-rollback advance
@@ -166,7 +166,7 @@ Deliverables:
 - point select: started through `SELECT * FROM <table> WHERE id = <value>`
 - optimizer statistics: started with `rsf-stats` table estimates, column histograms, average row bytes, and stale-stat detection
 - logical query planner: started with `rsf-query` projection, predicate, and limit validation
-- physical query planner: started with `rsf-planner` primary-key, secondary-index, range-scan, cache-lookup, and stream-read access-path selection from simulated stats
+- physical query planner: started with `rsf-planner` primary-key, secondary-index, range-scan, cache-lookup, and stream-read access-path selection from durable optimizer statistics
 - logical query executor: started with `rsf-query` row filtering and projection
 - physical query executor: started with `rsf-executor` cache, index, range, and stream stage reports from planned operators
 - composed SQL request pipeline: started with `rsf-sqlpipeline` binding a session, authorizing the principal, lowering SELECT text, planning logical/physical execution, running physical stages, materializing rows, and rejecting invalid SQL before execution
@@ -200,10 +200,10 @@ Deliverables:
 - namespace quota admission: started with `crates/rsf-quota` request, row, and byte reservations per namespace/surface
 - internal service RPC envelopes: started with `crates/rsf-rpc` deadline, retry-class, attempt, trace ID, and body-size admission before fabric work
 - relational WAL durability gate: started with `crates/rsf-wal` append, fsync, durable-LSN, and WAL-before-page-flush decisions
-- auth policy: started with `crates/rsf-auth` principals, grants, expiring tokens, and POC allow/deny checks
+- auth policy: started with `crates/rsf-auth` principals, grants, expiring tokens, durable recovery, and allow/deny checks
 - observability: started with `rsf-observability` metrics, audit events, service health, and aggregate health reports
 - rolling upgrade protocol: started with `rsf-upgrade` version compatibility checks, one-node-at-a-time rollout stages, and unsafe cross-major rejection
-- backup/restore: started with `rsf-snapshot` database snapshot coordination and `rsf-backup` backup manifests, restore-plan validation, and simulated full-surface restore execution proofs
+- backup/restore: started with `rsf-snapshot` database snapshot coordination and `rsf-backup` backup manifests, restore-plan validation, and durable full-surface restore lifecycle recovery
 - database restart recovery: started with `rsf-recovery` checkpoint root inventory, replay/reuse actions, and required-root corruption rejection
 
 Invariant:

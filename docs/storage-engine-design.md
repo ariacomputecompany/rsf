@@ -28,7 +28,7 @@ Implemented:
 - previous record hash
 - payload hash
 - record hash
-- generic immutable chunk store with simulated content-addressed put, dedupe, retention pins, verified reads, and malformed-payload rejection
+- durable immutable chunk store with BLAKE3 content-addressed put, dedupe, restart-safe retention pins, verified reads, and malformed-payload rejection
 - local checkpoint-root retention and segment-compaction planning for catalog, transaction log, KV, SQL, object, blob, and chunk index roots
 - hash-chain verification during recovery
 - independent WAL tails per placement group

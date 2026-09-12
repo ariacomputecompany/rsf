@@ -198,13 +198,13 @@ An immutable chunk is content-addressed and self-verifying.
 
 Immutable chunks can be replicated, erasure-coded, cached, exported, or advertised through DHT/provider routing.
 
-The current POC has a generic in-memory chunk store for SQL large values, object bodies, blob payloads, snapshot blocks, SSTable blocks, and backup blocks. It simulates the API shape, dedupe, pinning, verified reads, and rejection/quarantine decisions; durable chunk files and production digests are future implementation work.
+The current source path has a durable content-addressed chunk store for SQL large values, object bodies, blob payloads, snapshot blocks, SSTable blocks, and backup blocks. Chunk IDs are BLAKE3-backed, duplicate payloads collapse to the same content identity, pins survive restart, verified reads recheck on-disk bytes, and corruption is quarantined instead of returned as data.
 
 ### Local Checkpoint Compaction
 
 A checkpoint is the durable root set from which the full database can restart: catalog, transaction log, KV, SQL, object, blob, and chunk-index state. Local compaction may reclaim old segment bytes only after required roots are retained and newer-than-checkpoint records remain protected.
 
-The current POC simulates checkpoint-root validation and segment compaction decisions. Production work must make checkpoint catalog pages, segment rewrites, superblock advancement, and compaction recovery crash-safe.
+The current source path validates checkpoint roots and compaction decisions before they can feed boot evidence. Checkpoint certificates bind root inventories, segment retention decisions, high-watermarks, and counter fields; superblock and recovery crates consume those roots through durable WAL-backed catalogs and fail closed on malformed or regressing histories.
 
 ## Node Roles
 
