@@ -48,6 +48,7 @@ pub enum WalRecordKind {
     Stream,
     Watch,
     Observability,
+    Superblock,
 }
 
 impl WalRecordKind {
@@ -87,6 +88,7 @@ impl WalRecordKind {
             Self::Stream => 32,
             Self::Watch => 33,
             Self::Observability => 34,
+            Self::Superblock => 35,
         }
     }
 
@@ -126,6 +128,7 @@ impl WalRecordKind {
             32 => Some(Self::Stream),
             33 => Some(Self::Watch),
             34 => Some(Self::Observability),
+            35 => Some(Self::Superblock),
             _ => None,
         }
     }

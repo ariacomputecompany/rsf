@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 rsf-checkpoint = { path = "../rsf-checkpoint" }
 rsf-core = { path = "../rsf-core" }
+rsf-storage = { path = "../rsf-storage" }
 
 [lib]
 path = "src/lib.rs"
