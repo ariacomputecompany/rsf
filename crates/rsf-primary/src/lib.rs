@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_core::{
     Bytes, CommitVersion, ErrorCode, PlacementGroupId, RsfError, RsfResult,
@@ -18,7 +18,13 @@ impl PrimaryKeyDescriptor {
         if table.primary_key.is_empty() {
             return Err(invalid("table must define a primary key"));
         }
+        let mut seen = BTreeSet::new();
         for column in &table.primary_key {
+            if !seen.insert(column) {
+                return Err(invalid(format!(
+                    "primary key column {column} is declared more than once"
+                )));
+            }
             if !table.columns.iter().any(|known| known.name == *column) {
                 return Err(invalid(format!(
                     "primary key column {column} is not in table {}",
@@ -186,17 +192,29 @@ pub fn encode_key_parts(
             key_parts.len()
         )));
     }
-    let mut key = Vec::new();
-    key.extend_from_slice(b"pk/");
-    key.extend_from_slice(descriptor.table.0.as_bytes());
+    let mut key = b"pk\0".to_vec();
+    push_bytes(&mut key, descriptor.table.0.as_bytes())?;
+    push_u16(&mut key, key_parts.len())?;
     for part in key_parts {
         if part.is_empty() {
             return Err(invalid("primary key values must be non-empty"));
         }
-        key.push(b'/');
-        key.extend_from_slice(part.as_bytes());
+        push_bytes(&mut key, part.as_bytes())?;
     }
     Ok(key)
+}
+
+fn push_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> RsfResult<()> {
+    let len = u32::try_from(bytes.len()).map_err(|_| invalid("primary key part is too large"))?;
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn push_u16(out: &mut Vec<u8>, value: usize) -> RsfResult<()> {
+    let value = u16::try_from(value).map_err(|_| invalid("primary key has too many columns"))?;
+    out.extend_from_slice(&value.to_be_bytes());
+    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> RsfError {
@@ -295,6 +313,29 @@ mod tests {
         assert!(err.message.contains("missing"));
     }
 
+    #[test]
+    fn composite_primary_keys_are_length_delimited() {
+        let descriptor = PrimaryKeyDescriptor::from_table(&composite_table()).expect("descriptor");
+
+        let left =
+            encode_key_parts(&descriptor, &["a/b".to_string(), "c".to_string()]).expect("left key");
+        let right = encode_key_parts(&descriptor, &["a".to_string(), "b/c".to_string()])
+            .expect("right key");
+
+        assert_ne!(left, right);
+        assert!(left.starts_with(b"pk\0"));
+        assert!(right.starts_with(b"pk\0"));
+    }
+
+    #[test]
+    fn duplicate_primary_key_columns_are_rejected() {
+        let mut table = composite_table();
+        table.primary_key = vec!["tenant".to_string(), "tenant".to_string()];
+
+        let err = PrimaryKeyDescriptor::from_table(&table).expect_err("duplicate column");
+        assert!(err.message.contains("more than once"));
+    }
+
     fn table() -> TableDescriptor {
         TableDescriptor {
             namespace: NamespaceName("app".to_string()),
@@ -312,6 +353,31 @@ mod tests {
                 },
             ],
             primary_key: vec!["id".to_string()],
+        }
+    }
+
+    fn composite_table() -> TableDescriptor {
+        TableDescriptor {
+            namespace: NamespaceName("app".to_string()),
+            name: TableName("events".to_string()),
+            columns: vec![
+                ColumnDescriptor {
+                    name: "tenant".to_string(),
+                    ty: ColumnType::Text,
+                    nullable: false,
+                },
+                ColumnDescriptor {
+                    name: "id".to_string(),
+                    ty: ColumnType::Text,
+                    nullable: false,
+                },
+                ColumnDescriptor {
+                    name: "payload".to_string(),
+                    ty: ColumnType::Bytes,
+                    nullable: false,
+                },
+            ],
+            primary_key: vec!["tenant".to_string(), "id".to_string()],
         }
     }
 
