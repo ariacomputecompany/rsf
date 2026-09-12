@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "rsf-catalog-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-catalog",
+        "-p",
+        "rsf-sql",
+        "-p",
+        "rsf-schema",
+        "-p",
+        "rsf-core"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-catalog",
+        "-p",
+        "rsf-sql",
+        "-p",
+        "rsf-schema",
+        "-p",
+        "rsf-core"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

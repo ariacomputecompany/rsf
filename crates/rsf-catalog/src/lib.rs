@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_core::{
     CommitConsistency, CommitEvidence, CommitVersion, ErrorCode, PlacementGroupId, RsfError,
@@ -250,7 +250,14 @@ fn validate_table(descriptor: &TableDescriptor) -> RsfResult<()> {
             "table must define a primary key",
         ));
     }
+    let mut primary_key_columns = BTreeSet::new();
     for key in &descriptor.primary_key {
+        if !primary_key_columns.insert(key.as_str()) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("primary key column {key} is declared more than once"),
+            ));
+        }
         if !descriptor.columns.iter().any(|column| column.name == *key) {
             return Err(RsfError::new(
                 ErrorCode::InvalidInput,
@@ -258,8 +265,15 @@ fn validate_table(descriptor: &TableDescriptor) -> RsfResult<()> {
             ));
         }
     }
+    let mut column_names = BTreeSet::new();
     for column in &descriptor.columns {
         validate_column(column)?;
+        if !column_names.insert(column.name.as_str()) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("column {} is declared more than once", column.name),
+            ));
+        }
     }
     Ok(())
 }
@@ -579,6 +593,50 @@ mod tests {
             .expect_err("invalid primary key must fail");
 
         assert_eq!(err.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn table_rejects_duplicate_column_names_before_commit() {
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut catalog = CatalogEngine::default();
+        catalog
+            .create_namespace(&mut router, PlacementGroupId(1), "app")
+            .unwrap();
+        let mut descriptor = table();
+        descriptor.columns.push(ColumnDescriptor {
+            name: "name".to_string(),
+            ty: ColumnType::Bytes,
+            nullable: true,
+        });
+
+        let err = catalog
+            .create_table(&mut router, PlacementGroupId(1), descriptor)
+            .expect_err("duplicate column must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("declared more than once"));
+        assert_eq!(router.latest_version(), CommitVersion(1));
+        assert_eq!(catalog.item_count(), 1);
+    }
+
+    #[test]
+    fn table_rejects_duplicate_primary_key_columns_before_commit() {
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut catalog = CatalogEngine::default();
+        catalog
+            .create_namespace(&mut router, PlacementGroupId(1), "app")
+            .unwrap();
+        let mut descriptor = table();
+        descriptor.primary_key = vec!["id".to_string(), "id".to_string()];
+
+        let err = catalog
+            .create_table(&mut router, PlacementGroupId(1), descriptor)
+            .expect_err("duplicate primary key column must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("declared more than once"));
+        assert_eq!(router.latest_version(), CommitVersion(1));
+        assert_eq!(catalog.item_count(), 1);
     }
 
     fn test_path(name: &str) -> std::path::PathBuf {
