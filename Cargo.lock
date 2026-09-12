@@ -521,6 +521,7 @@ name = "rsf-range"
 version = "0.1.0"
 dependencies = [
  "rsf-core",
+ "rsf-storage",
 ]
 
 [[package]]

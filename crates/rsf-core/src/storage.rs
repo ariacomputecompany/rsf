@@ -50,6 +50,7 @@ pub enum WalRecordKind {
     Observability,
     Superblock,
     Recovery,
+    Range,
 }
 
 impl WalRecordKind {
@@ -91,6 +92,7 @@ impl WalRecordKind {
             Self::Observability => 34,
             Self::Superblock => 35,
             Self::Recovery => 36,
+            Self::Range => 37,
         }
     }
 
@@ -132,6 +134,7 @@ impl WalRecordKind {
             34 => Some(Self::Observability),
             35 => Some(Self::Superblock),
             36 => Some(Self::Recovery),
+            37 => Some(Self::Range),
             _ => None,
         }
     }

@@ -4,6 +4,10 @@ use rsf_core::{
     Bytes, CommitVersion, Digest, Epoch, ErrorCode, PlacementGroupId, RsfError, RsfResult,
 };
 
+mod ledger;
+
+pub use ledger::DurableRangeLayout;
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct RangeId(pub u64);
 
