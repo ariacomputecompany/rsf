@@ -106,6 +106,8 @@ The five architecture profiles remain useful as design inputs, but they are not 
   - Has pure optimizer statistics publishing/freshness classification plus a durable statistics catalog over `rsf-storage` segment WAL records, first-class stats WAL kind, recovered table-estimate/histogram replay, recovered optimizer freshness classification after restart, fail-closed replay for invalid recovered estimates, explicit estimate-shape validation before persistence and during replay, explicit corruption rejection for malformed stats WAL payloads, and host-backed deterministic Fozzy trace coverage for stats/core/storage recovery.
 - `crates/rsf-kv`, `crates/rsf-txn`, `crates/rsf-isolation`
   - Have durable MVCC KV and transaction coordinator paths over `rsf-storage`, VSR-backed protocol router coverage for commit-version/certificate recovery, strict isolation conflict checks, recovered in-flight prepare/commit/abort handling, compaction/snapshot preservation, concurrent non-conflicting execution tests, and route-guarded stale-owner rejection.
+- `crates/rsf-watch`
+  - Has prefix watch registration/delivery/resume over durable KV changes plus a durable watch registry over `rsf-storage` segment WAL records, first-class watch WAL kind, recovered cursor replay after restart, no persistence for no-op acknowledgements, fail-closed replay for malformed watch WAL payloads, duplicate recovered subscriptions, unknown subscriptions, and cursor rewinds, and host-backed deterministic Fozzy trace coverage for watch/core/storage recovery.
 
 ### Explicitly POC/demo or contract-only today
 
@@ -149,7 +151,6 @@ The source path must encode this as one system:
 ## Completion Audit Remaining
 
 - Audit remaining service crates that are still described as contract-level or deterministic POC logic before treating the source path as fully production.
-- Initialize or connect the repository so the required `ariacomputecompany/rsf` remote, `master` push, and per-pass push workflow can happen.
 
 ## Completion Definition
 

@@ -160,13 +160,49 @@ impl WatchRegistry {
         })
     }
 
-    fn apply_recovered_register(&mut self, subscription: WatchSubscription) {
+    fn ack_with_progress(
+        &mut self,
+        id: WatchId,
+        delivered: &[WatchDelivery],
+    ) -> RsfResult<(WatchCursor, bool)> {
+        let subscription = self.subscription_mut(id)?;
+        let previous = subscription.cursor;
+        if let Some(version) = delivered
+            .iter()
+            .filter(|delivery| delivery.watch == id)
+            .map(|delivery| delivery.version)
+            .max()
+            .filter(|version| *version > subscription.cursor.after)
+        {
+            subscription.cursor.after = version;
+        }
+        Ok((subscription.cursor, subscription.cursor != previous))
+    }
+
+    fn apply_recovered_register(&mut self, subscription: WatchSubscription) -> RsfResult<()> {
+        if subscription.id.0 == 0 {
+            return Err(corrupt("watch register record has zero subscription id"));
+        }
+        if self.subscriptions.contains_key(&subscription.id) {
+            return Err(corrupt(format!(
+                "watch register record duplicated subscription {}",
+                subscription.id.0
+            )));
+        }
         self.next_id = self.next_id.max(subscription.id.0.saturating_add(1));
         self.subscriptions.insert(subscription.id, subscription);
+        Ok(())
     }
 
     fn apply_recovered_ack(&mut self, id: WatchId, cursor: WatchCursor) -> RsfResult<()> {
-        self.subscription_mut(id)?.cursor = cursor;
+        let subscription = self.subscription_mut(id)?;
+        if cursor.after < subscription.cursor.after {
+            return Err(corrupt(format!(
+                "watch ack for subscription {} rewound cursor from {} to {}",
+                id.0, subscription.cursor.after.0, cursor.after.0
+            )));
+        }
+        subscription.cursor = cursor;
         Ok(())
     }
 }
@@ -181,11 +217,11 @@ impl DurableWatchRegistry {
         for record in scan
             .wal_records
             .iter()
-            .filter(|record| record.kind == WalRecordKind::Snapshot)
+            .filter(|record| record.kind == WalRecordKind::Watch)
         {
             match decode_watch_wal_payload(&record.payload)? {
                 WatchWalRecord::Register(subscription) => {
-                    registry.apply_recovered_register(subscription);
+                    registry.apply_recovered_register(subscription)?;
                 }
                 WatchWalRecord::Ack { id, cursor } => {
                     registry.apply_recovered_ack(id, cursor)?;
@@ -221,8 +257,10 @@ impl DurableWatchRegistry {
 
     pub fn ack(&mut self, id: WatchId, delivered: &[WatchDelivery]) -> RsfResult<WatchCursor> {
         let mut registry = self.registry.clone();
-        let cursor = registry.ack(id, delivered)?;
-        self.append_record(&WatchWalRecord::Ack { id, cursor })?;
+        let (cursor, advanced) = registry.ack_with_progress(id, delivered)?;
+        if advanced {
+            self.append_record(&WatchWalRecord::Ack { id, cursor })?;
+        }
         self.registry = registry;
         Ok(cursor)
     }
@@ -251,7 +289,7 @@ impl DurableWatchRegistry {
             pg: WATCH_PG,
             epoch: self.epoch,
             index: LogIndex(self.next_index),
-            kind: WalRecordKind::Snapshot,
+            kind: WalRecordKind::Watch,
             previous_hash,
             payload: &payload,
         })?;
@@ -575,6 +613,116 @@ mod tests {
         let _ = std::fs::remove_dir_all(watch_path);
     }
 
+    #[test]
+    fn durable_watch_uses_first_class_wal_kind_and_skips_noop_acks() {
+        let watch_path = test_path("durable_watch_wal_kind");
+        {
+            let mut watches = DurableWatchRegistry::open(&watch_path, Epoch(1)).expect("watch");
+            let subscription = watches
+                .register(
+                    "app-client",
+                    b"config/".to_vec(),
+                    WatchCursor::new(CommitVersion(3)),
+                )
+                .expect("register");
+
+            let cursor = watches
+                .ack(subscription.id, &[])
+                .expect("noop ack should not fail");
+            assert_eq!(cursor.after, CommitVersion(3));
+        }
+
+        let store = SegmentStore::open(&watch_path).expect("store");
+        let scan = store
+            .scan(SegmentScanFilter { pg: Some(WATCH_PG) })
+            .expect("scan");
+        assert_eq!(scan.wal_records.len(), 1);
+        assert_eq!(scan.wal_records[0].kind, WalRecordKind::Watch);
+
+        let _ = std::fs::remove_dir_all(watch_path);
+    }
+
+    #[test]
+    fn durable_watch_recovery_rejects_duplicate_subscription_ids() {
+        let watch_path = test_path("durable_watch_duplicate");
+        let subscription = WatchSubscription {
+            id: WatchId(1),
+            client: "app-client".to_string(),
+            prefix: b"config/".to_vec(),
+            cursor: WatchCursor::new(CommitVersion(0)),
+        };
+        append_raw_watch_record(
+            &watch_path,
+            WatchWalRecord::Register(subscription.clone()),
+            Epoch(1),
+        );
+        append_raw_watch_record(
+            &watch_path,
+            WatchWalRecord::Register(subscription),
+            Epoch(1),
+        );
+
+        let err = DurableWatchRegistry::open(&watch_path, Epoch(1))
+            .expect_err("duplicate recovered watch id must reject");
+        assert_eq!(err.code, ErrorCode::CorruptionDetected);
+        assert!(err.message.contains("duplicated subscription"));
+
+        let _ = std::fs::remove_dir_all(watch_path);
+    }
+
+    #[test]
+    fn durable_watch_recovery_rejects_cursor_rewind() {
+        let watch_path = test_path("durable_watch_rewind");
+        append_raw_watch_record(
+            &watch_path,
+            WatchWalRecord::Register(WatchSubscription {
+                id: WatchId(1),
+                client: "app-client".to_string(),
+                prefix: b"config/".to_vec(),
+                cursor: WatchCursor::new(CommitVersion(5)),
+            }),
+            Epoch(1),
+        );
+        append_raw_watch_record(
+            &watch_path,
+            WatchWalRecord::Ack {
+                id: WatchId(1),
+                cursor: WatchCursor::new(CommitVersion(4)),
+            },
+            Epoch(1),
+        );
+
+        let err = DurableWatchRegistry::open(&watch_path, Epoch(1))
+            .expect_err("rewound recovered watch cursor must reject");
+        assert_eq!(err.code, ErrorCode::CorruptionDetected);
+        assert!(err.message.contains("rewound cursor"));
+
+        let _ = std::fs::remove_dir_all(watch_path);
+    }
+
+    #[test]
+    fn durable_watch_recovery_rejects_malformed_payload() {
+        let watch_path = test_path("durable_watch_malformed");
+        let mut store = SegmentStore::open(&watch_path).expect("store");
+        store
+            .append_wal(WalAppend {
+                pg: WATCH_PG,
+                epoch: Epoch(1),
+                index: LogIndex(1),
+                kind: WalRecordKind::Watch,
+                previous_hash: [0; 32],
+                payload: b"not-watch-wal",
+            })
+            .expect("append corrupt watch payload");
+
+        let err = DurableWatchRegistry::open(&watch_path, Epoch(1))
+            .expect_err("malformed recovered watch payload must reject");
+        assert_eq!(err.code, ErrorCode::CorruptionDetected);
+        assert!(err.message.contains("invalid magic"));
+
+        let _ = std::fs::remove_dir_all(watch_path);
+    }
+
     fn commit_config(
         kv: &mut DurableKvEngine,
         router: &mut VsrBackedFabricRouter,
@@ -595,6 +743,25 @@ mod tests {
             },
         )
         .expect("commit config");
+    }
+
+    fn append_raw_watch_record(path: &Path, record: WatchWalRecord, epoch: Epoch) {
+        let mut store = SegmentStore::open(path).expect("store");
+        let recovery = store.recover_current().expect("recover");
+        let tail = recovery.recovery.pg_tail(WATCH_PG);
+        let previous_hash = tail.map_or([0; 32], |tail| tail.record_hash);
+        let index = tail.map_or(LogIndex(1), |tail| LogIndex(tail.index.0 + 1));
+        let payload = encode_watch_wal_payload(&record).expect("encode watch wal record");
+        store
+            .append_wal(WalAppend {
+                pg: WATCH_PG,
+                epoch,
+                index,
+                kind: WalRecordKind::Watch,
+                previous_hash,
+                payload: &payload,
+            })
+            .expect("append watch record");
     }
 
     fn test_path(name: &str) -> std::path::PathBuf {

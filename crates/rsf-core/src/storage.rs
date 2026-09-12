@@ -46,6 +46,7 @@ pub enum WalRecordKind {
     Deployment,
     RelationalWal,
     Stream,
+    Watch,
 }
 
 impl WalRecordKind {
@@ -83,6 +84,7 @@ impl WalRecordKind {
             Self::Deployment => 30,
             Self::RelationalWal => 31,
             Self::Stream => 32,
+            Self::Watch => 33,
         }
     }
 
@@ -120,6 +122,7 @@ impl WalRecordKind {
             30 => Some(Self::Deployment),
             31 => Some(Self::RelationalWal),
             32 => Some(Self::Stream),
+            33 => Some(Self::Watch),
             _ => None,
         }
     }
