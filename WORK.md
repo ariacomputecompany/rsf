@@ -1,7 +1,5 @@
 # RSF Production Work Ledger
 
-Date: 2026-09-11
-
 ## Purpose
 
 This file is the sober implementation ledger for turning RSF from the POC/scaffold into the real custom protocol and full database implementation.
