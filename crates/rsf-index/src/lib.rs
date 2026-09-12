@@ -62,8 +62,15 @@ pub struct IndexPlanner {
 
 impl IndexPlanner {
     pub fn new(table: &TableDescriptor, descriptors: Vec<IndexDescriptor>) -> RsfResult<Self> {
+        let mut names = BTreeSet::new();
         for descriptor in &descriptors {
             validate_descriptor(table, descriptor)?;
+            if !names.insert(descriptor.name.as_str()) {
+                return Err(invalid(format!(
+                    "index descriptor {} is declared more than once",
+                    descriptor.name
+                )));
+            }
         }
         Ok(Self { descriptors })
     }
@@ -204,11 +211,10 @@ impl IndexStore {
 }
 
 pub fn encode_index_key(descriptor: &IndexDescriptor, row: &RowImage) -> RsfResult<Bytes> {
-    let mut key = Vec::new();
-    key.extend_from_slice(b"idx/");
-    key.extend_from_slice(descriptor.table.0.as_bytes());
-    key.push(b'/');
-    key.extend_from_slice(descriptor.name.as_bytes());
+    let mut key = b"idx\0".to_vec();
+    push_bytes(&mut key, descriptor.table.0.as_bytes())?;
+    push_bytes(&mut key, descriptor.name.as_bytes())?;
+    push_u16(&mut key, descriptor.columns.len())?;
     for column in &descriptor.columns {
         let value = row.values.get(column).ok_or_else(|| {
             invalid(format!(
@@ -216,8 +222,7 @@ pub fn encode_index_key(descriptor: &IndexDescriptor, row: &RowImage) -> RsfResu
                 row.primary_key
             ))
         })?;
-        key.push(b'/');
-        key.extend_from_slice(value.as_bytes());
+        push_bytes(&mut key, value.as_bytes())?;
     }
     Ok(key)
 }
@@ -235,7 +240,13 @@ fn validate_descriptor(table: &TableDescriptor, descriptor: &IndexDescriptor) ->
     if descriptor.columns.is_empty() {
         return Err(invalid("index must include at least one column"));
     }
+    let mut columns = BTreeSet::new();
     for column in &descriptor.columns {
+        if !columns.insert(column) {
+            return Err(invalid(format!(
+                "index column {column} is declared more than once"
+            )));
+        }
         if !table.columns.iter().any(|known| known.name == *column) {
             return Err(invalid(format!(
                 "index column {column} is not in table {}",
@@ -243,6 +254,19 @@ fn validate_descriptor(table: &TableDescriptor, descriptor: &IndexDescriptor) ->
             )));
         }
     }
+    Ok(())
+}
+
+fn push_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> RsfResult<()> {
+    let len = u32::try_from(bytes.len()).map_err(|_| invalid("index key part is too large"))?;
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn push_u16(out: &mut Vec<u8>, value: usize) -> RsfResult<()> {
+    let value = u16::try_from(value).map_err(|_| invalid("index key has too many columns"))?;
+    out.extend_from_slice(&value.to_be_bytes());
     Ok(())
 }
 
@@ -346,6 +370,63 @@ mod tests {
 
         let err = encode_index_key(&descriptor, &row).expect_err("missing column");
         assert!(err.message.contains("missing indexed column"));
+    }
+
+    #[test]
+    fn composite_index_keys_are_length_delimited() {
+        let descriptor = IndexDescriptor {
+            table: TableName("users".to_string()),
+            name: "users_name_active".to_string(),
+            columns: vec!["name".to_string(), "active".to_string()],
+            unique: false,
+        };
+        let left = RowImage {
+            primary_key: "1".to_string(),
+            values: BTreeMap::from([
+                ("name".to_string(), "a/b".to_string()),
+                ("active".to_string(), "c".to_string()),
+            ]),
+        };
+        let right = RowImage {
+            primary_key: "2".to_string(),
+            values: BTreeMap::from([
+                ("name".to_string(), "a".to_string()),
+                ("active".to_string(), "b/c".to_string()),
+            ]),
+        };
+
+        let left_key = encode_index_key(&descriptor, &left).expect("left key");
+        let right_key = encode_index_key(&descriptor, &right).expect("right key");
+
+        assert_ne!(left_key, right_key);
+        assert!(left_key.starts_with(b"idx\0"));
+        assert!(right_key.starts_with(b"idx\0"));
+    }
+
+    #[test]
+    fn duplicate_index_descriptors_are_rejected() {
+        let table = table();
+        let descriptor = users_name_index();
+
+        let err = IndexPlanner::new(&table, vec![descriptor.clone(), descriptor])
+            .expect_err("duplicate descriptor");
+
+        assert!(err.message.contains("declared more than once"));
+    }
+
+    #[test]
+    fn duplicate_index_columns_are_rejected() {
+        let table = table();
+        let descriptor = IndexDescriptor {
+            table: table.name.clone(),
+            name: "users_bad".to_string(),
+            columns: vec!["name".to_string(), "name".to_string()],
+            unique: false,
+        };
+
+        let err = IndexPlanner::new(&table, vec![descriptor]).expect_err("duplicate column");
+
+        assert!(err.message.contains("declared more than once"));
     }
 
     fn table() -> TableDescriptor {
