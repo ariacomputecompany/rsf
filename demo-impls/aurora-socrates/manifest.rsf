@@ -1,0 +1,11 @@
+id: aurora-socrates
+name: Aurora/Socrates Relational-First Fabric
+confidence: 88
+nodes: 6
+regions: iad
+placement: protection groups for page/log storage
+consensus: quorum log durability with page-server replay
+relational: page/WAL-native relational engine
+object: manifest layer over protection groups
+blob: long-term chunk store
+kv: catalog and metadata KV

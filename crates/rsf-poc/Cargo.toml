@@ -1,0 +1,92 @@
+[package]
+name = "rsf-poc"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rsf-admin = { path = "../rsf-admin" }
+rsf-api = { path = "../rsf-api" }
+rsf-auth = { path = "../rsf-auth" }
+rsf-backup = { path = "../rsf-backup" }
+rsf-blob = { path = "../rsf-blob" }
+rsf-buffer = { path = "../rsf-buffer" }
+rsf-cache = { path = "../rsf-cache" }
+rsf-catalog = { path = "../rsf-catalog" }
+rsf-checkpoint = { path = "../rsf-checkpoint" }
+rsf-chunkstore = { path = "../rsf-chunkstore" }
+rsf-compaction = { path = "../rsf-compaction" }
+rsf-constraints = { path = "../rsf-constraints" }
+rsf-consistency = { path = "../rsf-consistency" }
+rsf-core = { path = "../rsf-core" }
+rsf-deployment = { path = "../rsf-deployment" }
+rsf-deferred = { path = "../rsf-deferred" }
+rsf-erasure = { path = "../rsf-erasure" }
+rsf-executor = { path = "../rsf-executor" }
+rsf-gateway = { path = "../rsf-gateway" }
+rsf-health = { path = "../rsf-health" }
+rsf-idempotency = { path = "../rsf-idempotency" }
+rsf-index = { path = "../rsf-index" }
+rsf-invariants = { path = "../rsf-invariants" }
+rsf-isolation = { path = "../rsf-isolation" }
+rsf-jobs = { path = "../rsf-jobs" }
+rsf-kv = { path = "../rsf-kv" }
+rsf-lease = { path = "../rsf-lease" }
+rsf-manifest = { path = "../rsf-manifest" }
+rsf-materialize = { path = "../rsf-materialize" }
+rsf-migration = { path = "../rsf-migration" }
+rsf-membership = { path = "../rsf-membership" }
+rsf-relcommit = { path = "../rsf-relcommit" }
+rsf-object = { path = "../rsf-object" }
+rsf-objectmeta = { path = "../rsf-objectmeta" }
+rsf-observability = { path = "../rsf-observability" }
+rsf-page = { path = "../rsf-page" }
+rsf-planner = { path = "../rsf-planner" }
+rsf-policy = { path = "../rsf-policy" }
+rsf-prepared = { path = "../rsf-prepared" }
+rsf-portal = { path = "../rsf-portal" }
+rsf-primary = { path = "../rsf-primary" }
+rsf-provider = { path = "../rsf-provider" }
+rsf-protocol = { path = "../rsf-protocol" }
+rsf-query = { path = "../rsf-query" }
+rsf-quota = { path = "../rsf-quota" }
+rsf-range = { path = "../rsf-range" }
+rsf-rebalance = { path = "../rsf-rebalance" }
+rsf-recovery = { path = "../rsf-recovery" }
+rsf-repair = { path = "../rsf-repair" }
+rsf-requirements = { path = "../rsf-requirements" }
+rsf-retention = { path = "../rsf-retention" }
+rsf-rpc = { path = "../rsf-rpc" }
+rsf-rowcodec = { path = "../rsf-rowcodec" }
+rsf-schema = { path = "../rsf-schema" }
+rsf-session = { path = "../rsf-session" }
+rsf-sessiontxn = { path = "../rsf-sessiontxn" }
+rsf-sim = { path = "../rsf-sim" }
+rsf-snapshot = { path = "../rsf-snapshot" }
+rsf-sql = { path = "../rsf-sql" }
+rsf-sqldml = { path = "../rsf-sqldml" }
+rsf-sqltxn = { path = "../rsf-sqltxn" }
+rsf-sqlpipeline = { path = "../rsf-sqlpipeline" }
+rsf-stats = { path = "../rsf-stats" }
+rsf-storage = { path = "../rsf-storage" }
+rsf-stream = { path = "../rsf-stream" }
+rsf-superblock = { path = "../rsf-superblock" }
+rsf-tenancy = { path = "../rsf-tenancy" }
+rsf-testability = { path = "../rsf-testability" }
+rsf-txn = { path = "../rsf-txn" }
+rsf-tuple = { path = "../rsf-tuple" }
+rsf-upgrade = { path = "../rsf-upgrade" }
+rsf-vacuum = { path = "../rsf-vacuum" }
+rsf-vsr = { path = "../rsf-vsr" }
+rsf-watch = { path = "../rsf-watch" }
+rsf-wal = { path = "../rsf-wal" }
+rsf-wire = { path = "../rsf-wire" }
+rsf-workload = { path = "../rsf-workload" }
+rsf-write = { path = "../rsf-write" }
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

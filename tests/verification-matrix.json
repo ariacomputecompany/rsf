@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "fozzy_strict_seed": 20260912,
+  "domains": [
+    {
+      "domain": "storage",
+      "scenario": "tests/storage-host.pass.fozzy.json",
+      "trace": "artifacts/verification-storage.trace.fozzy",
+      "safety": [
+        "append/replay order",
+        "per-placement-group hash tails",
+        "corruption rejection",
+        "manifest and compaction recovery"
+      ]
+    },
+    {
+      "domain": "vsr",
+      "scenario": "tests/vsr-host.pass.fozzy.json",
+      "trace": "artifacts/verification-vsr.trace.fozzy",
+      "safety": [
+        "prepare/ack/commit quorum",
+        "view change fencing",
+        "client request replay",
+        "membership recovery"
+      ]
+    },
+    {
+      "domain": "membership",
+      "scenario": "tests/membership-host.pass.fozzy.json",
+      "trace": "artifacts/verification-membership.trace.fozzy",
+      "safety": [
+        "admission identity checks",
+        "learner sync before promotion",
+        "quorum-overlap reconfiguration",
+        "durable audit recovery"
+      ]
+    },
+    {
+      "domain": "protocol",
+      "scenario": "tests/protocol-host.pass.fozzy.json",
+      "trace": "artifacts/verification-protocol.trace.fozzy",
+      "safety": [
+        "commit certificates",
+        "durable router recovery",
+        "placement and policy routing",
+        "VSR-backed quorum commit boundary"
+      ]
+    },
+    {
+      "domain": "kv-transactions",
+      "scenario": "tests/kv-txn-host.pass.fozzy.json",
+      "trace": "artifacts/verification-kv-transactions.trace.fozzy",
+      "safety": [
+        "MVCC snapshot visibility",
+        "write conflict rejection",
+        "transaction idempotency",
+        "durable recovery"
+      ]
+    },
+    {
+      "domain": "sql",
+      "scenario": "tests/sql-host.pass.fozzy.json",
+      "trace": "artifacts/verification-sql.trace.fozzy",
+      "safety": [
+        "row/index atomicity",
+        "SQL transaction lifecycle",
+        "pipeline authorization",
+        "VSR-backed certificate recovery"
+      ]
+    },
+    {
+      "domain": "object-blob",
+      "scenario": "tests/object-blob-host.pass.fozzy.json",
+      "trace": "artifacts/verification-object-blob.trace.fozzy",
+      "safety": [
+        "strict object head visibility",
+        "multipart recovery",
+        "blob digest verification",
+        "idempotent protocol replay"
+      ]
+    },
+    {
+      "domain": "recovery",
+      "scenario": "tests/recovery-host.pass.fozzy.json",
+      "trace": "artifacts/verification-recovery.trace.fozzy",
+      "safety": [
+        "snapshot root validation",
+        "backup manifest integrity",
+        "restore execution coverage",
+        "database restart certification"
+      ]
+    },
+    {
+      "domain": "policy",
+      "scenario": "tests/policy-host.pass.fozzy.json",
+      "trace": "artifacts/verification-policy.trace.fozzy",
+      "safety": [
+        "durable policy catalog",
+        "safe reconciliation ordering",
+        "region-aware routing",
+        "strict mutable truth versus immutable payload policy"
+      ]
+    },
+    {
+      "domain": "end-to-end",
+      "scenario": "tests/poc-output-host.pass.fozzy.json",
+      "trace": "artifacts/verification-end-to-end.trace.fozzy",
+      "safety": [
+        "stdout-visible integrated architecture trace",
+        "invariant and testability gates",
+        "observability counters",
+        "full surface orchestration"
+      ]
+    }
+  ]
+}

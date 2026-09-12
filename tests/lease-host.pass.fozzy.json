@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "rsf-lease-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-lease",
+        "-p",
+        "rsf-poc"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-lease",
+        "-p",
+        "rsf-poc"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

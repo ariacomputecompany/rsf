@@ -1,0 +1,5 @@
+/target/
+/.fozzy/
+/artifacts/
+/runs/
+/implementations/*/runs/

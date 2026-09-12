@@ -1,0 +1,18 @@
+[package]
+name = "rsf-session"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rsf-auth = { path = "../rsf-auth" }
+rsf-catalog = { path = "../rsf-catalog" }
+rsf-core = { path = "../rsf-core" }
+rsf-protocol = { path = "../rsf-protocol" }
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "rsf-page-wal-buffer-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-page",
+        "-p",
+        "rsf-wal",
+        "-p",
+        "rsf-buffer",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-core"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-page",
+        "-p",
+        "rsf-wal",
+        "-p",
+        "rsf-buffer",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-core"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

@@ -1,0 +1,233 @@
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::daemon::DaemonConfig;
+
+pub const ENV_CONFIG: &str = "RSFD_CONFIG";
+pub const ENV_STATE: &str = "RSFD_STATE";
+pub const ENV_ONCE: &str = "RSFD_ONCE";
+pub const ENV_TICK_MS: &str = "RSFD_TICK_MS";
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ServeConfigOverrides {
+    pub config: Option<PathBuf>,
+    pub state: Option<PathBuf>,
+    pub once: Option<bool>,
+    pub tick_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ServeConfig {
+    state: Option<PathBuf>,
+    once: Option<bool>,
+    tick_ms: Option<u64>,
+}
+
+pub fn resolve_daemon_config(
+    cli: ServeConfigOverrides,
+    env: impl IntoIterator<Item = (String, String)>,
+) -> Result<DaemonConfig, String> {
+    let env = env.into_iter().collect::<BTreeMap<_, _>>();
+    let config_path = cli
+        .config
+        .clone()
+        .or_else(|| env.get(ENV_CONFIG).map(PathBuf::from));
+    let mut resolved = if let Some(path) = config_path {
+        load_config_file(&path)?
+    } else {
+        ServeConfig::default()
+    };
+    apply_env(&mut resolved, &env)?;
+    apply_cli(&mut resolved, cli);
+    let state = resolved
+        .state
+        .ok_or_else(|| "serve requires --state, RSFD_STATE, or state in config file".to_string())?;
+    let tick_ms = resolved.tick_ms.unwrap_or(1_000);
+    if tick_ms == 0 {
+        return Err("daemon tick interval must be greater than zero".to_string());
+    }
+    Ok(DaemonConfig {
+        state,
+        once: resolved.once.unwrap_or(false),
+        tick: Duration::from_millis(tick_ms),
+    })
+}
+
+fn load_config_file(path: &Path) -> Result<ServeConfig, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read config {}: {err}", path.display()))?;
+    parse_config(&raw)
+}
+
+fn parse_config(raw: &str) -> Result<ServeConfig, String> {
+    let mut config = ServeConfig::default();
+    for (line_no, line) in raw.lines().enumerate() {
+        let line = line
+            .split_once('#')
+            .map_or(line, |(before, _)| before)
+            .trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (key, value) = line.split_once('=').ok_or_else(|| {
+            format!(
+                "config line {} must use key = value syntax",
+                line_no.saturating_add(1)
+            )
+        })?;
+        apply_pair(&mut config, key.trim(), value.trim(), "config")?;
+    }
+    Ok(config)
+}
+
+fn apply_env(config: &mut ServeConfig, env: &BTreeMap<String, String>) -> Result<(), String> {
+    if let Some(value) = env.get(ENV_STATE) {
+        config.state = Some(PathBuf::from(value));
+    }
+    if let Some(value) = env.get(ENV_ONCE) {
+        config.once = Some(parse_bool(value, ENV_ONCE)?);
+    }
+    if let Some(value) = env.get(ENV_TICK_MS) {
+        config.tick_ms = Some(parse_u64(value, ENV_TICK_MS)?);
+    }
+    Ok(())
+}
+
+fn apply_cli(config: &mut ServeConfig, cli: ServeConfigOverrides) {
+    if let Some(state) = cli.state {
+        config.state = Some(state);
+    }
+    if let Some(once) = cli.once {
+        config.once = Some(once);
+    }
+    if let Some(tick_ms) = cli.tick_ms {
+        config.tick_ms = Some(tick_ms);
+    }
+}
+
+fn apply_pair(
+    config: &mut ServeConfig,
+    key: &str,
+    value: &str,
+    source: &str,
+) -> Result<(), String> {
+    match key {
+        "state" => config.state = Some(PathBuf::from(unquote(value))),
+        "once" => config.once = Some(parse_bool(unquote(value), "once")?),
+        "tick_ms" => config.tick_ms = Some(parse_u64(unquote(value), "tick_ms")?),
+        "" => return Err(format!("{source} contains an empty key")),
+        other => return Err(format!("{source} contains unknown key {other}")),
+    }
+    Ok(())
+}
+
+fn unquote(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(value)
+}
+
+fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!("{name} must be true or false")),
+    }
+}
+
+fn parse_u64(value: &str, name: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("{name} must be a non-negative integer"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn config_file_env_and_cli_apply_in_precedence_order() {
+        let path = test_path("config_file_env_and_cli_apply_in_precedence_order");
+        std::fs::write(
+            &path,
+            format!(
+                "state = \"{}\"\nonce = false\ntick_ms = 10\n",
+                path.parent().expect("parent").display()
+            ),
+        )
+        .expect("write config");
+
+        let config = resolve_daemon_config(
+            ServeConfigOverrides {
+                config: Some(path.clone()),
+                state: Some(PathBuf::from("/cli/state")),
+                once: Some(true),
+                tick_ms: None,
+            },
+            [
+                (ENV_STATE.to_string(), "/env/state".to_string()),
+                (ENV_TICK_MS.to_string(), "25".to_string()),
+            ],
+        )
+        .expect("resolve config");
+
+        assert_eq!(config.state, PathBuf::from("/cli/state"));
+        assert!(config.once);
+        assert_eq!(config.tick, Duration::from_millis(25));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn config_file_rejects_unknown_keys() {
+        let path = test_path("config_file_rejects_unknown_keys");
+        std::fs::write(&path, "state = \"/tmp/rsf\"\nmagic = true\n").expect("write config");
+
+        let err = resolve_daemon_config(
+            ServeConfigOverrides {
+                config: Some(path.clone()),
+                ..ServeConfigOverrides::default()
+            },
+            [],
+        )
+        .expect_err("unknown key rejected");
+
+        assert!(err.contains("unknown key magic"));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn missing_state_is_rejected_after_overrides() {
+        let err = resolve_daemon_config(ServeConfigOverrides::default(), [])
+            .expect_err("missing state rejected");
+
+        assert!(err.contains("requires --state"));
+    }
+
+    #[test]
+    fn zero_tick_is_rejected() {
+        let err = resolve_daemon_config(
+            ServeConfigOverrides {
+                state: Some(PathBuf::from("/tmp/rsf")),
+                tick_ms: Some(0),
+                ..ServeConfigOverrides::default()
+            },
+            [],
+        )
+        .expect_err("zero tick rejected");
+
+        assert!(err.contains("greater than zero"));
+    }
+
+    fn test_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("rsfd-{name}-{}-{nonce}.conf", std::process::id()))
+    }
+}

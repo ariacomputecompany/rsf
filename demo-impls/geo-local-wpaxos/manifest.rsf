@@ -1,0 +1,11 @@
+id: geo-local-wpaxos
+name: Geo-Local WPaxos Fabric
+confidence: 86
+nodes: 7
+regions: iad,sfo,fra
+placement: ownership moves toward active writers
+consensus: locality-adaptive Paxos ownership
+relational: partitioned relational ranges with movable ownership
+object: metadata heads owned near writers
+blob: global immutable chunk cache
+kv: geo-local ordered ranges

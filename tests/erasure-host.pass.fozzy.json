@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "rsf-erasure-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-erasure",
+        "-p",
+        "rsf-object",
+        "-p",
+        "rsf-core",
+        "-p",
+        "rsf-chunkstore",
+        "-p",
+        "rsf-protocol"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-erasure",
+        "-p",
+        "rsf-object",
+        "-p",
+        "rsf-core",
+        "-p",
+        "rsf-chunkstore",
+        "-p",
+        "rsf-protocol"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

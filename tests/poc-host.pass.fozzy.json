@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "rsf-poc-host-backed-run-all",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "run",
+        "-p",
+        "rsfd",
+        "--",
+        "demo",
+        "run",
+        "all"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "run",
+        "-p",
+        "rsfd",
+        "--",
+        "demo",
+        "run",
+        "all"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

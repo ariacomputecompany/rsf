@@ -1,0 +1,17 @@
+[package]
+name = "rsf-recovery"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rsf-backup = { path = "../rsf-backup" }
+rsf-core = { path = "../rsf-core" }
+rsf-snapshot = { path = "../rsf-snapshot" }
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

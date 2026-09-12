@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "rsfd-live-runtime-status-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsfd"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsfd"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

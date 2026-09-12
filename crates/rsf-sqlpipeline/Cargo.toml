@@ -1,0 +1,20 @@
+[package]
+name = "rsf-sqlpipeline"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rsf-auth = { path = "../rsf-auth" }
+rsf-catalog = { path = "../rsf-catalog" }
+rsf-constraints = { path = "../rsf-constraints" }
+rsf-core = { path = "../rsf-core" }
+rsf-executor = { path = "../rsf-executor" }
+rsf-index = { path = "../rsf-index" }
+rsf-isolation = { path = "../rsf-isolation" }
+rsf-kv = { path = "../rsf-kv" }
+rsf-planner = { path = "../rsf-planner" }
+rsf-query = { path = "../rsf-query" }
+rsf-session = { path = "../rsf-session" }
+rsf-sqldml = { path = "../rsf-sqldml" }
+rsf-protocol = { path = "../rsf-protocol" }
+rsf-txn = { path = "../rsf-txn" }

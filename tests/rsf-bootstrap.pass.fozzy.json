@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "rsf-bootstrap-replicates-first-metadata-key",
+  "distributed": {
+    "node_count": 3,
+    "steps": [
+      {
+        "type": "client_put",
+        "node": "n0",
+        "key": "cluster/bootstrap",
+        "value": "epoch:1"
+      },
+      {
+        "type": "client_put",
+        "node": "n1",
+        "key": "cluster/bootstrap",
+        "value": "epoch:1"
+      },
+      {
+        "type": "client_put",
+        "node": "n2",
+        "key": "cluster/bootstrap",
+        "value": "epoch:1"
+      },
+      {
+        "type": "tick",
+        "duration": "10ms"
+      }
+    ],
+    "invariants": [
+      {
+        "type": "kv_present_on_all",
+        "key": "cluster/bootstrap"
+      },
+      {
+        "type": "kv_all_equal",
+        "key": "cluster/bootstrap"
+      }
+    ]
+  }
+}

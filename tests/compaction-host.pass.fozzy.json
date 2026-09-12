@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "rsf-compaction-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-compaction",
+        "-p",
+        "rsf-core",
+        "-p",
+        "rsf-range",
+        "-p",
+        "rsf-storage"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-compaction",
+        "-p",
+        "rsf-core",
+        "-p",
+        "rsf-range",
+        "-p",
+        "rsf-storage"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

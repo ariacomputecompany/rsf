@@ -1,0 +1,17 @@
+[package]
+name = "rsf-write"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rsf-constraints = { path = "../rsf-constraints" }
+rsf-core = { path = "../rsf-core" }
+rsf-index = { path = "../rsf-index" }
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

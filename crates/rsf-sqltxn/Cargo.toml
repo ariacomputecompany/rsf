@@ -1,0 +1,23 @@
+[package]
+name = "rsf-sqltxn"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rsf-auth = { path = "../rsf-auth" }
+rsf-catalog = { path = "../rsf-catalog" }
+rsf-constraints = { path = "../rsf-constraints" }
+rsf-core = { path = "../rsf-core" }
+rsf-deferred = { path = "../rsf-deferred" }
+rsf-index = { path = "../rsf-index" }
+rsf-kv = { path = "../rsf-kv" }
+rsf-protocol = { path = "../rsf-protocol" }
+rsf-session = { path = "../rsf-session" }
+rsf-sessiontxn = { path = "../rsf-sessiontxn" }
+rsf-sqldml = { path = "../rsf-sqldml" }
+
+[lints]
+workspace = true

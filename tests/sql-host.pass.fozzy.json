@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "rsf-sql-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-sql",
+        "-p",
+        "rsf-sqldml",
+        "-p",
+        "rsf-sqltxn",
+        "-p",
+        "rsf-sqlpipeline"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-sql",
+        "-p",
+        "rsf-sqldml",
+        "-p",
+        "rsf-sqltxn",
+        "-p",
+        "rsf-sqlpipeline"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

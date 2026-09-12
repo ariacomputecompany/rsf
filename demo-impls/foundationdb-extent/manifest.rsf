@@ -1,0 +1,11 @@
+id: foundationdb-extent
+name: FoundationDB Over Extent Fabric
+confidence: 90
+nodes: 6
+regions: iad,ord
+placement: extent groups below sequencer/proxy/resolver/storage roles
+consensus: strict transaction services over replicated logs
+relational: SQL layer encoded into transactional tuples
+object: object metadata in ordered keys
+blob: immutable extents for bodies and snapshots
+kv: native ordered transactional KV

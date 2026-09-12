@@ -1,0 +1,11 @@
+id: dual-mode-cp-ap
+name: Dual-Mode CP/AP Fabric
+confidence: 87
+nodes: 5
+regions: iad,sfo
+placement: CP placement groups plus AP edge rings
+consensus: strict quorum for truth, Dynamo-style AP for edge state
+relational: CP-only transactions and catalog
+object: strict manifests with AP cache invalidations
+blob: immutable replicated chunks
+kv: CP namespaces and AP CRDT namespaces

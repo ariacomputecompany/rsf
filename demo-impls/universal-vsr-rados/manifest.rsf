@@ -1,0 +1,11 @@
+id: universal-vsr-rados
+name: Universal VSR-RADOS Fabric
+confidence: 91
+nodes: 5
+regions: iad,ord
+placement: RADOS-style placement groups with VSR metadata cells
+consensus: Viewstamped Replication
+relational: ordered KV-backed tables and indexes
+object: strict metadata plus multipart manifests
+blob: content-addressed chunks
+kv: MVCC ordered keys
