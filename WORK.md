@@ -129,8 +129,6 @@ The five architecture profiles remain useful as design inputs, but they are not 
   - Deterministic simulator. Keep as verification infrastructure, not production runtime.
 - `crates/rsf-requirements`, `crates/rsf-invariants`, `crates/rsf-testability`, `crates/rsf-workload`
   - Proof/coverage contracts. Keep, but do not confuse with implementation.
-- Remaining unaudited service crates
-  - Crates outside the audited protocol/storage/admin/policy/control/catalog/blob/object/SQL/KV/transaction/daemon path may still be structurally useful but contract-level. Each must be audited before being called production.
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, health, metrics, and operator status.
 

@@ -1139,10 +1139,11 @@ impl SqlEngine {
     ) -> RsfResult<Vec<Row>> {
         let table_record = self.table_record(table)?.clone();
         let requested_projection = projection.clone();
+        let typed_predicate = type_select_predicate(&table_record, predicate)?;
         let logical = QueryPlanner.select(
             &table_record.descriptor,
             projection_with_primary(&table_record, projection),
-            predicate,
+            typed_predicate,
             limit,
         )?;
         let physical = PhysicalPlanner.plan(
@@ -3278,7 +3279,10 @@ fn query_row_from_row(table: &Table, row: &Row) -> RsfResult<QueryRow> {
                 ),
             ));
         };
-        columns.insert(descriptor.name.clone(), QueryValue::Text(value.clone()));
+        columns.insert(
+            descriptor.name.clone(),
+            query_value_from_sql_string(&descriptor.ty, value, &descriptor.name)?,
+        );
     }
     Ok(QueryRow {
         table: table.descriptor.name.clone(),
@@ -3297,21 +3301,10 @@ fn row_from_query_row(table: &Table, row: QueryRow) -> RsfResult<Row> {
             )
         })?
         .clone();
-    let QueryValue::Text(primary_key) = primary else {
-        return Err(RsfError::new(
-            ErrorCode::InvalidInput,
-            "SQL query row primary key must be text",
-        ));
-    };
+    let primary_key = query_value_to_sql_string(primary)?;
     let mut columns = BTreeMap::new();
     for (column, value) in row.columns {
-        let QueryValue::Text(value) = value else {
-            return Err(RsfError::new(
-                ErrorCode::InvalidInput,
-                "SQL query row value must be text",
-            ));
-        };
-        columns.insert(column, value);
+        columns.insert(column, query_value_to_sql_string(value)?);
     }
     Ok(Row {
         table: table.name.clone(),
@@ -3324,16 +3317,90 @@ fn row_from_query_row(table: &Table, row: QueryRow) -> RsfResult<Row> {
 fn equality_text_value(predicate: Option<&Predicate>, column: &str) -> Option<String> {
     match predicate? {
         Predicate::Eq { column: key, value } if key == column => {
-            if let QueryValue::Text(value) = value {
-                Some(value.clone())
-            } else {
-                None
-            }
+            query_value_to_sql_string(value.clone()).ok()
         }
         Predicate::Eq { .. } => None,
         Predicate::And(predicates) => predicates
             .iter()
             .find_map(|predicate| equality_text_value(Some(predicate), column)),
+    }
+}
+
+fn type_select_predicate(
+    table: &Table,
+    predicate: Option<Predicate>,
+) -> RsfResult<Option<Predicate>> {
+    predicate
+        .map(|predicate| type_predicate(table, predicate))
+        .transpose()
+}
+
+fn type_predicate(table: &Table, predicate: Predicate) -> RsfResult<Predicate> {
+    match predicate {
+        Predicate::Eq { column, value } => {
+            let descriptor = table
+                .descriptor
+                .columns
+                .iter()
+                .find(|descriptor| descriptor.name == column)
+                .ok_or_else(|| {
+                    RsfError::new(
+                        ErrorCode::InvalidInput,
+                        format!("unknown predicate column {column}"),
+                    )
+                })?;
+            let value = match value {
+                QueryValue::Text(value) => {
+                    query_value_from_sql_string(&descriptor.ty, &value, &descriptor.name)?
+                }
+                value => value,
+            };
+            Ok(Predicate::Eq { column, value })
+        }
+        Predicate::And(predicates) => predicates
+            .into_iter()
+            .map(|predicate| type_predicate(table, predicate))
+            .collect::<RsfResult<Vec<_>>>()
+            .map(Predicate::And),
+    }
+}
+
+fn query_value_from_sql_string(
+    ty: &ColumnType,
+    value: &str,
+    column: &str,
+) -> RsfResult<QueryValue> {
+    match ty {
+        ColumnType::Text => Ok(QueryValue::Text(value.to_string())),
+        ColumnType::Int64 => value.parse::<i64>().map(QueryValue::Int64).map_err(|_| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("column {column} expected int64, got {value}"),
+            )
+        }),
+        ColumnType::Bool => match value.to_ascii_lowercase().as_str() {
+            "true" => Ok(QueryValue::Bool(true)),
+            "false" => Ok(QueryValue::Bool(false)),
+            _ => Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("column {column} expected bool, got {value}"),
+            )),
+        },
+        ColumnType::Bytes => Ok(QueryValue::Bytes(value.as_bytes().to_vec())),
+    }
+}
+
+fn query_value_to_sql_string(value: QueryValue) -> RsfResult<String> {
+    match value {
+        QueryValue::Int64(value) => Ok(value.to_string()),
+        QueryValue::Text(value) => Ok(value),
+        QueryValue::Bool(value) => Ok(value.to_string()),
+        QueryValue::Bytes(value) => String::from_utf8(value).map_err(|_| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                "bytes query value cannot be represented as SQL text",
+            )
+        }),
     }
 }
 

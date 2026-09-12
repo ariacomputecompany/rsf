@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use rsf_core::{
     ErrorCode, RsfError, RsfResult,
-    catalog::{TableDescriptor, TableName},
+    catalog::{ColumnDescriptor, ColumnType, TableDescriptor, TableName},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,7 +119,20 @@ fn validate_projection(table: &TableDescriptor, projection: &Projection) -> RsfR
 
 fn validate_predicate(table: &TableDescriptor, predicate: &Predicate) -> RsfResult<()> {
     match predicate {
-        Predicate::Eq { column, .. } => validate_column(table, column),
+        Predicate::Eq { column, value } => {
+            let descriptor = find_column(table, column)?;
+            if query_value_matches_column_type(value, &descriptor.ty) {
+                return Ok(());
+            }
+            Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!(
+                    "predicate column {column} expects {}, got {}",
+                    column_type_name(&descriptor.ty),
+                    query_value_type_name(value)
+                ),
+            ))
+        }
         Predicate::And(predicates) => {
             if predicates.is_empty() {
                 return Err(RsfError::new(
@@ -136,17 +149,49 @@ fn validate_predicate(table: &TableDescriptor, predicate: &Predicate) -> RsfResu
 }
 
 fn validate_column(table: &TableDescriptor, column: &str) -> RsfResult<()> {
-    if table
+    find_column(table, column).map(|_| ())
+}
+
+fn find_column<'a>(table: &'a TableDescriptor, column: &str) -> RsfResult<&'a ColumnDescriptor> {
+    if let Some(descriptor) = table
         .columns
         .iter()
-        .any(|descriptor| descriptor.name == column)
+        .find(|descriptor| descriptor.name == column)
     {
-        return Ok(());
+        return Ok(descriptor);
     }
     Err(RsfError::new(
         ErrorCode::InvalidInput,
         format!("unknown query column {column}"),
     ))
+}
+
+fn query_value_matches_column_type(value: &QueryValue, ty: &ColumnType) -> bool {
+    matches!(
+        (value, ty),
+        (QueryValue::Int64(_), ColumnType::Int64)
+            | (QueryValue::Text(_), ColumnType::Text)
+            | (QueryValue::Bool(_), ColumnType::Bool)
+            | (QueryValue::Bytes(_), ColumnType::Bytes)
+    )
+}
+
+fn query_value_type_name(value: &QueryValue) -> &'static str {
+    match value {
+        QueryValue::Int64(_) => "int64",
+        QueryValue::Text(_) => "text",
+        QueryValue::Bool(_) => "bool",
+        QueryValue::Bytes(_) => "bytes",
+    }
+}
+
+fn column_type_name(ty: &ColumnType) -> &'static str {
+    match ty {
+        ColumnType::Int64 => "int64",
+        ColumnType::Bytes => "bytes",
+        ColumnType::Text => "text",
+        ColumnType::Bool => "bool",
+    }
 }
 
 fn predicate_matches(predicate: &Predicate, row: &QueryRow) -> bool {
@@ -251,6 +296,48 @@ mod tests {
             .expect_err("bad projection must fail");
 
         assert_eq!(err.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn predicate_type_mismatch_is_rejected() {
+        let err = QueryPlanner
+            .select(
+                &table(),
+                Projection::All,
+                Some(Predicate::Eq {
+                    column: "id".to_string(),
+                    value: QueryValue::Text("1".to_string()),
+                }),
+                None,
+            )
+            .expect_err("predicate literal must match catalog column type");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("expects int64"));
+    }
+
+    #[test]
+    fn nested_predicate_type_mismatch_is_rejected() {
+        let err = QueryPlanner
+            .select(
+                &table(),
+                Projection::All,
+                Some(Predicate::And(vec![
+                    Predicate::Eq {
+                        column: "active".to_string(),
+                        value: QueryValue::Bool(true),
+                    },
+                    Predicate::Eq {
+                        column: "name".to_string(),
+                        value: QueryValue::Bytes(b"ada".to_vec()),
+                    },
+                ])),
+                None,
+            )
+            .expect_err("nested predicate literal must match catalog column type");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("expects text"));
     }
 
     #[test]
