@@ -113,6 +113,7 @@ impl DeferredConstraintEngine {
         columns: &[String],
         key: impl IntoIterator<Item = impl Into<String>>,
     ) -> RsfResult<DeferredConstraintDecision> {
+        validate_table_name(table)?;
         validate_columns(columns)?;
         let Some(active) = self.active.get_mut(transaction) else {
             return self.reject("deferred constraint transaction is not active");
@@ -229,6 +230,7 @@ impl CommittedReferences {
         columns: &[String],
         key: impl IntoIterator<Item = impl Into<String>>,
     ) -> RsfResult<()> {
+        validate_table_name(table)?;
         validate_columns(columns)?;
         let key = collect_key(key)?;
         self.keys
@@ -243,8 +245,10 @@ impl CommittedReferences {
         reference: impl Into<String>,
         key: impl IntoIterator<Item = impl Into<String>>,
     ) -> RsfResult<()> {
+        let reference = reference.into();
+        validate_reference_name(&reference)?;
         let key = collect_key(key)?;
-        self.keys.entry(reference.into()).or_default().insert(key);
+        self.keys.entry(reference).or_default().insert(key);
         Ok(())
     }
 
@@ -254,6 +258,7 @@ impl CommittedReferences {
         columns: &[String],
         key: impl IntoIterator<Item = impl Into<String>>,
     ) -> RsfResult<()> {
+        validate_table_name(table)?;
         validate_columns(columns)?;
         self.remove_reference(reference_name(table, columns), key)
     }
@@ -263,6 +268,7 @@ impl CommittedReferences {
         reference: impl AsRef<str>,
         key: impl IntoIterator<Item = impl Into<String>>,
     ) -> RsfResult<()> {
+        validate_reference_name(reference.as_ref())?;
         let key = collect_key(key)?;
         if let Some(keys) = self.keys.get_mut(reference.as_ref()) {
             keys.remove(&key);
@@ -288,6 +294,8 @@ fn validate_rule(rule: &DeferredReferenceRule) -> RsfResult<()> {
     if rule.name.trim().is_empty() {
         return Err(invalid("deferred constraint rule name must not be empty"));
     }
+    validate_table_name(&rule.table)?;
+    validate_table_name(&rule.referenced_table)?;
     validate_columns(&rule.columns)?;
     validate_columns(&rule.referenced_columns)?;
     if rule.columns.len() != rule.referenced_columns.len() {
@@ -296,14 +304,67 @@ fn validate_rule(rule: &DeferredReferenceRule) -> RsfResult<()> {
     Ok(())
 }
 
-fn validate_columns(columns: &[String]) -> RsfResult<()> {
-    if columns.is_empty() {
-        Err(invalid("deferred constraint key must include columns"))
-    } else if columns.iter().any(|column| column.trim().is_empty()) {
-        Err(invalid("deferred constraint columns must not be empty"))
+fn validate_table_name(table: &TableName) -> RsfResult<()> {
+    if table.0.trim().is_empty() {
+        Err(invalid("deferred constraint table name must not be empty"))
+    } else if table.0 != table.0.trim() {
+        Err(invalid(
+            "deferred constraint table name must not contain edge whitespace",
+        ))
+    } else if table.0.contains(['(', ')', ',']) {
+        Err(invalid(
+            "deferred constraint table name contains reference delimiter characters",
+        ))
     } else {
         Ok(())
     }
+}
+
+fn validate_columns(columns: &[String]) -> RsfResult<()> {
+    if columns.is_empty() {
+        return Err(invalid("deferred constraint key must include columns"));
+    }
+    let mut seen = BTreeSet::new();
+    for column in columns {
+        if column.trim().is_empty() {
+            return Err(invalid("deferred constraint columns must not be empty"));
+        }
+        if column.as_str() != column.trim() {
+            return Err(invalid(
+                "deferred constraint columns must not contain edge whitespace",
+            ));
+        }
+        if !seen.insert(column.as_str()) {
+            return Err(invalid(format!(
+                "deferred constraint column {column} is duplicated"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_reference_name(reference: &str) -> RsfResult<()> {
+    let Some((table, columns)) = reference.split_once('(') else {
+        return Err(invalid(
+            "deferred reference name must use table(column,...) format",
+        ));
+    };
+    if !columns.ends_with(')') {
+        return Err(invalid(
+            "deferred reference name must use table(column,...) format",
+        ));
+    }
+    if columns[..columns.len() - 1].contains(['(', ')']) {
+        return Err(invalid(
+            "deferred reference columns contain reference delimiter characters",
+        ));
+    }
+    validate_table_name(&TableName(table.to_string()))?;
+    let columns = columns[..columns.len() - 1]
+        .split(',')
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    validate_columns(&columns)
 }
 
 fn key_for(columns: &[String], row: &DeferredRow) -> RsfResult<Vec<String>> {
@@ -455,6 +516,51 @@ mod tests {
         assert_eq!(violations[0].rule, "orders_user");
         assert_eq!(violations[0].key, vec!["missing".to_string()]);
         assert_eq!(engine.report().rejections, 1);
+    }
+
+    #[test]
+    fn duplicate_rule_columns_are_rejected() {
+        let mut engine = DeferredConstraintEngine::default();
+        let transaction = txn(4);
+        engine.begin(transaction.clone()).unwrap();
+        let mut rule = rule();
+        rule.columns = vec!["user_id".to_string(), "user_id".to_string()];
+        rule.referenced_columns = vec!["id".to_string(), "id2".to_string()];
+
+        let err = engine
+            .defer_foreign_key(&transaction, rule, &order("42"))
+            .expect_err("duplicate deferred rule columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicated"));
+    }
+
+    #[test]
+    fn committed_references_reject_duplicate_columns() {
+        let mut committed = CommittedReferences::default();
+
+        let err = committed
+            .add(
+                &TableName("users".to_string()),
+                &["id".to_string(), "id".to_string()],
+                ["42", "42"],
+            )
+            .expect_err("duplicate reference columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicated"));
+    }
+
+    #[test]
+    fn raw_committed_reference_must_be_canonical() {
+        let mut committed = CommittedReferences::default();
+
+        let err = committed
+            .add_reference("users", ["42"])
+            .expect_err("raw reference without columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("table(column,...) format"));
     }
 
     #[test]
