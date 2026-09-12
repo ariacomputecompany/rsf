@@ -208,7 +208,7 @@ Deliverables:
 
 Invariant:
 
-- rebalancing cannot reduce the committed replication guarantees for any placement group. Started structurally with `rsf-rebalance` per-move placement-policy proofs and POC invariant coverage.
+- rebalancing cannot reduce the committed replication guarantees for any placement group. Started with `rsf-rebalance` per-move placement-policy proofs, durable rebalance recovery, and invariant coverage.
 
 ## Phase 9: Performance Engineering
 
@@ -229,7 +229,7 @@ Deliverables:
 
 Invariant:
 
-- workload-shape budgets are structural POC evidence, not measured production benchmark claims.
+- workload-shape budgets are structural planning evidence, not measured production benchmark claims.
 - testability gates must be fed by actual run output and deterministic trace/replay artifacts, not hand-written acceptance.
 - performance optimizations must preserve deterministic replay semantics in the simulator.
 
@@ -248,23 +248,26 @@ Invariant:
 
 - async replicas must never be accepted as proof of strict commit.
 
-## First Concrete Prototype
+## Current Concrete Operator Path
 
-The first runnable version should be brutally narrow:
+The current runnable path is the production daemon CLI:
 
 ```text
-rsfd --dev --node 0 --cluster local
+rsfd init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id>
+rsfd join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id>
+rsfd policy plan --state <dir>
+rsfd policy apply --state <dir>
+rsfd serve --state <dir>
 ```
 
 It should support:
 
-- one process
-- three simulated nodes
-- deterministic network
-- local segment files
-- VSR metadata cell
-- blob chunk writes/reads
-- object manifest writes/reads
+- durable one-node bootstrap and token-verified node admission
+- learner sync and quorum-safe promotion
+- local segment files and durable policy/admin/protocol stores
+- VSR-backed metadata commits and recovered certificates
+- blob/object/SQL/KV surfaces routed through protocol-backed state
+- state-backed status, audit, health, metrics, and stdout progress
 - ordered KV point writes/reads
 
 The early SQL surface is intentionally narrow. Broader SQL only expands after the storage, metadata, ordered KV, planner/executor, and SQL-pipeline invariants are passing.

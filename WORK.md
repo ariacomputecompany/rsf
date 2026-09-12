@@ -146,10 +146,6 @@ The source path must encode this as one system:
 - policy-driven topology and DX
 - deterministic failure verification
 
-## Completion Audit Remaining
-
-- Audit stale POC-era documentation before treating the source path as fully production.
-
 ## Completion Definition
 
 The goal is complete only when:

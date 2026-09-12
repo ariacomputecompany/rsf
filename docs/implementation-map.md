@@ -1965,18 +1965,23 @@ Reference:
 
 ### rsfd
 
-Owns the first daemon binary.
+Owns the production daemon binary.
 
 Current scope:
 
-- boots a dev scaffold
-- wires `rsf-core` and `rsf-sim`
+- durable one-node `init`
+- token-verified `join`
+- state-backed `status`
+- policy status, plan, set, add-region, and idempotent apply
+- durable audit log reads
+- upgrade planning with compatibility gates
+- `serve` runtime with stdout readiness, health, metrics, and protocol runtime status
 
 Next scope:
 
-- parse `rsfd --dev --node <id> --cluster <name>`
-- start simulated three-node dev cluster
-- expose a small admin/status command
+- multi-process transport listeners
+- operator configuration profiles
+- long-running runtime supervision
 
 ## Deferred Crates
 
