@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_core::{
     CommitVersion, ErrorCode, RsfError, RsfResult,
@@ -117,6 +117,12 @@ fn project_values(
             if columns.is_empty() {
                 return Err(invalid("projection must include at least one column"));
             }
+            let mut seen = BTreeSet::new();
+            for column in columns {
+                if !seen.insert(column.as_str()) {
+                    return Err(invalid(format!("projection column {column} is duplicated")));
+                }
+            }
             columns.clone()
         }
     };
@@ -228,6 +234,24 @@ mod tests {
                 &Projection::Columns(vec!["missing".to_string()])
             ),
             MaterializationDecision::Rejected { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_duplicate_projection_column() {
+        let table = table();
+        let tuple = tuple(&table, CommitVersion(10), None);
+
+        let decision = RowMaterializer::default().materialize(
+            &table,
+            &tuple,
+            &Projection::Columns(vec!["name".to_string(), "name".to_string()]),
+        );
+
+        assert!(matches!(
+            decision,
+            MaterializationDecision::Rejected { reason, .. }
+                if reason.contains("projection column name is duplicated")
         ));
     }
 
