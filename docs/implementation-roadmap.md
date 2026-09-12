@@ -267,7 +267,7 @@ It should support:
 - local segment files and durable policy/admin/protocol stores
 - VSR-backed metadata commits and recovered certificates
 - blob/object/SQL/KV surfaces routed through protocol-backed state
-- state-backed status, audit, TCP health/metrics, canonical `rsf-wire` data-plane ingress admission, durable payload-backed KV data-plane execution, topology-profile readiness gates, bounded runtime supervision, and stdout progress
+- state-backed status, audit, TCP health/metrics, canonical `rsf-wire` data-plane ingress admission, durable payload-backed KV/blob data-plane execution, topology-profile readiness gates, bounded runtime supervision, and stdout progress
 - ordered KV point writes/reads
 
 The early SQL surface is intentionally narrow. Broader SQL only expands after the storage, metadata, ordered KV, planner/executor, and SQL-pipeline invariants are passing.

@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use rsf_admin::AdminPlane;
-use rsf_core::{Epoch, ErrorCode, PlacementGroupId, RsfError, RsfResult};
+use rsf_blob::DurableBlobEngine;
+use rsf_core::{Epoch, ErrorCode, PlacementGroupId, RsfError, RsfResult, blob::ContentId};
 use rsf_kv::{DurableKvEngine, KvBatch, KvMutation};
 use rsf_protocol::{ClientRequestId, VsrBackedFabricRouter};
 use rsf_wire::{
@@ -98,10 +99,18 @@ impl DataPlaneExecutor {
                         reason: err.message,
                     })
             }
+            WireProtocol::Blob => {
+                self.execute_blob(envelope)
+                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
+                        protocol: WireProtocol::Blob.as_str(),
+                        reason: err.message,
+                    })
+            }
             protocol => DataPlaneResponse::Rejected {
                 protocol: protocol.as_str(),
-                reason: "data-plane execution handoff is currently available for kv requests"
-                    .to_string(),
+                reason:
+                    "data-plane execution handoff is currently available for kv and blob requests"
+                        .to_string(),
             },
         }
     }
@@ -187,7 +196,57 @@ impl DataPlaneExecutor {
         }
     }
 
+    fn execute_blob(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
+        let command = parse_blob_command(&envelope.operation, &envelope.body)?;
+        let mut runtime = self.open_blob_runtime()?;
+        match command {
+            BlobCommand::Put { name: _, bytes } => {
+                let record = runtime
+                    .blobs
+                    .put(&mut runtime.router, PlacementGroupId(1), bytes)?;
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "blob",
+                    version: Some(record.pin_version.0),
+                    bytes: record.bytes,
+                    detail: format!(
+                        "put id=blake3:{} deduped={} pins={} placement_group={} log_index={}",
+                        hex_bytes(record.id.as_bytes()),
+                        record.deduped,
+                        record.pins,
+                        record.pin_evidence.placement_group.0,
+                        record.pin_evidence.log_index.0
+                    ),
+                })
+            }
+            BlobCommand::Get { id } => {
+                let bytes = runtime.blobs.read_verified(&id)?;
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "blob",
+                    version: None,
+                    bytes: bytes.len() as u64,
+                    detail: format!("hit id=blake3:{}", hex_bytes(id.as_bytes())),
+                })
+            }
+        }
+    }
+
     fn open_kv_runtime(&self) -> RsfResult<KvRuntime> {
+        let (router, epoch) = self.open_router()?;
+        let kv = DurableKvEngine::open(self.state.join("kv"), epoch)?;
+        Ok(KvRuntime { router, kv })
+    }
+
+    fn open_blob_runtime(&self) -> RsfResult<BlobRuntime> {
+        let (router, _) = self.open_router()?;
+        let blobs = DurableBlobEngine::open(self.state.join("blob"))?;
+        Ok(BlobRuntime { router, blobs })
+    }
+
+    fn open_router(&self) -> RsfResult<(VsrBackedFabricRouter, Epoch)> {
         let admin = AdminPlane::recover(self.state.join("admin"))?;
         let membership = admin.membership_view().ok_or_else(|| {
             RsfError::new(
@@ -210,8 +269,7 @@ impl DataPlaneExecutor {
             primary,
             voters,
         )?;
-        let kv = DurableKvEngine::open(self.state.join("kv"), epoch)?;
-        Ok(KvRuntime { router, kv })
+        Ok((router, epoch))
     }
 }
 
@@ -220,11 +278,22 @@ struct KvRuntime {
     kv: DurableKvEngine,
 }
 
+struct BlobRuntime {
+    router: VsrBackedFabricRouter,
+    blobs: DurableBlobEngine,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum KvCommand {
     Get { key: String },
     Set { key: String, value: Vec<u8> },
     Clear { key: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum BlobCommand {
+    Put { name: String, bytes: Vec<u8> },
+    Get { id: ContentId },
 }
 
 fn serve_data_stream(
@@ -334,11 +403,76 @@ fn parse_kv_command(operation: &str, body: &[u8]) -> RsfResult<KvCommand> {
     }
 }
 
+fn parse_blob_command(operation: &str, body: &[u8]) -> RsfResult<BlobCommand> {
+    let mut parts = operation.split_whitespace();
+    let verb = parts
+        .next()
+        .ok_or_else(|| invalid("blob operation must include a verb"))?
+        .to_ascii_uppercase();
+    match verb.as_str() {
+        "PUT" | "WRITE" => {
+            let name = required_token(parts.next(), "blob write name")?;
+            ensure_no_extra(parts.next(), "blob write")?;
+            if body.is_empty() {
+                return Err(invalid("blob write frame body is required"));
+            }
+            Ok(BlobCommand::Put {
+                name,
+                bytes: body.to_vec(),
+            })
+        }
+        "GET" | "READ" => {
+            let id = parse_content_id(&required_token(parts.next(), "blob read content id")?)?;
+            ensure_no_extra(parts.next(), "blob read")?;
+            ensure_empty_body(body, "blob read")?;
+            Ok(BlobCommand::Get { id })
+        }
+        _ => Err(invalid("blob operation must be GET, READ, PUT, or WRITE")),
+    }
+}
+
 fn ensure_empty_body(body: &[u8], label: &str) -> RsfResult<()> {
     if !body.is_empty() {
         return Err(invalid(format!("{label} operation must not carry a body")));
     }
     Ok(())
+}
+
+fn parse_content_id(value: &str) -> RsfResult<ContentId> {
+    let hex = value.strip_prefix("blake3:").unwrap_or(value);
+    if hex.len() != 64 {
+        return Err(invalid("blob content id must be blake3:<64 hex chars>"));
+    }
+    let bytes = hex_decode_32(hex)?;
+    ContentId::from_blake3(bytes).map_err(|err| invalid(err.message))
+}
+
+fn hex_decode_32(value: &str) -> RsfResult<[u8; 32]> {
+    let raw = value.as_bytes();
+    let mut out = [0_u8; 32];
+    for (idx, pair) in raw.chunks_exact(2).enumerate() {
+        out[idx] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+    }
+    Ok(out)
+}
+
+fn hex_nibble(byte: u8) -> RsfResult<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(invalid("blob content id contains a non-hex character")),
+    }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn required_token(value: Option<&str>, label: &str) -> RsfResult<String> {
@@ -509,6 +643,40 @@ mod tests {
         );
 
         let err = parse_kv_command("GET user/1", b"body").expect_err("read body");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("must not carry a body"));
+    }
+
+    #[test]
+    fn blob_command_parser_accepts_payload_writes_and_content_reads() {
+        let id = ContentId::for_bytes(b"blob-payload");
+        assert_eq!(
+            parse_blob_command("PUT backup.bin", b"blob-payload").expect("put"),
+            BlobCommand::Put {
+                name: "backup.bin".to_string(),
+                bytes: b"blob-payload".to_vec()
+            }
+        );
+        assert_eq!(
+            parse_blob_command(&format!("GET blake3:{}", hex_bytes(id.as_bytes())), &[])
+                .expect("get"),
+            BlobCommand::Get { id }
+        );
+    }
+
+    #[test]
+    fn blob_command_parser_rejects_missing_or_malformed_payloads() {
+        let err = parse_blob_command("PUT backup.bin", &[]).expect_err("missing body");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("frame body is required"));
+
+        let err = parse_blob_command("GET blake3:not-hex", &[]).expect_err("bad id");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("64 hex"));
+
+        let id = ContentId::for_bytes(b"blob-payload");
+        let err = parse_blob_command(&format!("GET blake3:{}", hex_bytes(id.as_bytes())), b"body")
+            .expect_err("read body");
         assert_eq!(err.code, ErrorCode::InvalidInput);
         assert!(err.message.contains("must not carry a body"));
     }

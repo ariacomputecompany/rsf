@@ -103,6 +103,7 @@ dependencies = [
 name = "rsf-blob"
 version = "0.1.0"
 dependencies = [
+ "rsf-chunkstore",
  "rsf-core",
  "rsf-protocol",
  "rsf-retention",
@@ -844,6 +845,7 @@ name = "rsfd"
 version = "0.1.0"
 dependencies = [
  "rsf-admin",
+ "rsf-blob",
  "rsf-control",
  "rsf-core",
  "rsf-kv",

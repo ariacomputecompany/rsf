@@ -927,6 +927,7 @@ fn region_role_label(role: RegionRole) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsf_core::blob::ContentId;
     use rsf_wire::{RawFrame, WireCodec, WireProtocol};
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -1813,8 +1814,86 @@ mod tests {
         let _ = std::fs::remove_dir_all(state);
     }
 
+    #[test]
+    fn daemon_data_listener_executes_durable_blob_requests_over_tcp() {
+        let state = test_path("daemon_data_listener_executes_durable_blob_requests_over_tcp");
+        let state_arg = state.display().to_string();
+        bootstrap_three_nodes(&state_arg);
+
+        let listener = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("bind data listener");
+        let put_addr = listener.local_addr();
+        let put_frame = encode_data_frame(RawFrame::with_body(
+            WireProtocol::Blob,
+            "app-client",
+            Some("app".to_string()),
+            "PUT backup.bin",
+            Some("blob-put-1".to_string()),
+            b"blob-payload".to_vec(),
+        ));
+        let put_client = std::thread::spawn(move || send_data_frame(put_addr, put_frame));
+        let mut put_out = Vec::new();
+        wait_for_data_request(&listener, &mut put_out, "blob put");
+        let put_response = put_client.join().expect("put client thread");
+        let put_output = String::from_utf8(put_out).expect("stdout is utf8");
+        let expected_id = format!(
+            "blake3:{}",
+            hex_content_id(&ContentId::for_bytes(b"blob-payload"))
+        );
+
+        assert!(put_response.contains("RSF/1 executed"));
+        assert!(put_response.contains("surface=blob"));
+        assert!(put_response.contains("detail=put id="));
+        assert!(put_response.contains(&expected_id));
+        assert!(put_response.contains("bytes=12"));
+        assert!(put_output.contains("status=executed"));
+        assert!(put_output.contains("surface=blob"));
+
+        let reopened = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("rebind data listener");
+        let get_addr = reopened.local_addr();
+        let get_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Blob,
+            "app-client",
+            Some("app".to_string()),
+            format!("GET {expected_id}"),
+            None,
+            0,
+        ));
+        let get_client = std::thread::spawn(move || send_data_frame(get_addr, get_frame));
+        let mut get_out = Vec::new();
+        wait_for_data_request(&reopened, &mut get_out, "blob get");
+        let get_response = get_client.join().expect("get client thread");
+        let get_output = String::from_utf8(get_out).expect("stdout is utf8");
+
+        assert!(get_response.contains("RSF/1 executed"));
+        assert!(get_response.contains("surface=blob"));
+        assert!(get_response.contains(&format!("detail=hit id={expected_id}")));
+        assert!(get_response.contains("bytes=12"));
+        assert!(get_output.contains("status=executed"));
+        assert!(get_output.contains("surface=blob"));
+
+        let _ = std::fs::remove_dir_all(state);
+    }
+
     fn encode_data_frame(frame: RawFrame) -> Vec<u8> {
         WireCodec.encode(&frame).expect("encode wire frame")
+    }
+
+    fn hex_content_id(id: &ContentId) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut out = String::with_capacity(64);
+        for byte in id.as_bytes() {
+            out.push(HEX[(byte >> 4) as usize] as char);
+            out.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        out
     }
 
     fn send_data_frame(addr: std::net::SocketAddr, frame: Vec<u8>) -> String {

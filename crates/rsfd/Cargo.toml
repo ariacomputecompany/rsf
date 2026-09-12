@@ -7,14 +7,15 @@ rust-version.workspace = true
 
 [dependencies]
 rsf-admin = { path = "../rsf-admin" }
+rsf-blob = { path = "../rsf-blob" }
 rsf-control = { path = "../rsf-control" }
 rsf-core = { path = "../rsf-core" }
+rsf-kv = { path = "../rsf-kv" }
 rsf-observability = { path = "../rsf-observability" }
 rsf-policy = { path = "../rsf-policy" }
 rsf-protocol = { path = "../rsf-protocol" }
 rsf-upgrade = { path = "../rsf-upgrade" }
 rsf-wire = { path = "../rsf-wire" }
-rsf-kv = { path = "../rsf-kv" }
 
 [[bin]]
 name = "rsfd"

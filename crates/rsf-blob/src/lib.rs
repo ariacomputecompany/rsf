@@ -2,6 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use std::path::Path;
+
+use rsf_chunkstore::{ChunkClass, ChunkDecision, ChunkWrite, DurableChunkStore};
 use rsf_core::{
     Bytes, CommitConsistency, CommitEvidence, CommitVersion, Digest, DigestAlgorithm, ErrorCode,
     PlacementGroupId, RsfError, RsfResult, blob::ContentId,
@@ -32,10 +35,25 @@ pub struct ReadBlobStream {
     pub bytes: Bytes,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurableBlobRecord {
+    pub id: ContentId,
+    pub bytes: u64,
+    pub pin_version: CommitVersion,
+    pub pin_evidence: CommitEvidence,
+    pub deduped: bool,
+    pub pins: u32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct BlobEngine {
     chunks: BTreeMap<ContentId, StoredBlob>,
     pins: BTreeSet<ContentId>,
+}
+
+#[derive(Debug)]
+pub struct DurableBlobEngine {
+    chunks: DurableChunkStore,
 }
 
 impl BlobEngine {
@@ -197,6 +215,83 @@ impl BlobEngine {
         {
             *first = first.wrapping_add(1);
         }
+    }
+}
+
+impl DurableBlobEngine {
+    pub fn open(root: impl AsRef<Path>) -> RsfResult<Self> {
+        Ok(Self {
+            chunks: DurableChunkStore::open(root)?,
+        })
+    }
+
+    pub fn put(
+        &mut self,
+        router: &mut impl FabricRouterPort,
+        pg: PlacementGroupId,
+        bytes: impl Into<Bytes>,
+    ) -> RsfResult<DurableBlobRecord> {
+        let bytes = bytes.into();
+        let id = ContentId::for_bytes(&bytes);
+        let decision = self.chunks.put(ChunkWrite::new(
+            ChunkClass::BlobPayload,
+            format!("blob:{}", hex_digest(id.as_bytes())),
+            bytes,
+            true,
+        ))?;
+        let (stored_bytes, deduped, pins) = match decision {
+            ChunkDecision::Stored {
+                id: stored_id,
+                class,
+                bytes,
+                deduped,
+                pins,
+            } => {
+                if stored_id != id || class != ChunkClass::BlobPayload {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "durable blob store returned mismatched chunk metadata",
+                    ));
+                }
+                (bytes, deduped, pins)
+            }
+            ChunkDecision::Rejected { reason } => {
+                return Err(RsfError::new(ErrorCode::InvalidInput, reason));
+            }
+            ChunkDecision::Quarantined { reason, .. } => {
+                return Err(RsfError::new(ErrorCode::CorruptionDetected, reason));
+            }
+            other => {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    format!("unexpected durable blob write decision {other:?}"),
+                ));
+            }
+        };
+        let commit = router.commit_request_with_mode(
+            pg,
+            ClientRequestId::new(format!("blob:{}", hex_digest(id.as_bytes())), 0),
+            ConsistencyMode::AvailabilityFirst,
+            FabricOperation::BlobPin {
+                digest: *id.as_bytes(),
+            },
+        )?;
+        Ok(DurableBlobRecord {
+            id,
+            bytes: stored_bytes,
+            pin_version: commit.certificate.version,
+            pin_evidence: commit_evidence(commit.certificate),
+            deduped,
+            pins,
+        })
+    }
+
+    pub fn read_verified(&mut self, id: &ContentId) -> RsfResult<Bytes> {
+        self.chunks.read_bytes_verified(id)
+    }
+
+    pub fn verify_all(&mut self) -> RsfResult<rsf_chunkstore::ChunkStoreReport> {
+        self.chunks.verify_all()
     }
 }
 
@@ -609,6 +704,68 @@ mod tests {
                 .expect("certificates")[0]
                 .mode,
             ConsistencyMode::AvailabilityFirst
+        );
+
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn durable_blob_engine_persists_payload_and_protocol_certificate() {
+        let path = test_path("durable_blob_engine_persists_payload_and_protocol_certificate");
+        let blob_root = path.join("blob");
+        let protocol_root = path.join("protocol");
+        let voters = [NodeId(0), NodeId(1), NodeId(2)];
+        let blob_id = {
+            let mut router = VsrBackedFabricRouter::open(
+                &protocol_root,
+                [PlacementGroupId(3)],
+                Epoch(1),
+                NodeId(0),
+                voters,
+            )
+            .expect("router");
+            let mut blobs = DurableBlobEngine::open(&blob_root).expect("durable blob engine");
+
+            let record = blobs
+                .put(
+                    &mut router,
+                    PlacementGroupId(3),
+                    b"durable-payload".to_vec(),
+                )
+                .expect("put durable blob");
+
+            assert_eq!(record.bytes, 15);
+            assert_eq!(record.pin_version, CommitVersion(1));
+            assert!(!record.deduped);
+            assert_eq!(record.pins, 1);
+            assert_eq!(
+                blobs.read_verified(&record.id).expect("read durable blob"),
+                b"durable-payload".to_vec()
+            );
+            record.id
+        };
+
+        let mut reopened = DurableBlobEngine::open(&blob_root).expect("reopen durable blob engine");
+        let recovered = VsrBackedFabricRouter::open(
+            &protocol_root,
+            [PlacementGroupId(3)],
+            Epoch(1),
+            NodeId(0),
+            voters,
+        )
+        .expect("recover router");
+
+        assert_eq!(
+            reopened.read_verified(&blob_id).expect("read after reopen"),
+            b"durable-payload".to_vec()
+        );
+        assert_eq!(recovered.latest_version(), CommitVersion(1));
+        assert_eq!(
+            recovered
+                .recovered_certificates(PlacementGroupId(3))
+                .expect("certificates")
+                .len(),
+            1
         );
 
         let _ = std::fs::remove_dir_all(path);

@@ -1807,17 +1807,17 @@ Owns the immutable blob/chunk personality.
 
 Current scope:
 
-- deterministic demo content IDs
-- chunk storage
+- BLAKE3 content IDs
+- durable chunk-backed payload storage
 - duplicate content dedupe
-- verified reads by content ID
+- verified reads by content ID after reopen
 - retention pins
 - pin commits through `rsf-protocol`
+- daemon data-plane blob `PUT` and `GET` execution
 
 Next scope:
 
-- real cryptographic hashing
-- chunking
+- streaming chunk manifests over the daemon data-plane listener
 - streaming read/write
 - dedupe indexes
 - repair-by-digest
@@ -1976,11 +1976,11 @@ Current scope:
 - policy status, plan, set, add-region, and idempotent apply
 - durable audit log reads
 - upgrade planning with compatibility gates
-- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed KV request execution including payload-backed KV writes, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
+- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed KV request execution including payload-backed KV writes, durable chunk-backed blob PUT/GET execution, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
 
 Next scope:
 
-- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL/object/blob surfaces
+- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL/object surfaces
 
 ## Deferred Crates
 

@@ -36,7 +36,7 @@ The Rust workspace is the production source path for the custom RSF protocol and
 - `crates/rsf-api`: user-facing API request classification and auth-gated admission.
 - `crates/rsf-auth`: principals, capability grants, scoped resources, and token authorization.
 - `crates/rsf-backup`: snapshot manifests, restore-plan validation, and durable restore lifecycle recovery.
-- `crates/rsf-blob`: immutable chunk/blob personality with retention pins.
+- `crates/rsf-blob`: immutable durable chunk/blob personality with verified reads and retention pins.
 - `crates/rsf-buffer`: relational buffer-pool residency, dirty-page, flush, and eviction contracts.
 - `crates/rsf-cache`: version-aware hot-read cache admission, eviction, misses, and read-ahead plans.
 - `crates/rsf-catalog`: versioned database metadata for namespaces, tables, buckets, and placement bindings.
@@ -110,7 +110,7 @@ The Rust workspace is the production source path for the custom RSF protocol and
 - `crates/rsf-wire`: typed SQL, KV, object, blob, and admin wire-frame normalization with payload-bearing frames before API classification.
 - `crates/rsf-workload`: workload-shape budgets for relational, KV, object, and blob paths without claiming production benchmarks.
 - `crates/rsf-write`: relational write planning across constraints, row KV bytes, index mutations, conflict ranges, and commit intent.
-- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and payload-backed data-plane KV ingress listeners.
+- `crates/rsfd`: production daemon CLI for durable init, join, status, policy reconciliation, audit, upgrade planning, and serve-once/live daemon operation with health and payload-backed data-plane KV/blob ingress listeners.
 
 Run:
 
