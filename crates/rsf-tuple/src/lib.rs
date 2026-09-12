@@ -207,6 +207,7 @@ impl TupleStore {
             if version.key != *key {
                 return Err(invalid("tuple vacuum version key mismatch"));
             }
+            validate_tuple_version(version)?;
         }
         for pair in versions.windows(2) {
             if pair[0].header.create_version >= pair[1].header.create_version {
@@ -278,9 +279,35 @@ fn validate_key(key: &TupleKey) -> RsfResult<()> {
     Ok(())
 }
 
+fn validate_tuple_version(version: &TupleVersion) -> RsfResult<()> {
+    validate_key(&version.key)?;
+    validate_row(&version.row)?;
+    validate_version("create", version.header.create_version)?;
+    validate_version("schema", version.header.schema_version)?;
+    if version.header.row_bytes as usize != version.row.len() {
+        return Err(invalid(format!(
+            "tuple row byte header {} does not match payload length {}",
+            version.header.row_bytes,
+            version.row.len()
+        )));
+    }
+    if let Some(delete_version) = version.header.delete_version {
+        validate_version("delete", delete_version)?;
+        if delete_version <= version.header.create_version {
+            return Err(invalid(
+                "tuple delete version must be greater than create version",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_row(row: &[u8]) -> RsfResult<()> {
     if row.is_empty() {
         return Err(invalid("tuple row bytes must not be empty"));
+    }
+    if row.len() > u32::MAX as usize {
+        return Err(invalid("tuple row bytes exceed u32 header capacity"));
     }
     Ok(())
 }
@@ -424,5 +451,51 @@ mod tests {
             store.read_visible(&key, CommitVersion(11)),
             TupleDecision::Invisible { .. }
         ));
+    }
+
+    #[test]
+    fn rejects_vacuum_replacement_with_row_byte_mismatch() {
+        let mut store = TupleStore::default();
+        let key = TupleKey::new("users", b"7".to_vec());
+        store
+            .insert(
+                key.clone(),
+                b"ada".to_vec(),
+                CommitVersion(10),
+                CommitVersion(3),
+            )
+            .unwrap();
+        let mut retained = store.chain(&key).unwrap().versions.clone();
+        retained[0].header.row_bytes += 1;
+
+        let err = store
+            .replace_chain_versions(&key, retained)
+            .expect_err("row byte mismatch must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("does not match payload length"));
+    }
+
+    #[test]
+    fn rejects_vacuum_replacement_with_invalid_delete_order() {
+        let mut store = TupleStore::default();
+        let key = TupleKey::new("users", b"7".to_vec());
+        store
+            .insert(
+                key.clone(),
+                b"ada".to_vec(),
+                CommitVersion(10),
+                CommitVersion(3),
+            )
+            .unwrap();
+        let mut retained = store.chain(&key).unwrap().versions.clone();
+        retained[0].header.delete_version = Some(CommitVersion(10));
+
+        let err = store
+            .replace_chain_versions(&key, retained)
+            .expect_err("delete version at create version must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("greater than create version"));
     }
 }
