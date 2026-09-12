@@ -1498,14 +1498,14 @@ Current scope:
 - runs planned cache, index, range, and stream stages through `rsf-executor`
 - materializes projected rows through the logical query executor
 - rejects DML and invalid projections before physical execution
-- POC integration after standalone physical query execution and before object/blob work
+- composed SQL pipeline integration across session binding, authorization, planning, physical execution, and row materialization
 
 Next scope:
 
 - full SQL parser
 - prepared statements
 - distributed retries and cancellation
-- row encoding/decoding integration with the relational storage path
+- broader row encoding/decoding coverage across the relational storage path
 - optimizer feedback loops
 - multi-statement transactions
 
@@ -1975,12 +1975,11 @@ Current scope:
 - policy status, plan, set, add-region, and idempotent apply
 - durable audit log reads
 - upgrade planning with compatibility gates
-- `serve` runtime with stdout readiness, protocol runtime status, and a real TCP health/metrics listener
+- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, and operator profiles with topology-specific readiness gates
 
 Next scope:
 
 - multi-process data-plane transport listeners
-- richer operator configuration profiles
 - long-running runtime supervision
 
 ## Deferred Crates

@@ -3,13 +3,14 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::daemon::DaemonConfig;
+use crate::daemon::{DaemonConfig, OperatorProfile};
 
 pub const ENV_CONFIG: &str = "RSFD_CONFIG";
 pub const ENV_STATE: &str = "RSFD_STATE";
 pub const ENV_ONCE: &str = "RSFD_ONCE";
 pub const ENV_TICK_MS: &str = "RSFD_TICK_MS";
 pub const ENV_LISTEN: &str = "RSFD_LISTEN";
+pub const ENV_PROFILE: &str = "RSFD_PROFILE";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServeConfigOverrides {
@@ -18,6 +19,7 @@ pub struct ServeConfigOverrides {
     pub once: Option<bool>,
     pub tick_ms: Option<u64>,
     pub listen: Option<SocketAddr>,
+    pub profile: Option<OperatorProfile>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -26,6 +28,7 @@ struct ServeConfig {
     once: Option<bool>,
     tick_ms: Option<u64>,
     listen: Option<SocketAddr>,
+    profile: Option<OperatorProfile>,
 }
 
 pub fn resolve_daemon_config(
@@ -56,6 +59,7 @@ pub fn resolve_daemon_config(
         once: resolved.once.unwrap_or(false),
         tick: Duration::from_millis(tick_ms),
         listen: resolved.listen,
+        profile: resolved.profile.unwrap_or_default(),
     })
 }
 
@@ -99,6 +103,9 @@ fn apply_env(config: &mut ServeConfig, env: &BTreeMap<String, String>) -> Result
     if let Some(value) = env.get(ENV_LISTEN) {
         config.listen = Some(parse_socket_addr(value, ENV_LISTEN)?);
     }
+    if let Some(value) = env.get(ENV_PROFILE) {
+        config.profile = Some(OperatorProfile::parse(value)?);
+    }
     Ok(())
 }
 
@@ -115,6 +122,9 @@ fn apply_cli(config: &mut ServeConfig, cli: ServeConfigOverrides) {
     if let Some(listen) = cli.listen {
         config.listen = Some(listen);
     }
+    if let Some(profile) = cli.profile {
+        config.profile = Some(profile);
+    }
 }
 
 fn apply_pair(
@@ -128,6 +138,7 @@ fn apply_pair(
         "once" => config.once = Some(parse_bool(unquote(value), "once")?),
         "tick_ms" => config.tick_ms = Some(parse_u64(unquote(value), "tick_ms")?),
         "listen" => config.listen = Some(parse_socket_addr(unquote(value), "listen")?),
+        "profile" => config.profile = Some(OperatorProfile::parse(unquote(value))?),
         "" => return Err(format!("{source} contains an empty key")),
         other => return Err(format!("{source} contains unknown key {other}")),
     }
@@ -185,6 +196,7 @@ mod tests {
                 once: Some(true),
                 tick_ms: None,
                 listen: None,
+                profile: None,
             },
             [
                 (ENV_STATE.to_string(), "/env/state".to_string()),
@@ -197,6 +209,7 @@ mod tests {
         assert!(config.once);
         assert_eq!(config.tick, Duration::from_millis(25));
         assert_eq!(config.listen, None);
+        assert_eq!(config.profile, OperatorProfile::Standalone);
 
         let _ = std::fs::remove_file(path);
     }
@@ -272,6 +285,48 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn profile_resolves_from_config_env_and_cli() {
+        let path = test_path("profile_resolves_from_config_env_and_cli");
+        std::fs::write(
+            &path,
+            "state = \"/config/state\"\nprofile = \"standalone\"\n",
+        )
+        .expect("write config");
+
+        let config = resolve_daemon_config(
+            ServeConfigOverrides {
+                config: Some(path.clone()),
+                profile: Some(OperatorProfile::MultiRegion),
+                ..ServeConfigOverrides::default()
+            },
+            [
+                (ENV_STATE.to_string(), "/env/state".to_string()),
+                (ENV_PROFILE.to_string(), "regional".to_string()),
+            ],
+        )
+        .expect("resolve profile");
+
+        assert_eq!(config.state, PathBuf::from("/env/state"));
+        assert_eq!(config.profile, OperatorProfile::MultiRegion);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_profile_is_rejected() {
+        let err = resolve_daemon_config(
+            ServeConfigOverrides {
+                state: Some(PathBuf::from("/tmp/rsf")),
+                ..ServeConfigOverrides::default()
+            },
+            [(ENV_PROFILE.to_string(), "globalish".to_string())],
+        )
+        .expect_err("invalid profile rejected");
+
+        assert!(err.contains("operator profile"));
     }
 
     #[test]

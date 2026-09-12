@@ -6,7 +6,7 @@ mod daemon;
 use std::time::Duration;
 
 use config::{ServeConfigOverrides, resolve_daemon_config};
-use daemon::{DaemonConfig, run_daemon};
+use daemon::{DaemonConfig, OperatorProfile, run_daemon};
 use rsf_admin::{AdminPlane, InviteToken, JoinRequest, NodeIdentity};
 use rsf_control::{PolicyProgressEvent, PolicyProgressPhase, PolicyProgressSink, PolicyReconciler};
 use rsf_core::cluster::{NodeDescriptor, NodeRole};
@@ -39,7 +39,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] | policy]"
+    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--profile <standalone|regional|multi-region>] | policy]"
         .to_string()
 }
 
@@ -63,6 +63,9 @@ fn run_serve_cli(args: &[String]) -> Result<(), String> {
                         "--listen must be an IP socket address like 127.0.0.1:8080".to_string()
                     })
                 })
+                .transpose()?,
+            profile: optional_flag(args, "--profile")
+                .map(OperatorProfile::parse)
                 .transpose()?,
         },
         std::env::vars(),
@@ -1682,6 +1685,7 @@ mod tests {
 
         assert!(health_response.starts_with("HTTP/1.1 200 OK"));
         assert!(health_response.contains("content-type: application/json"));
+        assert!(health_response.contains("\"profile\":\"standalone\""));
         assert!(health_response.contains("\"ready\":true"));
         assert!(health_response.contains("\"protocol_group_ids\":[1]"));
 
@@ -1700,6 +1704,7 @@ mod tests {
         assert!(metrics_response.starts_with("HTTP/1.1 200 OK"));
         assert!(metrics_response.contains("content-type: text/plain; version=0.0.4"));
         assert!(metrics_response.contains("rsf_daemon_ready 1\n"));
+        assert!(metrics_response.contains("rsf_daemon_profile_standalone 1\n"));
 
         let _ = std::fs::remove_dir_all(state);
     }
@@ -1758,6 +1763,7 @@ mod tests {
                 once: true,
                 tick: Duration::from_millis(1),
                 listen: None,
+                profile: OperatorProfile::Standalone,
             },
             &mut out,
         )
@@ -1766,6 +1772,7 @@ mod tests {
 
         assert!(output.contains("daemon tick=0"));
         assert!(output.contains("readiness=ready"));
+        assert!(output.contains("daemon profile=standalone"));
         assert!(output.contains("daemon cluster"));
         assert!(output.contains("daemon policy"));
         assert!(output.contains("daemon protocol"));
@@ -1799,6 +1806,7 @@ mod tests {
         assert!(ready.body.contains("ready:"));
         assert_eq!(health.status, 200);
         assert_eq!(health.content_type, "application/json");
+        assert!(health.body.contains("\"profile\":\"standalone\""));
         assert!(health.body.contains("\"ready\":true"));
         assert!(health.body.contains("\"promoted_voters\":3"));
         assert_eq!(metrics.status, 200);
@@ -1806,6 +1814,7 @@ mod tests {
         assert!(metrics.body.contains("# TYPE rsf_daemon_nodes gauge"));
         assert!(metrics.body.contains("rsf_daemon_nodes 3\n"));
         assert!(metrics.body.contains("rsf_daemon_ready 1\n"));
+        assert!(metrics.body.contains("rsf_daemon_profile_standalone 1\n"));
 
         snapshot.ready = false;
         snapshot.readiness = "degraded: no protocol groups".to_string();
@@ -1827,6 +1836,46 @@ mod tests {
     }
 
     #[test]
+    fn daemon_operator_profiles_apply_distinct_readiness_gates() {
+        let state = test_path("daemon_operator_profiles_apply_distinct_readiness_gates");
+        let state_arg = state.display().to_string();
+        bootstrap_three_nodes(&state_arg);
+
+        let standalone = daemon::load_snapshot_for_profile(&state, OperatorProfile::Standalone)
+            .expect("standalone snapshot");
+        let regional =
+            daemon::load_snapshot_for_profile(&state, OperatorProfile::Regional).expect("regional");
+        let multi_region = daemon::load_snapshot_for_profile(&state, OperatorProfile::MultiRegion)
+            .expect("multi-region snapshot");
+
+        assert!(standalone.ready);
+        assert!(regional.ready);
+        assert!(!multi_region.ready);
+        assert_eq!(multi_region.required_voters, 5);
+        assert_eq!(multi_region.required_policy_regions, 2);
+        assert!(multi_region.readiness.contains("profile=multi-region"));
+        assert!(multi_region.readiness.contains("voters=3/5"));
+        assert!(multi_region.readiness.contains("regions=1/2"));
+
+        let health = daemon::render_endpoint(&multi_region, daemon::HealthEndpoint::Healthz)
+            .expect("multi-region healthz");
+        let metrics = daemon::render_endpoint(&multi_region, daemon::HealthEndpoint::Metrics)
+            .expect("multi-region metrics");
+
+        assert_eq!(health.status, 503);
+        assert!(health.body.contains("\"profile\":\"multi-region\""));
+        assert!(health.body.contains("\"required_voters\":5"));
+        assert!(metrics.body.contains("rsf_daemon_profile_multi_region 1\n"));
+        assert!(
+            metrics
+                .body
+                .contains("rsf_daemon_required_policy_regions 2\n")
+        );
+
+        let _ = std::fs::remove_dir_all(state);
+    }
+
+    #[test]
     fn daemon_rejects_missing_state_path() {
         let state = test_path("daemon_rejects_missing_state_path");
         let mut out = Vec::new();
@@ -1837,6 +1886,7 @@ mod tests {
                 once: true,
                 tick: Duration::from_millis(1),
                 listen: None,
+                profile: OperatorProfile::Standalone,
             },
             &mut out,
         )

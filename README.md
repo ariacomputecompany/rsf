@@ -121,7 +121,7 @@ cargo run -p rsfd -- init --state ./run/rsf --token local-dev-token --node-key n
 cargo run -p rsfd -- status --state ./run/rsf
 cargo run -p rsfd -- policy status --state ./run/rsf
 cargo run -p rsfd -- policy plan --state ./run/rsf
-cargo run -p rsfd -- serve --state ./run/rsf --once
+cargo run -p rsfd -- serve --state ./run/rsf --listen 127.0.0.1:7000 --profile standalone --once
 ```
 
 ## Working Thesis

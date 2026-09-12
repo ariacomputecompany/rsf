@@ -17,15 +17,80 @@ pub struct DaemonConfig {
     pub once: bool,
     pub tick: Duration,
     pub listen: Option<SocketAddr>,
+    pub profile: OperatorProfile,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum OperatorProfile {
+    #[default]
+    Standalone,
+    Regional,
+    MultiRegion,
+}
+
+impl OperatorProfile {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "standalone" => Ok(Self::Standalone),
+            "regional" => Ok(Self::Regional),
+            "multi-region" => Ok(Self::MultiRegion),
+            _ => Err("operator profile must be standalone, regional, or multi-region".to_string()),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standalone => "standalone",
+            Self::Regional => "regional",
+            Self::MultiRegion => "multi-region",
+        }
+    }
+
+    fn requirements(self) -> ProfileRequirements {
+        match self {
+            Self::Standalone => ProfileRequirements {
+                voters: 1,
+                storage_nodes: 1,
+                gateway_nodes: 1,
+                policy_regions: 1,
+            },
+            Self::Regional => ProfileRequirements {
+                voters: 3,
+                storage_nodes: 3,
+                gateway_nodes: 1,
+                policy_regions: 1,
+            },
+            Self::MultiRegion => ProfileRequirements {
+                voters: 5,
+                storage_nodes: 3,
+                gateway_nodes: 2,
+                policy_regions: 2,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ProfileRequirements {
+    voters: usize,
+    storage_nodes: usize,
+    gateway_nodes: usize,
+    policy_regions: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DaemonSnapshot {
+    pub profile: OperatorProfile,
+    pub required_voters: usize,
+    pub required_storage_nodes: usize,
+    pub required_gateway_nodes: usize,
+    pub required_policy_regions: usize,
     pub cluster_epoch: u64,
     pub nodes: usize,
     pub promoted_voters: usize,
     pub storage_nodes: usize,
     pub gateway_nodes: usize,
+    pub policy_regions: usize,
     pub policy_version: u64,
     pub policy_min_replicas: u8,
     pub policy_placement_groups: u64,
@@ -81,7 +146,7 @@ pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), Stri
     }
     let mut tick = 0_u64;
     loop {
-        let snapshot = load_snapshot(&config.state)?;
+        let snapshot = load_snapshot_for_profile(&config.state, config.profile)?;
         emit_snapshot(out, &config, tick, &snapshot)?;
         if let Some(listener) = &listener {
             listener.serve_pending(&snapshot)?;
@@ -223,13 +288,19 @@ pub fn render_endpoint(
             status: if snapshot.ready { 200 } else { 503 },
             content_type: "application/json",
             body: format!(
-                "{{\"ready\":{},\"cluster_epoch\":{},\"nodes\":{},\"promoted_voters\":{},\"storage_nodes\":{},\"gateway_nodes\":{},\"policy_version\":{},\"policy_min_replicas\":{},\"policy_placement_groups\":{},\"protocol_placement_version\":{},\"protocol_placement_groups\":{},\"protocol_group_ids\":{},\"protocol_latest_version\":{},\"protocol_certificate_count\":{},\"protocol_max_log_index\":{},\"readiness\":\"{}\"}}\n",
+                "{{\"profile\":\"{}\",\"ready\":{},\"required_voters\":{},\"required_storage_nodes\":{},\"required_gateway_nodes\":{},\"required_policy_regions\":{},\"cluster_epoch\":{},\"nodes\":{},\"promoted_voters\":{},\"storage_nodes\":{},\"gateway_nodes\":{},\"policy_regions\":{},\"policy_version\":{},\"policy_min_replicas\":{},\"policy_placement_groups\":{},\"protocol_placement_version\":{},\"protocol_placement_groups\":{},\"protocol_group_ids\":{},\"protocol_latest_version\":{},\"protocol_certificate_count\":{},\"protocol_max_log_index\":{},\"readiness\":\"{}\"}}\n",
+                snapshot.profile.as_str(),
                 snapshot.ready,
+                snapshot.required_voters,
+                snapshot.required_storage_nodes,
+                snapshot.required_gateway_nodes,
+                snapshot.required_policy_regions,
                 snapshot.cluster_epoch,
                 snapshot.nodes,
                 snapshot.promoted_voters,
                 snapshot.storage_nodes,
                 snapshot.gateway_nodes,
+                snapshot.policy_regions,
                 snapshot.policy_version,
                 snapshot.policy_min_replicas,
                 snapshot.policy_placement_groups,
@@ -256,6 +327,41 @@ pub fn render_endpoint(
 pub fn build_metrics(snapshot: &DaemonSnapshot) -> Result<ObservabilityRegistry, String> {
     let mut registry = ObservabilityRegistry::default();
     gauge(&mut registry, "rsf_daemon_ready", i64::from(snapshot.ready))?;
+    gauge(
+        &mut registry,
+        "rsf_daemon_profile_standalone",
+        bool_gauge(snapshot.profile == OperatorProfile::Standalone),
+    )?;
+    gauge(
+        &mut registry,
+        "rsf_daemon_profile_regional",
+        bool_gauge(snapshot.profile == OperatorProfile::Regional),
+    )?;
+    gauge(
+        &mut registry,
+        "rsf_daemon_profile_multi_region",
+        bool_gauge(snapshot.profile == OperatorProfile::MultiRegion),
+    )?;
+    gauge_usize(
+        &mut registry,
+        "rsf_daemon_required_voters",
+        snapshot.required_voters,
+    )?;
+    gauge_usize(
+        &mut registry,
+        "rsf_daemon_required_storage_nodes",
+        snapshot.required_storage_nodes,
+    )?;
+    gauge_usize(
+        &mut registry,
+        "rsf_daemon_required_gateway_nodes",
+        snapshot.required_gateway_nodes,
+    )?;
+    gauge_usize(
+        &mut registry,
+        "rsf_daemon_required_policy_regions",
+        snapshot.required_policy_regions,
+    )?;
     gauge_u64(
         &mut registry,
         "rsf_daemon_cluster_epoch",
@@ -276,6 +382,11 @@ pub fn build_metrics(snapshot: &DaemonSnapshot) -> Result<ObservabilityRegistry,
         &mut registry,
         "rsf_daemon_gateway_nodes",
         snapshot.gateway_nodes,
+    )?;
+    gauge_usize(
+        &mut registry,
+        "rsf_daemon_policy_regions",
+        snapshot.policy_regions,
     )?;
     gauge_u64(
         &mut registry,
@@ -327,8 +438,16 @@ pub fn build_metrics(snapshot: &DaemonSnapshot) -> Result<ObservabilityRegistry,
 }
 
 pub fn load_snapshot(state: &Path) -> Result<DaemonSnapshot, String> {
+    load_snapshot_for_profile(state, OperatorProfile::Standalone)
+}
+
+pub fn load_snapshot_for_profile(
+    state: &Path,
+    profile: OperatorProfile,
+) -> Result<DaemonSnapshot, String> {
     let admin = AdminPlane::recover(state.join("admin")).map_err(|err| err.message)?;
     let policy = PolicyCatalog::open(state.join("policy")).map_err(|err| err.message)?;
+    let requirements = profile.requirements();
     let membership = admin
         .membership_view()
         .ok_or_else(|| "daemon requires at least one promoted voter".to_string())?;
@@ -365,6 +484,7 @@ pub fn load_snapshot(state: &Path) -> Result<DaemonSnapshot, String> {
         .filter(|record| record.state == AdmissionState::Promoted)
         .count();
     let policy = policy.current();
+    let policy_regions = policy.regions.len();
     let protocol_group_ids = router
         .placement_map()
         .groups
@@ -387,27 +507,46 @@ pub fn load_snapshot(state: &Path) -> Result<DaemonSnapshot, String> {
             protocol_max_log_index = protocol_max_log_index.max(max_index);
         }
     }
-    let ready = promoted_voters > 0
-        && storage_nodes > 0
-        && gateway_nodes > 0
+    let ready = promoted_voters >= requirements.voters
+        && storage_nodes >= requirements.storage_nodes
+        && gateway_nodes >= requirements.gateway_nodes
+        && policy_regions >= requirements.policy_regions
         && protocol_groups >= 1
         && router.policy().min_placement_groups <= policy.placement_groups;
     let readiness = if ready {
-        "ready: durable admin, policy, protocol router, storage, and gateway roles are available"
-            .to_string()
+        format!(
+            "ready: profile={} durable admin, policy, protocol router, storage, and gateway roles satisfy operator requirements",
+            profile.as_str()
+        )
     } else {
         format!(
-            "degraded: voters={} storage={} gateway={} protocol_groups={} policy_groups={}",
-            promoted_voters, storage_nodes, gateway_nodes, protocol_groups, policy.placement_groups
+            "degraded: profile={} voters={}/{} storage={}/{} gateway={}/{} regions={}/{} protocol_groups={} policy_groups={}",
+            profile.as_str(),
+            promoted_voters,
+            requirements.voters,
+            storage_nodes,
+            requirements.storage_nodes,
+            gateway_nodes,
+            requirements.gateway_nodes,
+            policy_regions,
+            requirements.policy_regions,
+            protocol_groups,
+            policy.placement_groups
         )
     };
 
     Ok(DaemonSnapshot {
+        profile,
+        required_voters: requirements.voters,
+        required_storage_nodes: requirements.storage_nodes,
+        required_gateway_nodes: requirements.gateway_nodes,
+        required_policy_regions: requirements.policy_regions,
         cluster_epoch: admin.cluster_map().epoch.0,
         nodes: admin.cluster_map().nodes.len(),
         promoted_voters,
         storage_nodes,
         gateway_nodes,
+        policy_regions,
         policy_version: policy.version,
         policy_min_replicas: policy.min_replicas,
         policy_placement_groups: policy.placement_groups,
@@ -461,12 +600,23 @@ fn emit_snapshot(
     .map_err(|err| err.to_string())?;
     writeln!(
         out,
-        "daemon cluster epoch={} nodes={} voters={} storage_nodes={} gateway_nodes={}",
+        "daemon profile={} required_voters={} required_storage_nodes={} required_gateway_nodes={} required_policy_regions={}",
+        snapshot.profile.as_str(),
+        snapshot.required_voters,
+        snapshot.required_storage_nodes,
+        snapshot.required_gateway_nodes,
+        snapshot.required_policy_regions
+    )
+    .map_err(|err| err.to_string())?;
+    writeln!(
+        out,
+        "daemon cluster epoch={} nodes={} voters={} storage_nodes={} gateway_nodes={} policy_regions={}",
         snapshot.cluster_epoch,
         snapshot.nodes,
         snapshot.promoted_voters,
         snapshot.storage_nodes,
-        snapshot.gateway_nodes
+        snapshot.gateway_nodes,
+        snapshot.policy_regions
     )
     .map_err(|err| err.to_string())?;
     writeln!(
@@ -511,6 +661,10 @@ fn gauge(
     value: i64,
 ) -> Result<(), String> {
     registry.try_gauge(name, value).map_err(|err| err.message)
+}
+
+fn bool_gauge(value: bool) -> i64 {
+    if value { 1 } else { 0 }
 }
 
 fn gauge_u64(
