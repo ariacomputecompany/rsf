@@ -70,7 +70,7 @@ pub struct DeferredConstraintReport {
 
 #[derive(Clone, Debug, Default)]
 pub struct DeferredConstraintEngine {
-    active: BTreeMap<String, DeferredTransaction>,
+    active: BTreeMap<TransactionId, DeferredTransaction>,
     transactions: usize,
     obligations: usize,
     transaction_references: usize,
@@ -94,14 +94,14 @@ struct DeferredObligation {
 
 impl DeferredConstraintEngine {
     pub fn begin(&mut self, transaction: TransactionId) -> RsfResult<DeferredConstraintDecision> {
-        let key = txn_label(&transaction);
-        if self.active.contains_key(&key) {
+        if self.active.contains_key(&transaction) {
             return self.reject(format!(
                 "deferred constraint transaction {} is already active",
-                key
+                txn_label(&transaction)
             ));
         }
-        self.active.insert(key, DeferredTransaction::default());
+        self.active
+            .insert(transaction.clone(), DeferredTransaction::default());
         self.transactions += 1;
         Ok(DeferredConstraintDecision::Began { transaction })
     }
@@ -114,7 +114,7 @@ impl DeferredConstraintEngine {
         key: impl IntoIterator<Item = impl Into<String>>,
     ) -> RsfResult<DeferredConstraintDecision> {
         validate_columns(columns)?;
-        let Some(active) = self.active.get_mut(&txn_label(transaction)) else {
+        let Some(active) = self.active.get_mut(transaction) else {
             return self.reject("deferred constraint transaction is not active");
         };
         let key = collect_key(key)?;
@@ -145,7 +145,7 @@ impl DeferredConstraintEngine {
                 row.table.0, rule.table.0
             )));
         }
-        let Some(active) = self.active.get_mut(&txn_label(transaction)) else {
+        let Some(active) = self.active.get_mut(transaction) else {
             return self.reject("deferred constraint transaction is not active");
         };
         let key = key_for(&rule.columns, row)?;
@@ -168,7 +168,7 @@ impl DeferredConstraintEngine {
         transaction: &TransactionId,
         committed: &CommittedReferences,
     ) -> RsfResult<DeferredConstraintDecision> {
-        let Some(active) = self.active.remove(&txn_label(transaction)) else {
+        let Some(active) = self.active.remove(transaction) else {
             return self.reject("deferred constraint transaction is not active");
         };
         let mut violations = Vec::new();
@@ -353,6 +353,12 @@ mod tests {
         TransactionId([value; 16])
     }
 
+    fn txn_with_prefix(prefix: [u8; 4], suffix: u8) -> TransactionId {
+        let mut bytes = [suffix; 16];
+        bytes[..4].copy_from_slice(&prefix);
+        TransactionId(bytes)
+    }
+
     fn rule() -> DeferredReferenceRule {
         DeferredReferenceRule {
             name: "orders_user".to_string(),
@@ -449,5 +455,46 @@ mod tests {
         assert_eq!(violations[0].rule, "orders_user");
         assert_eq!(violations[0].key, vec!["missing".to_string()]);
         assert_eq!(engine.report().rejections, 1);
+    }
+
+    #[test]
+    fn transactions_with_same_display_prefix_remain_distinct() {
+        let mut engine = DeferredConstraintEngine::default();
+        let first = txn_with_prefix([1, 2, 3, 4], 0xaa);
+        let second = txn_with_prefix([1, 2, 3, 4], 0xbb);
+
+        engine.begin(first.clone()).unwrap();
+        engine.begin(second.clone()).unwrap();
+        engine
+            .defer_foreign_key(&first, rule(), &order("42"))
+            .unwrap();
+        engine
+            .stage_referenced_key(
+                &second,
+                &TableName("users".to_string()),
+                &["id".to_string()],
+                ["42"],
+            )
+            .unwrap();
+
+        let rejected = engine
+            .commit(&first, &CommittedReferences::default())
+            .unwrap();
+        assert!(matches!(
+            rejected,
+            DeferredConstraintDecision::CommitRejected { .. }
+        ));
+
+        let accepted = engine
+            .commit(&second, &CommittedReferences::default())
+            .unwrap();
+        assert!(matches!(
+            accepted,
+            DeferredConstraintDecision::CommitAccepted {
+                obligations: 0,
+                transaction_references: 1,
+                ..
+            }
+        ));
     }
 }

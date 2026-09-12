@@ -22,8 +22,6 @@ The standard is strict:
 - If a chunk changes shape before completion, rewrite the remaining work so only unfinished work stays.
 - After the first production pass is ready, create `ariacomputecompany/rsf` with `gh`, push to remote `master`, and then push after each verified pass that removes work from this ledger.
 
-The five architecture profiles remain useful as design inputs, but they are not the product source path. They belong under `demo-impls/`. The production source path is the custom RSF protocol described in `PLAN.md`.
-
 ## Current State Audit
 
 ### Production-leaning but incomplete
