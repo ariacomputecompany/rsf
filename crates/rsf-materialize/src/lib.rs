@@ -32,6 +32,31 @@ pub struct RowMaterializer {
 }
 
 impl RowMaterializer {
+    pub fn materialize_visible(
+        &self,
+        table: &TableDescriptor,
+        tuple: &TupleVersion,
+        projection: &Projection,
+        snapshot: CommitVersion,
+    ) -> MaterializationDecision {
+        if !tuple.visible_at(snapshot) {
+            return rejected(
+                table.name.clone(),
+                format!(
+                    "tuple version created at {} and deleted at {} is not visible at snapshot {}",
+                    tuple.header.create_version.0,
+                    tuple
+                        .header
+                        .delete_version
+                        .map(|version| version.0.to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    snapshot.0
+                ),
+            );
+        }
+        self.materialize(table, tuple, projection)
+    }
+
     pub fn materialize(
         &self,
         table: &TableDescriptor,
@@ -203,6 +228,66 @@ mod tests {
                 &Projection::Columns(vec!["missing".to_string()])
             ),
             MaterializationDecision::Rejected { .. }
+        ));
+    }
+
+    #[test]
+    fn materializes_visible_tuple_at_snapshot() {
+        let table = table();
+        let tuple = tuple(&table, CommitVersion(10), Some(CommitVersion(20)));
+
+        let decision = RowMaterializer::default().materialize_visible(
+            &table,
+            &tuple,
+            &Projection::All,
+            CommitVersion(19),
+        );
+
+        assert!(matches!(
+            decision,
+            MaterializationDecision::Materialized(MaterializedRow {
+                create_version: CommitVersion(10),
+                delete_version: Some(CommitVersion(20)),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_tuple_created_after_snapshot() {
+        let table = table();
+        let tuple = tuple(&table, CommitVersion(10), None);
+
+        let decision = RowMaterializer::default().materialize_visible(
+            &table,
+            &tuple,
+            &Projection::All,
+            CommitVersion(9),
+        );
+
+        assert!(matches!(
+            decision,
+            MaterializationDecision::Rejected { reason, .. }
+                if reason.contains("not visible at snapshot 9")
+        ));
+    }
+
+    #[test]
+    fn rejects_tuple_deleted_at_snapshot() {
+        let table = table();
+        let tuple = tuple(&table, CommitVersion(10), Some(CommitVersion(20)));
+
+        let decision = RowMaterializer::default().materialize_visible(
+            &table,
+            &tuple,
+            &Projection::All,
+            CommitVersion(20),
+        );
+
+        assert!(matches!(
+            decision,
+            MaterializationDecision::Rejected { reason, .. }
+                if reason.contains("not visible at snapshot 20")
         ));
     }
 
