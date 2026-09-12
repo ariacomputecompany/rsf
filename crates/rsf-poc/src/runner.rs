@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rsf_core::{ErrorCode, PlacementGroupId, RsfError, RsfResult};
 use rsf_storage::SegmentLog;
 
-use crate::model::{ImplementationId, SimulatedDatabaseState};
+use crate::model::{ImplementationId, ProductionRunState};
 use crate::scenario::implementations;
 use crate::services::{
     Admission, Api, Auth, Backup, BlobStore, Bootstrap, BufferPoolService, Cache, Catalog,
@@ -32,7 +32,7 @@ static RUN_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub struct RunOutput {
     pub implementation: ImplementationId,
     pub trace: Trace,
-    pub state: SimulatedDatabaseState,
+    pub state: ProductionRunState,
 }
 
 impl RunOutput {
@@ -600,7 +600,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_implementation_runs_full_simulated_database_path() {
+    fn every_implementation_runs_full_production_database_path() {
         let outputs = run_all().unwrap();
         assert_eq!(outputs.len(), 5);
 

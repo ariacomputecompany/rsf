@@ -64,7 +64,7 @@ pub struct DatabaseSurface {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SimulatedDatabaseState {
+pub struct ProductionRunState {
     pub deployment_roles: u8,
     pub deployment_endpoints: u8,
     pub deployment_volumes: u8,

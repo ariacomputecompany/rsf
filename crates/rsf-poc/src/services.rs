@@ -135,7 +135,7 @@ use rsf_wire::{
 use rsf_workload::{WorkloadBudget, WorkloadClass, WorkloadEvidence, WorkloadShapeReport};
 use rsf_write::{WriteDecision, WritePlan, WritePlanner, WriteRequest, WriteStep};
 
-use crate::model::{Implementation, SimulatedDatabaseState};
+use crate::model::{Implementation, ProductionRunState};
 use crate::trace::Trace;
 
 #[derive(Debug)]
@@ -10986,10 +10986,10 @@ impl Observability {
         runtime: &DatabaseRuntime,
         nodes: usize,
         groups: usize,
-    ) -> SimulatedDatabaseState {
+    ) -> ProductionRunState {
         let object_metadata = runtime.object_metadata.report();
         let session_transactions = runtime.session_transactions.report();
-        let state = SimulatedDatabaseState {
+        let state = ProductionRunState {
             deployment_roles: runtime.deployment_roles as u8,
             deployment_endpoints: runtime.deployment_endpoints as u8,
             deployment_volumes: runtime.deployment_volumes as u8,
@@ -12006,7 +12006,7 @@ impl Observability {
             detail: "repair planner produced copy and demotion actions".to_string(),
         });
         let report = registry.report();
-        let state = SimulatedDatabaseState {
+        let state = ProductionRunState {
             observability_metrics: (report.counters + report.gauges) as u16,
             observability_audits: report.audit_events as u8,
             cluster_health: health_status(report.status),
@@ -12716,7 +12716,7 @@ impl Observability {
 }
 
 impl Invariants {
-    pub fn run(trace: &mut Trace, state: &mut SimulatedDatabaseState) {
+    pub fn run(trace: &mut Trace, state: &mut ProductionRunState) {
         let report = InvariantChecker::evaluate(&InvariantInput {
             admitted_nodes: state.admitted_nodes,
             placement_groups: state.placement_groups,
@@ -12901,7 +12901,7 @@ pub struct Requirements;
 pub struct Testability;
 
 impl Testability {
-    pub fn run(trace: &mut Trace, state: &mut SimulatedDatabaseState) {
+    pub fn run(trace: &mut Trace, state: &mut ProductionRunState) {
         let report = TestabilityReport::evaluate(&TestabilityInput {
             trace_events: trace.events().len() as u16,
             trace_services: trace.services().len() as u8,
@@ -12939,11 +12939,7 @@ impl Testability {
 }
 
 impl Requirements {
-    pub fn run(
-        trace: &mut Trace,
-        implementation: &Implementation,
-        state: &mut SimulatedDatabaseState,
-    ) {
+    pub fn run(trace: &mut Trace, implementation: &Implementation, state: &mut ProductionRunState) {
         let report = RequirementAuditor::evaluate(&RequirementInput {
             implementation: implementation.id.slug().to_string(),
             nodes: implementation.topology.nodes,
