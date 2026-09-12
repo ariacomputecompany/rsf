@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_core::{
     ErrorCode, RsfError, RsfResult,
@@ -57,6 +57,7 @@ impl QueryPlanner {
         predicate: Option<Predicate>,
         limit: Option<usize>,
     ) -> RsfResult<QueryPlan> {
+        validate_descriptor(table)?;
         validate_projection(table, &projection)?;
         if let Some(predicate) = &predicate {
             validate_predicate(table, predicate)?;
@@ -99,6 +100,28 @@ impl QueryExecutor {
     }
 }
 
+fn validate_descriptor(table: &TableDescriptor) -> RsfResult<()> {
+    let mut names = BTreeSet::new();
+    for column in &table.columns {
+        if column.name.trim().is_empty() {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("table {} contains a blank query column name", table.name.0),
+            ));
+        }
+        if !names.insert(column.name.as_str()) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!(
+                    "table {} contains duplicate query column {}",
+                    table.name.0, column.name
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_projection(table: &TableDescriptor, projection: &Projection) -> RsfResult<()> {
     match projection {
         Projection::All => Ok(()),
@@ -109,7 +132,14 @@ fn validate_projection(table: &TableDescriptor, projection: &Projection) -> RsfR
                     "projection must include at least one column",
                 ));
             }
+            let mut seen = BTreeSet::new();
             for column in columns {
+                if !seen.insert(column.as_str()) {
+                    return Err(RsfError::new(
+                        ErrorCode::InvalidInput,
+                        format!("projection column {column} is duplicated"),
+                    ));
+                }
                 validate_column(table, column)?;
             }
             Ok(())
@@ -296,6 +326,47 @@ mod tests {
             .expect_err("bad projection must fail");
 
         assert_eq!(err.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn duplicate_projection_column_is_rejected() {
+        let err = QueryPlanner
+            .select(
+                &table(),
+                Projection::Columns(vec!["name".to_string(), "name".to_string()]),
+                None,
+                None,
+            )
+            .expect_err("duplicate projected columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicated"));
+    }
+
+    #[test]
+    fn duplicate_descriptor_column_is_rejected() {
+        let mut table = table();
+        table.columns[1].name = "id".to_string();
+
+        let err = QueryPlanner
+            .select(&table, Projection::All, None, None)
+            .expect_err("duplicate descriptor columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate query column id"));
+    }
+
+    #[test]
+    fn blank_descriptor_column_is_rejected() {
+        let mut table = table();
+        table.columns[1].name = " ".to_string();
+
+        let err = QueryPlanner
+            .select(&table, Projection::All, None, None)
+            .expect_err("blank descriptor columns must fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("blank query column name"));
     }
 
     #[test]
