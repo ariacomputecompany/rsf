@@ -14,6 +14,7 @@ rsf-policy = { path = "../rsf-policy" }
 rsf-protocol = { path = "../rsf-protocol" }
 rsf-upgrade = { path = "../rsf-upgrade" }
 rsf-wire = { path = "../rsf-wire" }
+rsf-kv = { path = "../rsf-kv" }
 
 [[bin]]
 name = "rsfd"

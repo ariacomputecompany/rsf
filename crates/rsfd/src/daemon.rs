@@ -140,7 +140,7 @@ pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), Stri
         None => None,
     };
     let data_listener = match config.data_listen {
-        Some(addr) => Some(DataPlaneListener::bind(addr)?),
+        Some(addr) => Some(DataPlaneListener::bind(addr, config.state.clone())?),
         None => None,
     };
     if let Some(listener) = &listener {

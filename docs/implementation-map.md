@@ -1975,11 +1975,11 @@ Current scope:
 - policy status, plan, set, add-region, and idempotent apply
 - durable audit log reads
 - upgrade planning with compatibility gates
-- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
+- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed KV request execution, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
 
 Next scope:
 
-- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL/KV/object/blob surfaces
+- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL/object/blob surfaces, including payload-bearing frame bodies for blob and object writes
 
 ## Deferred Crates
 

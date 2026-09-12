@@ -927,6 +927,7 @@ fn region_role_label(role: RegionRole) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsf_wire::{RawFrame, WireCodec, WireProtocol};
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1746,6 +1747,101 @@ mod tests {
             assert!(
                 std::time::Instant::now() < deadline,
                 "timed out waiting for {label} request"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn daemon_data_listener_executes_durable_kv_requests_over_tcp() {
+        let state = test_path("daemon_data_listener_executes_durable_kv_requests_over_tcp");
+        let state_arg = state.display().to_string();
+        bootstrap_three_nodes(&state_arg);
+
+        let listener = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("bind data listener");
+        let set_addr = listener.local_addr();
+        let set_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Kv,
+            "app-client",
+            Some("app".to_string()),
+            "SET user/1 ada",
+            Some("set-user-1".to_string()),
+            0,
+        ));
+        let set_client = std::thread::spawn(move || send_data_frame(set_addr, set_frame));
+        let mut set_out = Vec::new();
+        wait_for_data_request(&listener, &mut set_out, "set");
+        let set_response = set_client.join().expect("set client thread");
+        let set_output = String::from_utf8(set_out).expect("stdout is utf8");
+
+        assert!(set_response.contains("RSF/1 executed"));
+        assert!(set_response.contains("surface=kv"));
+        assert!(set_response.contains("detail=set key=user/1"));
+        assert!(set_output.contains("status=executed"));
+        assert!(set_output.contains("surface=kv"));
+
+        let reopened = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("rebind data listener");
+        let get_addr = reopened.local_addr();
+        let get_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Kv,
+            "app-client",
+            Some("app".to_string()),
+            "GET user/1",
+            None,
+            0,
+        ));
+        let get_client = std::thread::spawn(move || send_data_frame(get_addr, get_frame));
+        let mut get_out = Vec::new();
+        wait_for_data_request(&reopened, &mut get_out, "get");
+        let get_response = get_client.join().expect("get client thread");
+        let get_output = String::from_utf8(get_out).expect("stdout is utf8");
+
+        assert!(get_response.contains("RSF/1 executed"));
+        assert!(get_response.contains("surface=kv"));
+        assert!(get_response.contains("detail=hit key=user/1"));
+        assert!(get_response.contains("bytes=3"));
+        assert!(get_output.contains("status=executed"));
+
+        let _ = std::fs::remove_dir_all(state);
+    }
+
+    fn encode_data_frame(frame: RawFrame) -> Vec<u8> {
+        WireCodec.encode(&frame).expect("encode wire frame")
+    }
+
+    fn send_data_frame(addr: std::net::SocketAddr, frame: Vec<u8>) -> String {
+        let mut stream = TcpStream::connect(addr).expect("connect data listener");
+        let len = u32::try_from(frame.len())
+            .expect("test frame length fits u32")
+            .to_le_bytes();
+        stream.write_all(&len).expect("write frame length");
+        stream.write_all(&frame).expect("write frame");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("read response");
+        response
+    }
+
+    fn wait_for_data_request(listener: &data::DataPlaneListener, out: &mut Vec<u8>, label: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let served = listener
+                .serve_pending(out)
+                .unwrap_or_else(|err| panic!("serve {label} data request: {err}"));
+            if served > 0 {
+                assert_eq!(served, 1);
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {label} data request"
             );
             std::thread::sleep(Duration::from_millis(5));
         }

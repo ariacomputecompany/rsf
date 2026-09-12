@@ -1,8 +1,15 @@
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::time::Duration;
 
-use rsf_wire::{WireAdapter, WireCodec, WireDecision, WireOperationKind};
+use rsf_admin::AdminPlane;
+use rsf_core::{Epoch, ErrorCode, PlacementGroupId, RsfError, RsfResult};
+use rsf_kv::{DurableKvEngine, KvBatch, KvMutation};
+use rsf_protocol::{ClientRequestId, VsrBackedFabricRouter};
+use rsf_wire::{
+    RequestEnvelope, WireAdapter, WireCodec, WireDecision, WireOperationKind, WireProtocol,
+};
 
 const MAX_DATA_FRAME_BYTES: u32 = 64 * 1024;
 
@@ -10,10 +17,11 @@ pub struct DataPlaneListener {
     listener: TcpListener,
     codec: WireCodec,
     adapter: WireAdapter,
+    executor: DataPlaneExecutor,
 }
 
 impl DataPlaneListener {
-    pub fn bind(addr: SocketAddr) -> Result<Self, String> {
+    pub fn bind(addr: SocketAddr, state: impl Into<PathBuf>) -> Result<Self, String> {
         let listener = TcpListener::bind(addr)
             .map_err(|err| format!("failed to bind daemon data listener {addr}: {err}"))?;
         listener
@@ -23,6 +31,7 @@ impl DataPlaneListener {
             listener,
             codec: WireCodec,
             adapter: WireAdapter,
+            executor: DataPlaneExecutor::new(state),
         })
     }
 
@@ -37,7 +46,8 @@ impl DataPlaneListener {
         loop {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
-                    let response = serve_data_stream(stream, &self.codec, &self.adapter)?;
+                    let response =
+                        serve_data_stream(stream, &self.codec, &self.adapter, &self.executor)?;
                     emit_data_plane_response(out, peer, &response)?;
                     served = served.saturating_add(1);
                 }
@@ -50,10 +60,13 @@ impl DataPlaneListener {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataPlaneResponse {
-    Accepted {
+    Executed {
         protocol: &'static str,
         operation_kind: &'static str,
-        body_bytes: u64,
+        surface: &'static str,
+        version: Option<u64>,
+        bytes: u64,
+        detail: String,
     },
     Rejected {
         protocol: &'static str,
@@ -64,10 +77,161 @@ pub enum DataPlaneResponse {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DataPlaneExecutor {
+    state: PathBuf,
+}
+
+impl DataPlaneExecutor {
+    pub fn new(state: impl Into<PathBuf>) -> Self {
+        Self {
+            state: state.into(),
+        }
+    }
+
+    fn execute(&self, envelope: RequestEnvelope) -> DataPlaneResponse {
+        match envelope.protocol {
+            WireProtocol::Kv => {
+                self.execute_kv(envelope)
+                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
+                        protocol: WireProtocol::Kv.as_str(),
+                        reason: err.message,
+                    })
+            }
+            protocol => DataPlaneResponse::Rejected {
+                protocol: protocol.as_str(),
+                reason: "data-plane execution handoff is currently available for kv requests"
+                    .to_string(),
+            },
+        }
+    }
+
+    fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
+        let command = parse_kv_command(&envelope.operation)?;
+        let mut runtime = self.open_kv_runtime()?;
+        match command {
+            KvCommand::Get { key } => {
+                let value = runtime.kv.get(key.as_bytes());
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "kv",
+                    version: value.map(|value| value.version.0),
+                    bytes: value.map_or(0, |value| value.value.len() as u64),
+                    detail: match value {
+                        Some(value) => format!(
+                            "hit key={} version={} deleted={}",
+                            key, value.version.0, value.deleted
+                        ),
+                        None => format!("miss key={key}"),
+                    },
+                })
+            }
+            KvCommand::Set { key, value } => {
+                let request = client_request_from_envelope(&envelope)?;
+                let snapshot = runtime.kv.snapshot(&runtime.router);
+                let result = runtime.kv.commit_batch_routed(
+                    &mut runtime.router,
+                    KvBatch {
+                        client_request: Some(request),
+                        snapshot,
+                        mutations: vec![KvMutation::Set {
+                            key: key.as_bytes().to_vec(),
+                            value: value.as_bytes().to_vec(),
+                        }],
+                    },
+                )?;
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "kv",
+                    version: Some(result.version.0),
+                    bytes: value.len() as u64,
+                    detail: format!(
+                        "set key={} replayed={} placement_group={} log_index={}",
+                        key,
+                        result.replayed,
+                        result.evidence.placement_group.0,
+                        result.evidence.log_index.0
+                    ),
+                })
+            }
+            KvCommand::Clear { key } => {
+                let request = client_request_from_envelope(&envelope)?;
+                let snapshot = runtime.kv.snapshot(&runtime.router);
+                let result = runtime.kv.commit_batch_routed(
+                    &mut runtime.router,
+                    KvBatch {
+                        client_request: Some(request),
+                        snapshot,
+                        mutations: vec![KvMutation::Clear {
+                            key: key.as_bytes().to_vec(),
+                        }],
+                    },
+                )?;
+                Ok(DataPlaneResponse::Executed {
+                    protocol: envelope.protocol.as_str(),
+                    operation_kind: operation_kind_label(envelope.operation_kind),
+                    surface: "kv",
+                    version: Some(result.version.0),
+                    bytes: 0,
+                    detail: format!(
+                        "clear key={} replayed={} placement_group={} log_index={}",
+                        key,
+                        result.replayed,
+                        result.evidence.placement_group.0,
+                        result.evidence.log_index.0
+                    ),
+                })
+            }
+        }
+    }
+
+    fn open_kv_runtime(&self) -> RsfResult<KvRuntime> {
+        let admin = AdminPlane::recover(self.state.join("admin"))?;
+        let membership = admin.membership_view().ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                "data-plane execution requires at least one promoted voter",
+            )
+        })?;
+        let voters = membership.voter_nodes();
+        let primary = *voters.first().ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                "data-plane execution requires at least one promoted voter",
+            )
+        })?;
+        let epoch = Epoch(admin.cluster_map().epoch.0.max(1));
+        let router = VsrBackedFabricRouter::open(
+            self.state.join("protocol"),
+            [PlacementGroupId(1)],
+            epoch,
+            primary,
+            voters,
+        )?;
+        let kv = DurableKvEngine::open(self.state.join("kv"), epoch)?;
+        Ok(KvRuntime { router, kv })
+    }
+}
+
+struct KvRuntime {
+    router: VsrBackedFabricRouter,
+    kv: DurableKvEngine,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum KvCommand {
+    Get { key: String },
+    Set { key: String, value: String },
+    Clear { key: String },
+}
+
 fn serve_data_stream(
     mut stream: TcpStream,
     codec: &WireCodec,
     adapter: &WireAdapter,
+    executor: &DataPlaneExecutor,
 ) -> Result<DataPlaneResponse, String> {
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
@@ -82,7 +246,7 @@ fn serve_data_stream(
                 .decode_and_admit(&frame, adapter)
                 .map_err(|err| err.message)
         })
-        .map(data_plane_response)
+        .map(|decision| data_plane_response(decision, executor))
         .unwrap_or_else(|reason| DataPlaneResponse::Corrupt { reason });
     let body = render_data_plane_response(&response);
     stream
@@ -116,18 +280,89 @@ fn read_data_frame(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
     Ok(frame)
 }
 
-fn data_plane_response(decision: WireDecision) -> DataPlaneResponse {
+fn data_plane_response(decision: WireDecision, executor: &DataPlaneExecutor) -> DataPlaneResponse {
     match decision {
-        WireDecision::Accepted(envelope) => DataPlaneResponse::Accepted {
-            protocol: envelope.protocol.as_str(),
-            operation_kind: operation_kind_label(envelope.operation_kind),
-            body_bytes: envelope.body_bytes,
-        },
+        WireDecision::Accepted(envelope) => executor.execute(envelope),
         WireDecision::Rejected { protocol, reason } => DataPlaneResponse::Rejected {
             protocol: protocol.as_str(),
             reason,
         },
     }
+}
+
+fn parse_kv_command(operation: &str) -> RsfResult<KvCommand> {
+    let mut parts = operation.split_whitespace();
+    let verb = parts
+        .next()
+        .ok_or_else(|| invalid("kv operation must include a verb"))?
+        .to_ascii_uppercase();
+    match verb.as_str() {
+        "GET" | "READ" => {
+            let key = required_token(parts.next(), "kv read key")?;
+            ensure_no_extra(parts.next(), "kv read")?;
+            Ok(KvCommand::Get { key })
+        }
+        "SET" | "PUT" => {
+            let key = required_token(parts.next(), "kv write key")?;
+            let value = required_token(parts.next(), "kv write value")?;
+            ensure_no_extra(parts.next(), "kv write")?;
+            Ok(KvCommand::Set { key, value })
+        }
+        "CLEAR" | "DELETE" => {
+            let key = required_token(parts.next(), "kv clear key")?;
+            ensure_no_extra(parts.next(), "kv clear")?;
+            Ok(KvCommand::Clear { key })
+        }
+        _ => Err(invalid(
+            "kv operation must be GET, SET, PUT, CLEAR, or DELETE",
+        )),
+    }
+}
+
+fn required_token(value: Option<&str>, label: &str) -> RsfResult<String> {
+    let value = value.ok_or_else(|| invalid(format!("{label} is required")))?;
+    validate_token(value, label)?;
+    Ok(value.to_string())
+}
+
+fn ensure_no_extra(value: Option<&str>, label: &str) -> RsfResult<()> {
+    if value.is_some() {
+        return Err(invalid(format!("{label} operation has too many fields")));
+    }
+    Ok(())
+}
+
+fn validate_token(value: &str, label: &str) -> RsfResult<()> {
+    if value.is_empty() {
+        return Err(invalid(format!("{label} must not be empty")));
+    }
+    if value.len() > 4096 {
+        return Err(invalid(format!("{label} exceeds 4096 bytes")));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(invalid(format!("{label} contains control characters")));
+    }
+    Ok(())
+}
+
+fn client_request_from_envelope(envelope: &RequestEnvelope) -> RsfResult<ClientRequestId> {
+    let key = envelope
+        .idempotency_key
+        .as_ref()
+        .ok_or_else(|| invalid("kv mutating data-plane request requires an idempotency key"))?;
+    Ok(ClientRequestId::new(
+        format!(
+            "wire:{}:{}:{}",
+            envelope.principal,
+            envelope.namespace.as_deref().unwrap_or(""),
+            key
+        ),
+        0,
+    ))
+}
+
+fn invalid(message: impl Into<String>) -> RsfError {
+    RsfError::new(ErrorCode::InvalidInput, message)
 }
 
 fn operation_kind_label(kind: WireOperationKind) -> &'static str {
@@ -140,13 +375,21 @@ fn operation_kind_label(kind: WireOperationKind) -> &'static str {
 
 fn render_data_plane_response(response: &DataPlaneResponse) -> String {
     match response {
-        DataPlaneResponse::Accepted {
+        DataPlaneResponse::Executed {
             protocol,
             operation_kind,
-            body_bytes,
+            surface,
+            version,
+            bytes,
+            detail,
         } => format!(
-            "RSF/1 accepted protocol={} operation_kind={} body_bytes={}\n",
-            protocol, operation_kind, body_bytes
+            "RSF/1 executed protocol={} operation_kind={} surface={} version={} bytes={} detail={}\n",
+            protocol,
+            operation_kind,
+            surface,
+            version.map_or_else(|| "none".to_string(), |version| version.to_string()),
+            bytes,
+            detail
         ),
         DataPlaneResponse::Rejected { protocol, reason } => {
             format!("RSF/1 rejected protocol={} reason={}\n", protocol, reason)
@@ -161,14 +404,23 @@ fn emit_data_plane_response(
     response: &DataPlaneResponse,
 ) -> Result<(), String> {
     match response {
-        DataPlaneResponse::Accepted {
+        DataPlaneResponse::Executed {
             protocol,
             operation_kind,
-            body_bytes,
+            surface,
+            version,
+            bytes,
+            detail,
         } => writeln!(
             out,
-            "daemon data peer={} status=accepted protocol={} operation_kind={} body_bytes={}",
-            peer, protocol, operation_kind, body_bytes
+            "daemon data peer={} status=executed protocol={} operation_kind={} surface={} version={} bytes={} detail={}",
+            peer,
+            protocol,
+            operation_kind,
+            surface,
+            version.map_or_else(|| "none".to_string(), |version| version.to_string()),
+            bytes,
+            detail
         ),
         DataPlaneResponse::Rejected { protocol, reason } => writeln!(
             out,
@@ -190,94 +442,34 @@ fn emit_data_plane_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsf_wire::{RawFrame, WireProtocol};
 
     #[test]
-    fn accepts_canonical_wire_frames() {
-        let listener = DataPlaneListener::bind("127.0.0.1:0".parse().expect("data listener addr"))
-            .expect("bind data listener");
-        let addr = listener.local_addr();
-        let frame = WireCodec
-            .encode(&RawFrame::new(
-                WireProtocol::Sql,
-                "app-client",
-                Some("app".to_string()),
-                "SELECT * FROM accounts",
-                None,
-                128,
-            ))
-            .expect("encode wire frame");
-
-        let client = std::thread::spawn(move || send_data_frame(addr, frame));
-        let mut out = Vec::new();
-        wait_for_data_request(&listener, &mut out, "accepted");
-        let response = client.join().expect("client thread");
-        let output = String::from_utf8(out).expect("stdout is utf8");
-
-        assert!(response.contains("RSF/1 accepted"));
-        assert!(response.contains("protocol=sql-wire"));
-        assert!(response.contains("operation_kind=read"));
-        assert!(output.contains("daemon data"));
-        assert!(output.contains("status=accepted"));
-        assert!(output.contains("protocol=sql-wire"));
-    }
-
-    #[test]
-    fn rejects_invalid_wire_requests() {
-        let listener = DataPlaneListener::bind("127.0.0.1:0".parse().expect("data listener addr"))
-            .expect("bind data listener");
-        let addr = listener.local_addr();
-        let frame = WireCodec
-            .encode(&RawFrame::new(
-                WireProtocol::Blob,
-                "app-client",
-                Some("app".to_string()),
-                "PUT sha256:content",
-                None,
-                512,
-            ))
-            .expect("encode wire frame");
-
-        let client = std::thread::spawn(move || send_data_frame(addr, frame));
-        let mut out = Vec::new();
-        wait_for_data_request(&listener, &mut out, "rejected");
-        let response = client.join().expect("client thread");
-        let output = String::from_utf8(out).expect("stdout is utf8");
-
-        assert!(response.contains("RSF/1 rejected"));
-        assert!(response.contains("protocol=blob-stream"));
-        assert!(response.contains("idempotency key is required"));
-        assert!(output.contains("status=rejected"));
-        assert!(output.contains("protocol=blob-stream"));
-    }
-
-    fn send_data_frame(addr: SocketAddr, frame: Vec<u8>) -> String {
-        let mut stream = TcpStream::connect(addr).expect("connect data listener");
-        let len = u32::try_from(frame.len())
-            .expect("test frame length fits u32")
-            .to_le_bytes();
-        stream.write_all(&len).expect("write frame length");
-        stream.write_all(&frame).expect("write frame");
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
-        response
-    }
-
-    fn wait_for_data_request(listener: &DataPlaneListener, out: &mut Vec<u8>, label: &str) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        loop {
-            let served = listener
-                .serve_pending(out)
-                .unwrap_or_else(|err| panic!("serve {label} data request: {err}"));
-            if served > 0 {
-                assert_eq!(served, 1);
-                return;
+    fn kv_command_parser_accepts_read_write_and_clear() {
+        assert_eq!(
+            parse_kv_command("GET user/1").expect("get"),
+            KvCommand::Get {
+                key: "user/1".to_string()
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "timed out waiting for {label} data request"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        );
+        assert_eq!(
+            parse_kv_command("SET user/1 ada").expect("set"),
+            KvCommand::Set {
+                key: "user/1".to_string(),
+                value: "ada".to_string()
+            }
+        );
+        assert_eq!(
+            parse_kv_command("CLEAR user/1").expect("clear"),
+            KvCommand::Clear {
+                key: "user/1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn kv_command_parser_rejects_ambiguous_operations() {
+        let err = parse_kv_command("SET user/1 ada extra").expect_err("extra field rejected");
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("too many fields"));
     }
 }

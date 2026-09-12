@@ -846,6 +846,7 @@ dependencies = [
  "rsf-admin",
  "rsf-control",
  "rsf-core",
+ "rsf-kv",
  "rsf-observability",
  "rsf-policy",
  "rsf-protocol",
