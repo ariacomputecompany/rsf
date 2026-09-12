@@ -1,4 +1,6 @@
 use std::io::Write;
+use std::io::{BufRead, BufReader};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,6 +16,7 @@ pub struct DaemonConfig {
     pub state: PathBuf,
     pub once: bool,
     pub tick: Duration,
+    pub listen: Option<SocketAddr>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,16 +67,141 @@ pub struct EndpointResponse {
 
 pub fn run_daemon(config: DaemonConfig, out: &mut impl Write) -> Result<(), String> {
     validate_config(&config)?;
+    let listener = match config.listen {
+        Some(addr) => Some(HealthListener::bind(addr)?),
+        None => None,
+    };
+    if let Some(listener) = &listener {
+        writeln!(
+            out,
+            "daemon listener addr={} endpoints=/livez,/readyz,/healthz,/metrics",
+            listener.local_addr()
+        )
+        .map_err(|err| err.to_string())?;
+    }
     let mut tick = 0_u64;
     loop {
         let snapshot = load_snapshot(&config.state)?;
         emit_snapshot(out, &config, tick, &snapshot)?;
+        if let Some(listener) = &listener {
+            listener.serve_pending(&snapshot)?;
+        }
         if config.once {
             return Ok(());
         }
         tick += 1;
         std::thread::sleep(config.tick);
     }
+}
+
+pub struct HealthListener {
+    listener: TcpListener,
+}
+
+impl HealthListener {
+    pub fn bind(addr: SocketAddr) -> Result<Self, String> {
+        let listener = TcpListener::bind(addr)
+            .map_err(|err| format!("failed to bind daemon listener {addr}: {err}"))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|err| format!("failed to configure daemon listener {addr}: {err}"))?;
+        Ok(Self { listener })
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.listener
+            .local_addr()
+            .expect("bound listener exposes local address")
+    }
+
+    pub fn serve_pending(&self, snapshot: &DaemonSnapshot) -> Result<usize, String> {
+        let mut served = 0_usize;
+        loop {
+            match self.listener.accept() {
+                Ok((stream, _peer)) => {
+                    serve_http_stream(stream, snapshot)?;
+                    served = served.saturating_add(1);
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(served),
+                Err(err) => return Err(format!("failed to accept daemon health request: {err}")),
+            }
+        }
+    }
+}
+
+fn serve_http_stream(mut stream: TcpStream, snapshot: &DaemonSnapshot) -> Result<(), String> {
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|err| format!("failed to clone health stream: {err}"))?,
+    );
+    let mut request_line = String::new();
+    let bytes = reader
+        .read_line(&mut request_line)
+        .map_err(|err| format!("failed to read daemon health request: {err}"))?;
+    let response = if bytes == 0 {
+        http_response(400, "text/plain", "empty request\n")
+    } else {
+        match parse_health_request_path(&request_line) {
+            Ok(endpoint) => render_endpoint(snapshot, endpoint).and_then(endpoint_http_response),
+            Err(status) => Ok(status),
+        }?
+    };
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|err| format!("failed to write daemon health response: {err}"))?;
+    stream
+        .flush()
+        .map_err(|err| format!("failed to flush daemon health response: {err}"))
+}
+
+fn endpoint_http_response(response: EndpointResponse) -> Result<String, String> {
+    Ok(http_response(
+        response.status,
+        response.content_type,
+        &response.body,
+    ))
+}
+
+fn parse_health_request_path(line: &str) -> Result<HealthEndpoint, String> {
+    let mut parts = line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or_else(|| http_response(400, "text/plain", "malformed request\n"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| http_response(400, "text/plain", "malformed request\n"))?;
+    let version = parts
+        .next()
+        .ok_or_else(|| http_response(400, "text/plain", "malformed request\n"))?;
+    if method != "GET" {
+        return Err(http_response(405, "text/plain", "method not allowed\n"));
+    }
+    if !version.starts_with("HTTP/") {
+        return Err(http_response(400, "text/plain", "malformed request\n"));
+    }
+    match path {
+        "/livez" => Ok(HealthEndpoint::Livez),
+        "/readyz" => Ok(HealthEndpoint::Readyz),
+        "/healthz" => Ok(HealthEndpoint::Healthz),
+        "/metrics" => Ok(HealthEndpoint::Metrics),
+        _ => Err(http_response(404, "text/plain", "not found\n")),
+    }
+}
+
+fn http_response(status: u16, content_type: &'static str, body: &str) -> String {
+    let reason = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        503 => "Service Unavailable",
+        _ => "Internal Server Error",
+    };
+    format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
 }
 
 pub fn render_endpoint(

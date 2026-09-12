@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -8,6 +9,7 @@ pub const ENV_CONFIG: &str = "RSFD_CONFIG";
 pub const ENV_STATE: &str = "RSFD_STATE";
 pub const ENV_ONCE: &str = "RSFD_ONCE";
 pub const ENV_TICK_MS: &str = "RSFD_TICK_MS";
+pub const ENV_LISTEN: &str = "RSFD_LISTEN";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServeConfigOverrides {
@@ -15,6 +17,7 @@ pub struct ServeConfigOverrides {
     pub state: Option<PathBuf>,
     pub once: Option<bool>,
     pub tick_ms: Option<u64>,
+    pub listen: Option<SocketAddr>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -22,6 +25,7 @@ struct ServeConfig {
     state: Option<PathBuf>,
     once: Option<bool>,
     tick_ms: Option<u64>,
+    listen: Option<SocketAddr>,
 }
 
 pub fn resolve_daemon_config(
@@ -51,6 +55,7 @@ pub fn resolve_daemon_config(
         state,
         once: resolved.once.unwrap_or(false),
         tick: Duration::from_millis(tick_ms),
+        listen: resolved.listen,
     })
 }
 
@@ -91,6 +96,9 @@ fn apply_env(config: &mut ServeConfig, env: &BTreeMap<String, String>) -> Result
     if let Some(value) = env.get(ENV_TICK_MS) {
         config.tick_ms = Some(parse_u64(value, ENV_TICK_MS)?);
     }
+    if let Some(value) = env.get(ENV_LISTEN) {
+        config.listen = Some(parse_socket_addr(value, ENV_LISTEN)?);
+    }
     Ok(())
 }
 
@@ -104,6 +112,9 @@ fn apply_cli(config: &mut ServeConfig, cli: ServeConfigOverrides) {
     if let Some(tick_ms) = cli.tick_ms {
         config.tick_ms = Some(tick_ms);
     }
+    if let Some(listen) = cli.listen {
+        config.listen = Some(listen);
+    }
 }
 
 fn apply_pair(
@@ -116,6 +127,7 @@ fn apply_pair(
         "state" => config.state = Some(PathBuf::from(unquote(value))),
         "once" => config.once = Some(parse_bool(unquote(value), "once")?),
         "tick_ms" => config.tick_ms = Some(parse_u64(unquote(value), "tick_ms")?),
+        "listen" => config.listen = Some(parse_socket_addr(unquote(value), "listen")?),
         "" => return Err(format!("{source} contains an empty key")),
         other => return Err(format!("{source} contains unknown key {other}")),
     }
@@ -143,6 +155,12 @@ fn parse_u64(value: &str, name: &str) -> Result<u64, String> {
         .map_err(|_| format!("{name} must be a non-negative integer"))
 }
 
+fn parse_socket_addr(value: &str, name: &str) -> Result<SocketAddr, String> {
+    value
+        .parse::<SocketAddr>()
+        .map_err(|_| format!("{name} must be an IP socket address like 127.0.0.1:8080"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +184,7 @@ mod tests {
                 state: Some(PathBuf::from("/cli/state")),
                 once: Some(true),
                 tick_ms: None,
+                listen: None,
             },
             [
                 (ENV_STATE.to_string(), "/env/state".to_string()),
@@ -177,6 +196,7 @@ mod tests {
         assert_eq!(config.state, PathBuf::from("/cli/state"));
         assert!(config.once);
         assert_eq!(config.tick, Duration::from_millis(25));
+        assert_eq!(config.listen, None);
 
         let _ = std::fs::remove_file(path);
     }
@@ -221,6 +241,52 @@ mod tests {
         .expect_err("zero tick rejected");
 
         assert!(err.contains("greater than zero"));
+    }
+
+    #[test]
+    fn listener_address_resolves_from_config_env_and_cli() {
+        let path = test_path("listener_address_resolves_from_config_env_and_cli");
+        std::fs::write(
+            &path,
+            "state = \"/config/state\"\nonce = true\nlisten = \"127.0.0.1:7100\"\n",
+        )
+        .expect("write config");
+
+        let config = resolve_daemon_config(
+            ServeConfigOverrides {
+                config: Some(path.clone()),
+                listen: Some("127.0.0.1:7300".parse().expect("cli addr")),
+                ..ServeConfigOverrides::default()
+            },
+            [
+                (ENV_STATE.to_string(), "/env/state".to_string()),
+                (ENV_LISTEN.to_string(), "127.0.0.1:7200".to_string()),
+            ],
+        )
+        .expect("resolve listener");
+
+        assert_eq!(config.state, PathBuf::from("/env/state"));
+        assert_eq!(
+            config.listen,
+            Some("127.0.0.1:7300".parse().expect("resolved addr"))
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_listener_address_is_rejected() {
+        let err = resolve_daemon_config(
+            ServeConfigOverrides {
+                state: Some(PathBuf::from("/tmp/rsf")),
+                listen: None,
+                ..ServeConfigOverrides::default()
+            },
+            [(ENV_LISTEN.to_string(), "localhost:8080".to_string())],
+        )
+        .expect_err("dns listener names are rejected");
+
+        assert!(err.contains("IP socket address"));
     }
 
     fn test_path(name: &str) -> PathBuf {

@@ -39,7 +39,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] | policy]"
+    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] | policy]"
         .to_string()
 }
 
@@ -57,6 +57,13 @@ fn run_serve_cli(args: &[String]) -> Result<(), String> {
             state: optional_flag(args, "--state").map(std::path::PathBuf::from),
             once: flag_present(args, "--once").then_some(true),
             tick_ms,
+            listen: optional_flag(args, "--listen")
+                .map(|value| {
+                    value.parse().map_err(|_| {
+                        "--listen must be an IP socket address like 127.0.0.1:8080".to_string()
+                    })
+                })
+                .transpose()?,
         },
         std::env::vars(),
     )?;
@@ -897,6 +904,8 @@ fn region_role_label(role: RegionRole) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -1650,6 +1659,74 @@ mod tests {
     }
 
     #[test]
+    fn daemon_listener_serves_health_and_metrics_over_tcp() {
+        let state = test_path("daemon_listener_serves_health_and_metrics_over_tcp");
+        let state_arg = state.display().to_string();
+        bootstrap_three_nodes(&state_arg);
+        let snapshot = daemon::load_snapshot(&state).expect("daemon snapshot");
+        let listener = daemon::HealthListener::bind("127.0.0.1:0".parse().expect("listen addr"))
+            .expect("bind health listener");
+        let addr = listener.local_addr();
+
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).expect("connect health listener");
+            stream
+                .write_all(b"GET /healthz HTTP/1.1\r\nhost: rsfd\r\n\r\n")
+                .expect("write request");
+            let mut response = String::new();
+            stream.read_to_string(&mut response).expect("read response");
+            response
+        });
+        wait_for_listener_request(&listener, &snapshot, "health");
+        let health_response = client.join().expect("client thread");
+
+        assert!(health_response.starts_with("HTTP/1.1 200 OK"));
+        assert!(health_response.contains("content-type: application/json"));
+        assert!(health_response.contains("\"ready\":true"));
+        assert!(health_response.contains("\"protocol_group_ids\":[1]"));
+
+        let metrics_client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).expect("connect metrics listener");
+            stream
+                .write_all(b"GET /metrics HTTP/1.1\r\nhost: rsfd\r\n\r\n")
+                .expect("write request");
+            let mut response = String::new();
+            stream.read_to_string(&mut response).expect("read response");
+            response
+        });
+        wait_for_listener_request(&listener, &snapshot, "metrics");
+        let metrics_response = metrics_client.join().expect("metrics client thread");
+
+        assert!(metrics_response.starts_with("HTTP/1.1 200 OK"));
+        assert!(metrics_response.contains("content-type: text/plain; version=0.0.4"));
+        assert!(metrics_response.contains("rsf_daemon_ready 1\n"));
+
+        let _ = std::fs::remove_dir_all(state);
+    }
+
+    fn wait_for_listener_request(
+        listener: &daemon::HealthListener,
+        snapshot: &daemon::DaemonSnapshot,
+        label: &str,
+    ) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let served = listener
+                .serve_pending(snapshot)
+                .unwrap_or_else(|err| panic!("serve {label} request: {err}"));
+            if served > 0 {
+                assert_eq!(served, 1);
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {label} request"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
     fn serve_cli_rejects_invalid_config_before_opening_state() {
         let config_path = test_path("serve_cli_rejects_invalid_config_before_opening_state");
         std::fs::write(&config_path, "state = \"/tmp/rsf\"\nunknown = true\n")
@@ -1680,6 +1757,7 @@ mod tests {
                 state: state.clone(),
                 once: true,
                 tick: Duration::from_millis(1),
+                listen: None,
             },
             &mut out,
         )
@@ -1758,6 +1836,7 @@ mod tests {
                 state: state.clone(),
                 once: true,
                 tick: Duration::from_millis(1),
+                listen: None,
             },
             &mut out,
         )

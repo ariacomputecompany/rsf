@@ -1975,12 +1975,12 @@ Current scope:
 - policy status, plan, set, add-region, and idempotent apply
 - durable audit log reads
 - upgrade planning with compatibility gates
-- `serve` runtime with stdout readiness, health, metrics, and protocol runtime status
+- `serve` runtime with stdout readiness, protocol runtime status, and a real TCP health/metrics listener
 
 Next scope:
 
-- multi-process transport listeners
-- operator configuration profiles
+- multi-process data-plane transport listeners
+- richer operator configuration profiles
 - long-running runtime supervision
 
 ## Deferred Crates
