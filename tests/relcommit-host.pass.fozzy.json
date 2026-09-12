@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "rsf-relcommit-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-relcommit",
+        "-p",
+        "rsf-write",
+        "-p",
+        "rsf-index",
+        "-p",
+        "rsf-core"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-relcommit",
+        "-p",
+        "rsf-write",
+        "-p",
+        "rsf-index",
+        "-p",
+        "rsf-core"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}
