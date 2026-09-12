@@ -78,6 +78,7 @@ pub struct ConstraintValidator {
 
 impl ConstraintValidator {
     pub fn new(table: &TableDescriptor, rules: Vec<ConstraintRule>) -> RsfResult<Self> {
+        validate_rule_set(&rules)?;
         for rule in &rules {
             validate_rule(table, rule)?;
         }
@@ -188,6 +189,46 @@ impl ConstraintState {
     }
 }
 
+fn validate_rule_set(rules: &[ConstraintRule]) -> RsfResult<()> {
+    let mut has_primary_key = false;
+    let mut unique_names = BTreeSet::new();
+    let mut foreign_key_names = BTreeSet::new();
+
+    for rule in rules {
+        match rule {
+            ConstraintRule::PrimaryKey { .. } => {
+                if has_primary_key {
+                    return Err(invalid("constraint rules may include only one primary key"));
+                }
+                has_primary_key = true;
+            }
+            ConstraintRule::Unique { name, .. } => {
+                validate_constraint_name("unique constraint", name)?;
+                if !unique_names.insert(name.as_str()) {
+                    return Err(invalid(format!("duplicate unique constraint {name}")));
+                }
+            }
+            ConstraintRule::ForeignKey { name, .. } => {
+                validate_constraint_name("foreign key constraint", name)?;
+                if !foreign_key_names.insert(name.as_str()) {
+                    return Err(invalid(format!("duplicate foreign key constraint {name}")));
+                }
+            }
+            ConstraintRule::NotNull { .. } => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_constraint_name(kind: &str, name: &str) -> RsfResult<()> {
+    if name.trim().is_empty() {
+        Err(invalid(format!("{kind} name must not be blank")))
+    } else {
+        Ok(())
+    }
+}
+
 fn validate_rule(table: &TableDescriptor, rule: &ConstraintRule) -> RsfResult<()> {
     match rule {
         ConstraintRule::NotNull { column } => validate_column(table, column),
@@ -203,20 +244,32 @@ fn validate_rule(table: &TableDescriptor, rule: &ConstraintRule) -> RsfResult<()
             if columns.len() != referenced_columns.len() {
                 return Err(invalid("foreign key column count must match reference"));
             }
-            if referenced_columns.is_empty() {
-                return Err(invalid("foreign key must include referenced columns"));
-            }
+            validate_column_names("foreign key reference", referenced_columns)?;
             Ok(())
         }
     }
 }
 
 fn validate_columns(table: &TableDescriptor, columns: &[String]) -> RsfResult<()> {
-    if columns.is_empty() {
-        return Err(invalid("constraint must include at least one column"));
-    }
+    validate_column_names("constraint", columns)?;
     for column in columns {
         validate_column(table, column)?;
+    }
+    Ok(())
+}
+
+fn validate_column_names(kind: &str, columns: &[String]) -> RsfResult<()> {
+    if columns.is_empty() {
+        return Err(invalid(format!("{kind} must include at least one column")));
+    }
+    let mut seen = BTreeSet::new();
+    for column in columns {
+        if column.trim().is_empty() {
+            return Err(invalid(format!("{kind} column name must not be blank")));
+        }
+        if !seen.insert(column.as_str()) {
+            return Err(invalid(format!("{kind} column {column} is duplicated")));
+        }
     }
     Ok(())
 }
@@ -531,6 +584,93 @@ mod tests {
         .expect_err("unknown constraint column should fail");
 
         assert_eq!(err.code, ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn duplicate_constraint_columns_are_error() {
+        let err = ConstraintValidator::new(
+            &table(),
+            vec![ConstraintRule::Unique {
+                name: "bad".to_string(),
+                columns: vec!["name".to_string(), "name".to_string()],
+            }],
+        )
+        .expect_err("duplicate local columns should fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicated"));
+    }
+
+    #[test]
+    fn duplicate_foreign_key_reference_columns_are_error() {
+        let err = ConstraintValidator::new(
+            &table(),
+            vec![ConstraintRule::ForeignKey {
+                name: "bad_reference".to_string(),
+                columns: vec!["id".to_string(), "org_id".to_string()],
+                referenced_table: TableName("orgs".to_string()),
+                referenced_columns: vec!["id".to_string(), "id".to_string()],
+            }],
+        )
+        .expect_err("duplicate referenced columns should fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicated"));
+    }
+
+    #[test]
+    fn blank_constraint_names_are_error() {
+        let err = ConstraintValidator::new(
+            &table(),
+            vec![ConstraintRule::Unique {
+                name: "  ".to_string(),
+                columns: vec!["name".to_string()],
+            }],
+        )
+        .expect_err("blank unique constraint names should fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("must not be blank"));
+    }
+
+    #[test]
+    fn duplicate_named_constraints_are_error() {
+        let err = ConstraintValidator::new(
+            &table(),
+            vec![
+                ConstraintRule::Unique {
+                    name: "users_name".to_string(),
+                    columns: vec!["name".to_string()],
+                },
+                ConstraintRule::Unique {
+                    name: "users_name".to_string(),
+                    columns: vec!["org_id".to_string()],
+                },
+            ],
+        )
+        .expect_err("duplicate unique constraint names should fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("duplicate unique constraint"));
+    }
+
+    #[test]
+    fn multiple_primary_key_rules_are_error() {
+        let err = ConstraintValidator::new(
+            &table(),
+            vec![
+                ConstraintRule::PrimaryKey {
+                    columns: vec!["id".to_string()],
+                },
+                ConstraintRule::PrimaryKey {
+                    columns: vec!["org_id".to_string()],
+                },
+            ],
+        )
+        .expect_err("multiple primary key rules should fail");
+
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(err.message.contains("only one primary key"));
     }
 
     #[test]

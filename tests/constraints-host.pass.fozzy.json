@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "rsf-constraints-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-constraints",
+        "-p",
+        "rsf-write",
+        "-p",
+        "rsf-sql",
+        "-p",
+        "rsf-sqldml",
+        "-p",
+        "rsf-core"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "-p",
+        "rsf-constraints",
+        "-p",
+        "rsf-write",
+        "-p",
+        "rsf-sql",
+        "-p",
+        "rsf-sqldml",
+        "-p",
+        "rsf-core"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}
