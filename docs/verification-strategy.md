@@ -68,6 +68,25 @@ in separate tenant namespaces and verify independent data after reopen.
 Local security command tests verify durable grants, revocation, and audit
 records. Legacy shared data roots fail closed pending explicit migration.
 
+VSR follower tests persist complete binary commands before acknowledging a
+prepare and persist certificates before advancing the committed prefix. They
+reject gaps, conflicting duplicates, stale views, wrong sender identities,
+minority certificates, and malformed bounded wire encodings. A child process
+is forcibly killed after each durable boundary; reopening must recover the
+exact payload and expected commit state. A separate persistence-error test
+checks that an unpublished commit stays invisible and further writes require
+reopening. Reproposal after a locally installed view preserves the command and
+requires new votes. These APIs are prerequisites: the daemon still needs
+network transport, quorum-selected view reconciliation, and state-machine replay.
+
+Storage ownership uses operating-system file locks, retained by a reentrant
+in-process registry for recovery. Lock files remain on disk; file existence
+alone does not indicate a live owner. Process termination releases ownership.
+The registry explicitly unlocks its final handle so a concurrent process spawn
+cannot temporarily retain ownership through an inherited descriptor. All old
+sentinel-lock binaries must be stopped before upgrading an existing store;
+they do not participate in the new operating-system lock protocol.
+
 ## Required Verification Layers
 
 ### Deterministic Simulation

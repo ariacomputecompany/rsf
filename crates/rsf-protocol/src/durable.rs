@@ -1281,7 +1281,13 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         }
 
         let prepare = match cell.prepared(commit.index).cloned() {
-            Some(prepare) if prepare.operation == expected => prepare,
+            Some(prepare) if prepare.operation == expected => {
+                if prepare.view != cell.view() {
+                    cell.reprepare(self.primary, commit.index)?
+                } else {
+                    prepare
+                }
+            }
             Some(_) => {
                 return Err(RsfError::new(
                     ErrorCode::CorruptionDetected,

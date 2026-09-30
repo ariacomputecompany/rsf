@@ -1,3 +1,7 @@
+mod replica;
+
+pub const MAX_REPLICATED_COMMAND_BYTES: usize = 1024 * 1024;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -9,10 +13,25 @@ use rsf_storage::{SegmentStore, SegmentStoreOptions, WalAppend};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VsrOperation {
-    CatalogMutation { namespace: String, item: String },
-    TransactionCommit { key: String },
-    ObjectManifest { bucket: String, key: String },
-    ProtocolOperation { operation_id: OperationId },
+    CatalogMutation {
+        namespace: String,
+        item: String,
+    },
+    TransactionCommit {
+        key: String,
+    },
+    ObjectManifest {
+        bucket: String,
+        key: String,
+    },
+    ProtocolOperation {
+        operation_id: OperationId,
+    },
+    /// Complete, deterministic state-machine input, not a reference to local data.
+    ReplicatedCommand {
+        operation_id: OperationId,
+        payload: Vec<u8>,
+    },
 }
 
 impl VsrOperation {
@@ -22,6 +41,7 @@ impl VsrOperation {
             Self::TransactionCommit { .. } => "transaction-commit",
             Self::ObjectManifest { .. } => "object-manifest",
             Self::ProtocolOperation { .. } => "protocol-operation",
+            Self::ReplicatedCommand { .. } => "replicated-command",
         }
     }
 }
@@ -196,6 +216,8 @@ pub struct VsrCell {
 pub struct DurableVsrCell {
     cell: VsrCell,
     store: SegmentStore,
+    durability_failure: Option<String>,
+    _writer_lock: std::fs::File,
 }
 
 impl VsrCell {
@@ -237,8 +259,20 @@ impl VsrCell {
                 reason: "prepare bytes must be non-zero".to_string(),
             };
         }
+        if let Err(reason) = replica::validate_payload(&operation, bytes) {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason,
+            };
+        }
         let index = LogIndex(self.next_index);
-        self.next_index += 1;
+        let Some(next) = self.next_index.checked_add(1) else {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "VSR log index exhausted".into(),
+            };
+        };
+        self.next_index = next;
         let prepare = VsrPrepare {
             pg: self.pg,
             view: self.view,
@@ -299,6 +333,12 @@ impl VsrCell {
             return VsrDecision::Rejected {
                 node: primary,
                 reason: "commit rejected from non-primary".to_string(),
+            };
+        }
+        if self.committed_tail().0.checked_add(1) != Some(index.0) {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "commit must extend the contiguous prefix".into(),
             };
         }
         let quorum = self.quorum();
@@ -430,10 +470,8 @@ impl VsrCell {
 
     pub fn committed_tail(&self) -> LogIndex {
         self.committed
-            .iter()
-            .map(|commit| commit.index)
-            .max()
-            .unwrap_or(LogIndex(0))
+            .last()
+            .map_or(LogIndex(0), |commit| commit.index)
     }
 
     pub fn replica_count(&self) -> usize {
@@ -480,6 +518,23 @@ impl DurableVsrCell {
         options: SegmentStoreOptions,
     ) -> RsfResult<Self> {
         let path = path.as_ref();
+        if options.log_options.sync_policy == rsf_storage::SyncPolicy::None {
+            return Err(invalid_input("durable VSR requires sync on append"));
+        }
+        std::fs::create_dir_all(path)
+            .map_err(|err| invalid_input(format!("cannot create VSR store: {err}")))?;
+        let writer_lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path.join(".vsr-writer.lock"))
+            .map_err(|err| invalid_input(format!("cannot open VSR writer lock: {err}")))?;
+        writer_lock.try_lock().map_err(|err| {
+            RsfError::new(
+                ErrorCode::QuorumUnavailable,
+                format!("VSR store already has a writer: {err}"),
+            )
+        })?;
         let recovery = SegmentStore::recover(path)?.recovery;
         let records = recovery
             .wal_records
@@ -514,7 +569,33 @@ impl DurableVsrCell {
                     if prepare.pg != pg {
                         return Err(corrupt("vsr prepare payload placement group mismatch"));
                     }
-                    cell.next_index = cell.next_index.max(prepare.index.0 + 1);
+                    replica::validate_payload(&prepare.operation, prepare.bytes)
+                        .map_err(corrupt)?;
+                    if prepare.index.0 == 0
+                        || prepare.bytes == 0
+                        || prepare.index.0 > cell.next_index
+                    {
+                        return Err(corrupt(
+                            "recovered VSR prepare has an invalid index, size, or missing prefix",
+                        ));
+                    }
+                    if let Some(previous) = cell.pending.get(&prepare.index) {
+                        if previous.committed
+                            || (previous.prepare != prepare
+                                && prepare.view <= previous.prepare.view)
+                        {
+                            return Err(corrupt(
+                                "recovered VSR prepare overwrites a committed entry or conflicts within a view",
+                            ));
+                        }
+                    }
+                    cell.next_index = cell.next_index.max(
+                        prepare
+                            .index
+                            .0
+                            .checked_add(1)
+                            .ok_or_else(|| corrupt("VSR index overflow"))?,
+                    );
                     let mut acknowledgements = BTreeSet::new();
                     acknowledgements.insert(prepare.primary);
                     cell.pending.insert(
@@ -541,6 +622,11 @@ impl DurableVsrCell {
                     else {
                         return Err(corrupt("vsr commit recovered without prepare"));
                     };
+                    if cell.committed_tail().0.checked_add(1) != Some(commit.index.0) {
+                        return Err(corrupt(
+                            "recovered VSR commit does not extend the contiguous prefix",
+                        ));
+                    }
                     let quorum = cell.quorum();
                     validate_commit_certificate(&commit, &prepare, &cell.replicas, quorum)?;
                     let pending = cell
@@ -631,6 +717,8 @@ impl DurableVsrCell {
         let mut durable = Self {
             cell,
             store: SegmentStore::open_with_options(path, options)?,
+            durability_failure: None,
+            _writer_lock: writer_lock,
         };
         if records.is_empty() {
             durable.append(WalRecordKind::Membership, &encode_bootstrap(&durable.cell))?;
@@ -644,9 +732,16 @@ impl DurableVsrCell {
         operation: VsrOperation,
         bytes: u32,
     ) -> RsfResult<VsrDecision> {
+        self.ensure_healthy()?;
         let decision = self.cell.prepare(primary, operation, bytes);
         if let VsrDecision::Prepared(prepare) = &decision {
-            self.append(WalRecordKind::Prepare, &encode_prepare(prepare)?)?;
+            let result = encode_prepare(prepare)
+                .and_then(|payload| self.append(WalRecordKind::Prepare, &payload));
+            if let Err(err) = result {
+                self.cell.pending.remove(&prepare.index);
+                self.cell.next_index = prepare.index.0;
+                return Err(err);
+            }
         }
         Ok(decision)
     }
@@ -656,9 +751,16 @@ impl DurableVsrCell {
     }
 
     pub fn commit(&mut self, primary: NodeId, index: LogIndex) -> RsfResult<VsrDecision> {
+        self.ensure_healthy()?;
         let decision = self.cell.commit(primary, index);
         if let VsrDecision::Committed(commit) = &decision {
-            self.append(WalRecordKind::Commit, &encode_commit(commit))?;
+            if let Err(err) = self.append(WalRecordKind::Commit, &encode_commit(commit)) {
+                self.cell.committed.pop();
+                if let Some(pending) = self.cell.pending.get_mut(&index) {
+                    pending.committed = false;
+                }
+                return Err(err);
+            }
         }
         Ok(decision)
     }
@@ -805,6 +907,7 @@ impl DurableVsrCell {
     }
 
     pub fn catch_up_from(&mut self, entries: &[VsrCommittedEntry]) -> RsfResult<usize> {
+        self.ensure_healthy()?;
         let mut applied = 0;
         for entry in entries {
             if entry.prepare.pg != self.cell.pg || entry.commit.pg != self.cell.pg {
@@ -816,6 +919,11 @@ impl DurableVsrCell {
                     ),
                 ));
             }
+            if entry.prepare.view > self.cell.view {
+                return Err(invalid_input(
+                    "install the certified view before transferring its committed prefix",
+                ));
+            }
             if entry.prepare.index != entry.commit.index {
                 return Err(corrupt("catch-up prepare and commit index mismatch"));
             }
@@ -825,30 +933,39 @@ impl DurableVsrCell {
                 &self.cell.replicas,
                 self.cell.quorum(),
             )?;
-            if self
-                .cell
-                .pending
-                .get(&entry.prepare.index)
-                .is_some_and(|pending| pending.committed)
-            {
-                continue;
-            }
-            if let Some(pending) = self.cell.pending.get(&entry.prepare.index) {
-                if pending.prepare.operation != entry.prepare.operation {
+            let pending = self.cell.pending.get(&entry.prepare.index);
+            if pending.is_some_and(|pending| pending.committed) {
+                if pending.unwrap().prepare != entry.prepare {
                     return Err(corrupt(
-                        "catch-up prepare conflicts with existing operation at index",
+                        "catch-up conflicts with an already committed prepare",
                     ));
                 }
-            } else {
-                self.append(WalRecordKind::Prepare, &encode_prepare(&entry.prepare)?)?;
-                self.cell.next_index = self.cell.next_index.max(entry.prepare.index.0 + 1);
-                let mut acknowledgements = BTreeSet::new();
-                acknowledgements.insert(entry.prepare.primary);
+                continue;
+            }
+            if self.cell.committed_tail().0.checked_add(1) != Some(entry.prepare.index.0) {
+                return Err(corrupt(
+                    "catch-up must transfer a contiguous committed prefix",
+                ));
+            }
+            let next = entry
+                .prepare
+                .index
+                .0
+                .checked_add(1)
+                .ok_or_else(|| corrupt("VSR index overflow"))?;
+            if pending.is_none_or(|pending| pending.prepare != entry.prepare) {
+                if pending.is_some_and(|pending| pending.prepare.view >= entry.prepare.view) {
+                    return Err(corrupt(
+                        "catch-up conflicts with an existing prepare in the same or newer view",
+                    ));
+                }
+                self.append(WalRecordKind::Prepare, &entry.prepare.encode()?)?;
+                self.cell.next_index = self.cell.next_index.max(next);
                 self.cell.pending.insert(
                     entry.prepare.index,
                     PendingPrepare {
                         prepare: entry.prepare.clone(),
-                        acknowledgements,
+                        acknowledgements: entry.commit.certificate.signers.clone(),
                         committed: false,
                     },
                 );
@@ -931,20 +1048,40 @@ impl DurableVsrCell {
             .map(|pending| &pending.prepare)
     }
 
+    fn ensure_healthy(&self) -> RsfResult<()> {
+        match &self.durability_failure {
+            Some(reason) => Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                format!("VSR durability failed; reopen before further operations: {reason}"),
+            )),
+            None => Ok(()),
+        }
+    }
+
     fn append(&mut self, kind: WalRecordKind, payload: &[u8]) -> RsfResult<()> {
-        let recovery = self.store.recover_current()?.recovery;
-        let tail = recovery.pg_tail(self.cell.pg);
-        let previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-        let index = LogIndex(tail.map_or(1, |tail| tail.index.0 + 1));
-        self.store.append_wal(WalAppend {
-            pg: self.cell.pg,
-            epoch: self.cell.view,
-            index,
-            kind,
-            previous_hash,
-            payload,
-        })?;
-        Ok(())
+        self.ensure_healthy()?;
+        let result: RsfResult<()> = (|| {
+            let recovery = self.store.recover_current()?.recovery;
+            let tail = recovery.pg_tail(self.cell.pg);
+            let previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
+            let index = LogIndex(
+                tail.map_or(Some(1), |tail| tail.index.0.checked_add(1))
+                    .ok_or_else(|| invalid_input("VSR physical log index exhausted"))?,
+            );
+            self.store.append_wal(WalAppend {
+                pg: self.cell.pg,
+                epoch: self.cell.view,
+                index,
+                kind,
+                previous_hash,
+                payload,
+            })?;
+            Ok(())
+        })();
+        if let Err(err) = &result {
+            self.durability_failure = Some(err.message.clone());
+        }
+        result
     }
 }
 
@@ -1301,6 +1438,16 @@ fn encode_operation(operation: &VsrOperation, out: &mut Vec<u8>) -> RsfResult<()
             out.push(4);
             out.extend_from_slice(&operation_id.0.to_le_bytes());
         }
+        VsrOperation::ReplicatedCommand {
+            operation_id,
+            payload,
+        } => {
+            replica::validate_payload(operation, payload.len() as u32).map_err(invalid_input)?;
+            out.push(5);
+            out.extend_from_slice(&operation_id.0.to_le_bytes());
+            out.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+            out.extend_from_slice(payload);
+        }
     }
     Ok(())
 }
@@ -1331,6 +1478,29 @@ fn decode_operation(bytes: &[u8], offset: usize) -> RsfResult<(VsrOperation, usi
             },
             offset + 8,
         )),
+        5 => {
+            let operation_id = OperationId(read_u64(bytes, offset)?);
+            let len = usize::try_from(read_u64(bytes, offset + 8)?)
+                .map_err(|_| corrupt("command length overflow"))?;
+            if len == 0 || len > MAX_REPLICATED_COMMAND_BYTES {
+                return Err(corrupt("replicated command exceeds payload bounds"));
+            }
+            let start = offset + 16;
+            let end = start
+                .checked_add(len)
+                .ok_or_else(|| corrupt("command length overflow"))?;
+            let payload = bytes
+                .get(start..end)
+                .ok_or_else(|| corrupt("replicated command is truncated"))?
+                .to_vec();
+            Ok((
+                VsrOperation::ReplicatedCommand {
+                    operation_id,
+                    payload,
+                },
+                end,
+            ))
+        }
         _ => Err(corrupt("unknown vsr operation tag")),
     }
 }
@@ -1347,7 +1517,9 @@ fn read_string(bytes: &[u8], offset: usize) -> RsfResult<(String, usize)> {
     let len = usize::try_from(read_u64(bytes, offset)?)
         .map_err(|_| corrupt("vsr string length does not fit in memory"))?;
     let start = offset + 8;
-    let end = start + len;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| corrupt("vsr string length overflow"))?;
     let raw = bytes
         .get(start..end)
         .ok_or_else(|| corrupt("vsr string ended early"))?;
@@ -1378,7 +1550,9 @@ fn read_nodes(bytes: &[u8], offset: usize) -> RsfResult<(BTreeSet<NodeId>, usize
 }
 
 fn read_u64(bytes: &[u8], start: usize) -> RsfResult<u64> {
-    let end = start + 8;
+    let end = start
+        .checked_add(8)
+        .ok_or_else(|| corrupt("vsr u64 offset overflow"))?;
     let value = bytes
         .get(start..end)
         .ok_or_else(|| corrupt("vsr payload ended while reading u64"))?;
@@ -1386,7 +1560,9 @@ fn read_u64(bytes: &[u8], start: usize) -> RsfResult<u64> {
 }
 
 fn read_u32(bytes: &[u8], start: usize) -> RsfResult<u32> {
-    let end = start + 4;
+    let end = start
+        .checked_add(4)
+        .ok_or_else(|| corrupt("vsr u32 offset overflow"))?;
     let value = bytes
         .get(start..end)
         .ok_or_else(|| corrupt("vsr payload ended while reading u32"))?;
@@ -2627,7 +2803,7 @@ mod tests {
     fn tiny_store_options() -> SegmentStoreOptions {
         SegmentStoreOptions {
             log_options: SegmentLogOptions {
-                sync_policy: SyncPolicy::None,
+                sync_policy: SyncPolicy::Data,
             },
             max_segment_bytes: 1,
         }

@@ -474,51 +474,63 @@ pub(crate) struct SegmentLock {
     path: PathBuf,
 }
 
+// Recovery reenters a store's lock within this process. Keep the owning file in
+// the registry until the final handle drops; the kernel releases it on crash.
+struct SegmentLockOwner {
+    references: usize,
+    _file: File,
+}
+
+impl Drop for SegmentLockOwner {
+    fn drop(&mut self) {
+        // A concurrent process spawn can briefly inherit this descriptor before
+        // exec closes it. Explicit unlock releases ownership at the last local
+        // handle, even during that interval.
+        let _ = self._file.unlock();
+    }
+}
+
 impl SegmentLock {
     fn acquire(segment_path: &Path) -> RsfResult<Self> {
         let lock_path = segment_path.with_extension("lock");
-        let registry = lock_registry();
-        let mut registry = registry.lock().map_err(|_| {
-            RsfError::new(ErrorCode::InvalidInput, "segment lock registry is poisoned")
-        })?;
-        if let Some(count) = registry.get_mut(&lock_path) {
-            *count += 1;
-            return Ok(Self { path: lock_path });
-        }
-
-        if let Some(parent) = lock_path.parent() {
+        if let Some(parent) = lock_path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
             std::fs::create_dir_all(parent)
                 .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         }
-
-        match OpenOptions::new()
+        let file = OpenOptions::new()
             .write(true)
-            .create_new(true)
+            .create(true)
+            .truncate(false)
             .open(&lock_path)
-            .and_then(|mut file| {
-                file.write_all(std::process::id().to_string().as_bytes())?;
-                file.sync_data()
-            }) {
-            Ok(()) => {
-                registry.insert(lock_path.clone(), 1);
-            }
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-                if std::fs::read_to_string(&lock_path)
-                    .ok()
-                    .is_some_and(|owner| owner == std::process::id().to_string())
-                {
-                    registry.insert(lock_path.clone(), 1);
-                } else {
-                    return Err(RsfError::new(
-                        ErrorCode::InvalidInput,
-                        format!("segment lock already held at {}", lock_path.display()),
-                    ));
-                }
-            }
-            Err(err) => {
-                return Err(storage_error(StorageIoOperation::Lock, err));
-            }
+            .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
+        let lock_path = std::fs::canonicalize(&lock_path)
+            .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
+        let mut registry = lock_registry().lock().map_err(|_| {
+            RsfError::new(ErrorCode::InvalidInput, "segment lock registry is poisoned")
+        })?;
+        if let Some(owner) = registry.get_mut(&lock_path) {
+            owner.references += 1;
+            return Ok(Self { path: lock_path });
         }
+        file.try_lock().map_err(|err| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!(
+                    "segment lock already held or unavailable at {}: {err}",
+                    lock_path.display()
+                ),
+            )
+        })?;
+        registry.insert(
+            lock_path.clone(),
+            SegmentLockOwner {
+                references: 1,
+                _file: file,
+            },
+        );
         Ok(Self { path: lock_path })
     }
 }
@@ -528,19 +540,19 @@ impl Drop for SegmentLock {
         let Ok(mut registry) = lock_registry().lock() else {
             return;
         };
-        let Some(count) = registry.get_mut(&self.path) else {
+        let Some(owner) = registry.get_mut(&self.path) else {
             return;
         };
-        *count -= 1;
-        if *count == 0 {
+        owner.references -= 1;
+        if owner.references == 0 {
             registry.remove(&self.path);
-            let _ = std::fs::remove_file(&self.path);
+            // Never unlink: another process may already have opened this inode.
         }
     }
 }
 
-fn lock_registry() -> &'static Mutex<BTreeMap<PathBuf, usize>> {
-    static LOCKS: OnceLock<Mutex<BTreeMap<PathBuf, usize>>> = OnceLock::new();
+fn lock_registry() -> &'static Mutex<BTreeMap<PathBuf, SegmentLockOwner>> {
+    static LOCKS: OnceLock<Mutex<BTreeMap<PathBuf, SegmentLockOwner>>> = OnceLock::new();
     LOCKS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
@@ -1841,7 +1853,8 @@ mod tests {
         assert!(std::fs::metadata(path.with_extension("lock")).is_ok());
 
         drop(log);
-        assert!(std::fs::metadata(path.with_extension("lock")).is_err());
+        assert!(std::fs::metadata(path.with_extension("lock")).is_ok());
+        drop(SegmentLog::open(&path).unwrap());
 
         let _ = std::fs::remove_file(path);
     }
@@ -1849,7 +1862,13 @@ mod tests {
     #[test]
     fn external_segment_lock_blocks_open_and_recovery() {
         let path = test_path("external_segment_lock_blocks_open_and_recovery");
-        std::fs::write(path.with_extension("lock"), b"external-owner").unwrap();
+        let external = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_extension("lock"))
+            .unwrap();
+        external.try_lock().unwrap();
 
         let err = SegmentLog::open(&path).unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidInput);
@@ -1859,7 +1878,8 @@ mod tests {
         assert_eq!(err.code, ErrorCode::InvalidInput);
         assert!(err.message.contains("segment lock already held"));
 
-        let _ = std::fs::remove_file(path.with_extension("lock"));
+        drop(external);
+        drop(SegmentLog::open(&path).unwrap());
         let _ = std::fs::remove_file(path);
     }
 

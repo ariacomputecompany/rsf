@@ -1503,6 +1503,7 @@ mod tests {
         assert!(durable_audit_after_first.iter().any(|record| {
             record.event.service == "control" && record.event.action == "policy.reconcile.completed"
         }));
+        drop(router);
 
         run_cli(&[
             "policy".to_string(),
