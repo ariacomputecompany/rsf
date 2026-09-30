@@ -99,6 +99,7 @@ impl Authorization {
 pub struct AuthEngine {
     principals: BTreeMap<PrincipalId, Principal>,
     grants: Vec<Grant>,
+    certificates: BTreeMap<[u8; 32], PrincipalId>,
 }
 
 impl AuthEngine {
@@ -118,6 +119,69 @@ impl AuthEngine {
         }
         self.grants.push(grant);
         Ok(())
+    }
+
+    pub fn bind_certificate(
+        &mut self,
+        fingerprint: [u8; 32],
+        principal: PrincipalId,
+    ) -> RsfResult<()> {
+        if fingerprint == [0; 32] || !self.principals.contains_key(&principal) {
+            return Err(invalid(
+                "certificate binding requires a nonzero SHA-256 fingerprint and registered principal",
+            ));
+        }
+        if self
+            .certificates
+            .get(&fingerprint)
+            .is_some_and(|existing| existing != &principal)
+        {
+            return Err(invalid("certificate is already bound to another principal"));
+        }
+        self.certificates.insert(fingerprint, principal);
+        Ok(())
+    }
+
+    pub fn revoke_certificate(&mut self, fingerprint: &[u8; 32]) {
+        self.certificates.remove(fingerprint);
+    }
+
+    pub fn revoke_grant(&mut self, grant: &Grant) {
+        self.grants.retain(|existing| existing != grant);
+    }
+
+    /// The transport must verify possession, trust chain, and certificate validity
+    /// before supplying the SHA-256 fingerprint of the peer's leaf certificate.
+    pub fn authorize_certificate(
+        &self,
+        fingerprint: &[u8; 32],
+        request: &AccessRequest,
+    ) -> Authorization {
+        if self.certificates.get(fingerprint) != Some(&request.principal) {
+            return Authorization::Denied {
+                reason: "client certificate is not bound to the requested principal".into(),
+            };
+        }
+        if self.grants.iter().any(|grant| grant.allows(request)) {
+            Authorization::Allowed
+        } else {
+            Authorization::Denied {
+                reason: "no matching grant".into(),
+            }
+        }
+    }
+
+    pub fn recover(path: impl AsRef<Path>) -> RsfResult<Self> {
+        let recovery = SegmentStore::recover(path)?.recovery;
+        let mut auth = Self::default();
+        for record in recovery
+            .wal_records
+            .iter()
+            .filter(|r| r.pg == AUTH_PG && r.kind == WalRecordKind::Auth)
+        {
+            apply_auth_record(&mut auth, decode_auth_wal_payload(&record.payload)?)?;
+        }
+        Ok(auth)
     }
 
     pub fn issue_token(
@@ -226,6 +290,36 @@ impl DurableAuthEngine {
         Ok(())
     }
 
+    pub fn bind_certificate(
+        &mut self,
+        fingerprint: [u8; 32],
+        principal: PrincipalId,
+    ) -> RsfResult<()> {
+        let mut auth = self.auth.clone();
+        auth.bind_certificate(fingerprint, principal.clone())?;
+        self.append_record(&AuthWalRecord::CertificateBound {
+            fingerprint,
+            principal,
+        })?;
+        self.auth = auth;
+        Ok(())
+    }
+
+    pub fn revoke_certificate(&mut self, fingerprint: [u8; 32]) -> RsfResult<()> {
+        self.append_record(&AuthWalRecord::CertificateRevoked { fingerprint })?;
+        self.auth.revoke_certificate(&fingerprint);
+        Ok(())
+    }
+
+    pub fn revoke_grant(&mut self, grant: Grant) -> RsfResult<()> {
+        validate_grant_shape(&grant)?;
+        self.append_record(&AuthWalRecord::GrantRevoked {
+            grant: grant.clone(),
+        })?;
+        self.auth.revoke_grant(&grant);
+        Ok(())
+    }
+
     pub fn issue_token(
         &self,
         principal: &PrincipalId,
@@ -269,14 +363,40 @@ impl DurableAuthEngine {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum AuthWalRecord {
-    PrincipalRegistered { principal: Principal },
-    GrantAdded { grant: Grant },
+    PrincipalRegistered {
+        principal: Principal,
+    },
+    GrantAdded {
+        grant: Grant,
+    },
+    CertificateBound {
+        fingerprint: [u8; 32],
+        principal: PrincipalId,
+    },
+    CertificateRevoked {
+        fingerprint: [u8; 32],
+    },
+    GrantRevoked {
+        grant: Grant,
+    },
 }
 
 fn apply_auth_record(auth: &mut AuthEngine, record: AuthWalRecord) -> RsfResult<()> {
     match record {
         AuthWalRecord::PrincipalRegistered { principal } => auth.register_principal(principal),
         AuthWalRecord::GrantAdded { grant } => auth.grant(grant),
+        AuthWalRecord::CertificateBound {
+            fingerprint,
+            principal,
+        } => auth.bind_certificate(fingerprint, principal),
+        AuthWalRecord::CertificateRevoked { fingerprint } => {
+            auth.revoke_certificate(&fingerprint);
+            Ok(())
+        }
+        AuthWalRecord::GrantRevoked { grant } => {
+            auth.revoke_grant(&grant);
+            Ok(())
+        }
     }
 }
 
@@ -291,6 +411,22 @@ fn encode_auth_wal_payload(record: &AuthWalRecord) -> RsfResult<Vec<u8>> {
         }
         AuthWalRecord::GrantAdded { grant } => {
             out.push(2);
+            encode_grant(grant, &mut out)?;
+        }
+        AuthWalRecord::CertificateBound {
+            fingerprint,
+            principal,
+        } => {
+            out.push(3);
+            out.extend_from_slice(fingerprint);
+            write_string(&principal.0, &mut out)?;
+        }
+        AuthWalRecord::CertificateRevoked { fingerprint } => {
+            out.push(4);
+            out.extend_from_slice(fingerprint);
+        }
+        AuthWalRecord::GrantRevoked { grant } => {
+            out.push(5);
             encode_grant(grant, &mut out)?;
         }
     }
@@ -317,6 +453,25 @@ fn decode_auth_wal_payload(bytes: &[u8]) -> RsfResult<AuthWalRecord> {
             principal: decode_principal(bytes, &mut offset)?,
         },
         2 => AuthWalRecord::GrantAdded {
+            grant: decode_grant(bytes, &mut offset)?,
+        },
+        3 | 4 => {
+            let fingerprint = bytes
+                .get(offset..offset + 32)
+                .ok_or_else(|| corrupt("truncated certificate fingerprint"))?
+                .try_into()
+                .map_err(|_| corrupt("invalid certificate fingerprint"))?;
+            offset += 32;
+            if kind == 3 {
+                AuthWalRecord::CertificateBound {
+                    fingerprint,
+                    principal: PrincipalId(read_string(bytes, &mut offset)?),
+                }
+            } else {
+                AuthWalRecord::CertificateRevoked { fingerprint }
+            }
+        }
+        5 => AuthWalRecord::GrantRevoked {
             grant: decode_grant(bytes, &mut offset)?,
         },
         other => {
@@ -537,6 +692,114 @@ fn corrupt(message: impl Into<String>) -> RsfError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn certificate_binding_and_revocation_survive_restart() {
+        let path = test_path("certificate_revocation");
+        let principal = PrincipalId("client".into());
+        let grant = Grant {
+            principal: principal.clone(),
+            capability: Capability::NamespaceRead,
+            resource: Resource::Namespace("a".into()),
+        };
+        let request = AccessRequest {
+            principal: principal.clone(),
+            capability: grant.capability.clone(),
+            resource: Resource::surface("a", "kv").unwrap(),
+        };
+        let mut durable = DurableAuthEngine::open(&path, Epoch(1)).unwrap();
+        durable
+            .register_principal(Principal {
+                id: principal.clone(),
+                kind: PrincipalKind::Service,
+            })
+            .unwrap();
+        durable.grant(grant.clone()).unwrap();
+        durable
+            .bind_certificate([1; 32], principal.clone())
+            .unwrap();
+        drop(durable);
+        let recovered = AuthEngine::recover(&path).unwrap();
+        assert!(
+            recovered
+                .authorize_certificate(&[1; 32], &request)
+                .is_allowed()
+        );
+        assert!(
+            !recovered
+                .authorize_certificate(&[2; 32], &request)
+                .is_allowed()
+        );
+        let mut spoofed = request.clone();
+        spoofed.principal = PrincipalId("admin".into());
+        assert!(
+            !recovered
+                .authorize_certificate(&[1; 32], &spoofed)
+                .is_allowed()
+        );
+        let mut other = request.clone();
+        other.resource = Resource::surface("b", "kv").unwrap();
+        assert!(
+            !recovered
+                .authorize_certificate(&[1; 32], &other)
+                .is_allowed()
+        );
+        let mut durable = DurableAuthEngine::open(&path, Epoch(1)).unwrap();
+        durable.bind_certificate([2; 32], principal).unwrap();
+        durable.revoke_certificate([1; 32]).unwrap();
+        drop(durable);
+        let recovered = AuthEngine::recover(&path).unwrap();
+        assert!(
+            !recovered
+                .authorize_certificate(&[1; 32], &request)
+                .is_allowed()
+        );
+        assert!(
+            recovered
+                .authorize_certificate(&[2; 32], &request)
+                .is_allowed()
+        );
+        let mut durable = DurableAuthEngine::open(&path, Epoch(1)).unwrap();
+        durable.revoke_grant(grant).unwrap();
+        drop(durable);
+        assert!(
+            !AuthEngine::recover(&path)
+                .unwrap()
+                .authorize_certificate(&[2; 32], &request)
+                .is_allowed()
+        );
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn conflicting_certificate_binding_is_rejected_without_changing_owner() {
+        let mut auth = AuthEngine::default();
+        for name in ["alice", "bob"] {
+            auth.register_principal(Principal {
+                id: PrincipalId(name.into()),
+                kind: PrincipalKind::User,
+            })
+            .unwrap();
+        }
+        auth.bind_certificate([1; 32], PrincipalId("alice".into()))
+            .unwrap();
+        assert!(
+            auth.bind_certificate([1; 32], PrincipalId("bob".into()))
+                .is_err()
+        );
+        assert!(
+            auth.bind_certificate([0; 32], PrincipalId("alice".into()))
+                .is_err()
+        );
+        assert!(
+            auth.bind_certificate([2; 32], PrincipalId("unknown".into()))
+                .is_err()
+        );
+        assert_eq!(
+            auth.certificates.get(&[1; 32]),
+            Some(&PrincipalId("alice".into()))
+        );
+    }
 
     #[test]
     fn namespace_grant_authorizes_surface_request() {

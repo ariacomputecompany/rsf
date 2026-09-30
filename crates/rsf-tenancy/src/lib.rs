@@ -136,6 +136,25 @@ impl TenancyCatalog {
         Ok(binding)
     }
 
+    pub fn namespace(&self, name: &str) -> RsfResult<&NamespaceBinding> {
+        self.namespaces
+            .get(&NamespaceName(name.to_string()))
+            .ok_or_else(|| invalid("namespace is not registered"))
+    }
+
+    pub fn recover(path: impl AsRef<Path>) -> RsfResult<Self> {
+        let recovery = SegmentStore::recover(path)?.recovery;
+        let mut catalog = Self::default();
+        for record in recovery
+            .wal_records
+            .iter()
+            .filter(|r| r.pg == TENANCY_PG && r.kind == WalRecordKind::Tenancy)
+        {
+            apply_tenancy_record(&mut catalog, decode_tenancy_wal_payload(&record.payload)?)?;
+        }
+        Ok(catalog)
+    }
+
     pub fn requires_surface(
         &self,
         tenant: &TenantName,

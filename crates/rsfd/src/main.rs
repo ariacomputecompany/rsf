@@ -3,6 +3,12 @@
 mod config;
 mod daemon;
 mod data;
+mod security;
+#[cfg(test)]
+mod security_tests;
+#[cfg(test)]
+mod test_support;
+mod tls;
 
 use config::{ServeConfigOverrides, resolve_daemon_config};
 use daemon::{OperatorProfile, run_daemon};
@@ -32,13 +38,16 @@ fn run_cli(args: &[String]) -> Result<(), String> {
         [command, rest @ ..] if command == "serve" => run_serve_cli(rest),
         [command, rest @ ..] if command == "policy" => run_policy_cli(rest),
         [command, rest @ ..] if command == "audit" => run_audit_cli(rest),
+        [command, rest @ ..] if command == "auth" || command == "namespace" => {
+            security::run_cli(command, rest)
+        }
         [command, rest @ ..] if command == "upgrade" => run_upgrade_cli(rest),
         _ => Err(usage()),
     }
 }
 
 fn usage() -> String {
-    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--data-listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | policy]"
+    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--data-listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | policy | auth <register|bind|revoke-certificate|grant|revoke-grant> --state <dir> | namespace create --state <dir> --tenant <name> --database <name> --namespace <name> --region <id> --surfaces <sql,kv,object,blob>]"
         .to_string()
 }
 
@@ -1099,6 +1108,7 @@ mod tests {
         assert_eq!(audit[0].event.action, "cluster.init");
         assert_eq!(audit[0].event.node, Some(admin.cluster_map().nodes[0].id));
 
+        crate::test_support::provision(&state);
         assert_eq!(catalog.current().min_replicas, 1);
         let snapshot = daemon::load_snapshot(&state).expect("standalone runtime opens after init");
         assert!(snapshot.ready);
@@ -1107,7 +1117,7 @@ mod tests {
         let addr = listener.local_addr();
         let frame = encode_data_frame(RawFrame::with_body(
             WireProtocol::Kv,
-            "client",
+            "app-client",
             Some("app".into()),
             "SET first",
             Some("first-write".into()),
@@ -1122,7 +1132,7 @@ mod tests {
         let addr = listener.local_addr();
         let frame = encode_data_frame(RawFrame::new(
             WireProtocol::Kv,
-            "client",
+            "app-client",
             Some("app".into()),
             "GET first",
             None,
@@ -1173,7 +1183,7 @@ mod tests {
                 let addr = listener.local_addr();
                 let frame = encode_data_frame(RawFrame::new(
                     WireProtocol::Kv,
-                    "client",
+                    "app-client",
                     Some("app".into()),
                     "GET first",
                     None,
@@ -1199,7 +1209,7 @@ mod tests {
             let addr = listener.local_addr();
             let frame = encode_data_frame(RawFrame::new(
                 WireProtocol::Kv,
-                "client",
+                "app-client",
                 Some("app".into()),
                 "GET first",
                 None,
@@ -1210,7 +1220,7 @@ mod tests {
             assert_eq!(response_payload(&client.join().unwrap()), b"durable");
             let frame = encode_data_frame(RawFrame::with_body(
                 WireProtocol::Kv,
-                "client",
+                "app-client",
                 Some("app".into()),
                 "SET grown",
                 Some(format!("write-{count}")),
@@ -2318,7 +2328,7 @@ mod tests {
         out
     }
 
-    fn response_payload(response: &str) -> Vec<u8> {
+    pub(crate) fn response_payload(response: &str) -> Vec<u8> {
         let encoded = response
             .split_whitespace()
             .find_map(|field| field.strip_prefix("payload_hex="))
@@ -2331,18 +2341,15 @@ mod tests {
     }
 
     fn send_data_frame(addr: std::net::SocketAddr, frame: Vec<u8>) -> String {
-        let mut stream = TcpStream::connect(addr).expect("connect data listener");
-        let len = u32::try_from(frame.len())
-            .expect("test frame length fits u32")
-            .to_le_bytes();
-        stream.write_all(&len).expect("write frame length");
-        stream.write_all(&frame).expect("write frame");
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
-        response
+        crate::test_support::send(addr, &frame, crate::test_support::pki().client.clone())
+            .expect("authenticated TLS request")
     }
 
-    fn wait_for_data_request(listener: &data::DataPlaneListener, out: &mut Vec<u8>, label: &str) {
+    pub(crate) fn wait_for_data_request(
+        listener: &data::DataPlaneListener,
+        out: &mut Vec<u8>,
+        label: &str,
+    ) {
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         loop {
             let served = listener
@@ -2530,7 +2537,7 @@ mod tests {
         assert!(err.contains("state path does not exist"));
     }
 
-    fn test_path(name: &str) -> std::path::PathBuf {
+    pub(crate) fn test_path(name: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
@@ -2538,7 +2545,7 @@ mod tests {
         std::env::temp_dir().join(format!("rsfd-{name}-{}-{nonce}", std::process::id()))
     }
 
-    fn bootstrap_three_nodes(state: &str) {
+    pub(crate) fn bootstrap_three_nodes(state: &str) {
         run_cli(&[
             "init".to_string(),
             "--state".to_string(),
@@ -2565,6 +2572,7 @@ mod tests {
         ] {
             run_cli(&join_args(state, key, nonce, zone)).expect("join node");
         }
+        crate::test_support::provision(std::path::Path::new(state));
     }
 
     fn join_args(state: &str, key: &str, nonce: &str, zone: &str) -> Vec<String> {

@@ -2821,6 +2821,15 @@ struct EqualityPredicate {
     value: String,
 }
 
+/// Classifies a statement using the execution parser, for authorization before
+/// opening a namespace's durable SQL state.
+pub fn statement_is_read_only(statement: &str) -> RsfResult<bool> {
+    Ok(matches!(
+        parse_statement(statement)?,
+        ParsedStatement::Select { .. }
+    ))
+}
+
 fn parse_statement(statement: &str) -> RsfResult<ParsedStatement> {
     let trimmed = statement.trim().trim_end_matches(';').trim();
     let uppercase = trimmed.to_ascii_uppercase();

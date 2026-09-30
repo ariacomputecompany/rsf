@@ -21,10 +21,13 @@ pub struct DataPlaneListener {
     codec: WireCodec,
     adapter: WireAdapter,
     executor: DataPlaneExecutor,
+    tls: std::sync::Arc<rustls::ServerConfig>,
 }
 
 impl DataPlaneListener {
     pub fn bind(addr: SocketAddr, state: impl Into<PathBuf>) -> Result<Self, String> {
+        let state = state.into();
+        let tls = crate::tls::server_config(&state)?;
         let listener = TcpListener::bind(addr)
             .map_err(|err| format!("failed to bind daemon data listener {addr}: {err}"))?;
         listener
@@ -35,6 +38,7 @@ impl DataPlaneListener {
             codec: WireCodec,
             adapter: WireAdapter,
             executor: DataPlaneExecutor::new(state),
+            tls,
         })
     }
 
@@ -49,8 +53,17 @@ impl DataPlaneListener {
         loop {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
-                    let response =
-                        serve_data_stream(stream, &self.codec, &self.adapter, &self.executor)?;
+                    let response = serve_data_stream(
+                        stream,
+                        &self.codec,
+                        &self.adapter,
+                        &self.executor,
+                        self.tls.clone(),
+                    )
+                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
+                        protocol: "tls",
+                        reason: format!("secure connection failed: {err}"),
+                    });
                     emit_data_plane_response(out, peer, &response)?;
                     served = served.saturating_add(1);
                 }
@@ -93,7 +106,13 @@ impl DataPlaneExecutor {
         }
     }
 
-    fn execute(&self, envelope: RequestEnvelope) -> DataPlaneResponse {
+    fn execute(&self, envelope: RequestEnvelope, fingerprint: &[u8; 32]) -> DataPlaneResponse {
+        if let Err(err) = crate::security::authorize(&self.state, fingerprint, &envelope) {
+            return DataPlaneResponse::Rejected {
+                protocol: envelope.protocol.as_str(),
+                reason: err.message,
+            };
+        }
         match envelope.protocol {
             WireProtocol::Sql => {
                 self.execute_sql(envelope)
@@ -134,7 +153,12 @@ impl DataPlaneExecutor {
     fn execute_sql(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         ensure_empty_body(&envelope.body, "sql")?;
         let request_client = sql_request_client_from_envelope(&envelope)?;
-        let mut runtime = self.open_sql_runtime()?;
+        let mut runtime = self.open_sql_runtime(
+            envelope
+                .namespace
+                .as_deref()
+                .ok_or_else(|| invalid("namespace is required"))?,
+        )?;
         let execution = runtime.sql.execute(
             &mut runtime.router,
             PlacementGroupId(1),
@@ -165,7 +189,12 @@ impl DataPlaneExecutor {
 
     fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         let command = parse_kv_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_kv_runtime()?;
+        let mut runtime = self.open_kv_runtime(
+            envelope
+                .namespace
+                .as_deref()
+                .ok_or_else(|| invalid("namespace is required"))?,
+        )?;
         match command {
             KvCommand::Get { key } => {
                 let value = runtime.kv.get(key.as_bytes());
@@ -249,7 +278,12 @@ impl DataPlaneExecutor {
 
     fn execute_blob(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         let command = parse_blob_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_blob_runtime()?;
+        let mut runtime = self.open_blob_runtime(
+            envelope
+                .namespace
+                .as_deref()
+                .ok_or_else(|| invalid("namespace is required"))?,
+        )?;
         match command {
             BlobCommand::Put { name: _, bytes } => {
                 let record = runtime
@@ -289,7 +323,12 @@ impl DataPlaneExecutor {
 
     fn execute_object(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         let command = parse_object_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_object_runtime()?;
+        let mut runtime = self.open_object_runtime(
+            envelope
+                .namespace
+                .as_deref()
+                .ok_or_else(|| invalid("namespace is required"))?,
+        )?;
         match command {
             ObjectCommand::CreateBucket { bucket } => {
                 let record = runtime.objects.create_bucket(
@@ -366,27 +405,36 @@ impl DataPlaneExecutor {
         }
     }
 
-    fn open_kv_runtime(&self) -> RsfResult<KvRuntime> {
+    fn open_kv_runtime(&self, namespace: &str) -> RsfResult<KvRuntime> {
         let (router, epoch) = self.open_router()?;
-        let kv = DurableKvEngine::open(self.state.join("kv"), epoch)?;
+        let kv = DurableKvEngine::open(
+            crate::security::namespace_root(&self.state, namespace).join("kv"),
+            epoch,
+        )?;
         Ok(KvRuntime { router, kv })
     }
 
-    fn open_sql_runtime(&self) -> RsfResult<SqlRuntime> {
+    fn open_sql_runtime(&self, namespace: &str) -> RsfResult<SqlRuntime> {
         let (router, _) = self.open_router()?;
-        let sql = DurableSqlEngine::open(self.state.join("sql"))?;
+        let sql = DurableSqlEngine::open(
+            crate::security::namespace_root(&self.state, namespace).join("sql"),
+        )?;
         Ok(SqlRuntime { router, sql })
     }
 
-    fn open_blob_runtime(&self) -> RsfResult<BlobRuntime> {
+    fn open_blob_runtime(&self, namespace: &str) -> RsfResult<BlobRuntime> {
         let (router, _) = self.open_router()?;
-        let blobs = DurableBlobEngine::open(self.state.join("blob"))?;
+        let blobs = DurableBlobEngine::open(
+            crate::security::namespace_root(&self.state, namespace).join("blob"),
+        )?;
         Ok(BlobRuntime { router, blobs })
     }
 
-    fn open_object_runtime(&self) -> RsfResult<ObjectRuntime> {
+    fn open_object_runtime(&self, namespace: &str) -> RsfResult<ObjectRuntime> {
         let (router, _) = self.open_router()?;
-        let objects = DurableObjectStore::open(self.state.join("object"))?;
+        let objects = DurableObjectStore::open(
+            crate::security::namespace_root(&self.state, namespace).join("object"),
+        )?;
         Ok(ObjectRuntime { router, objects })
     }
 
@@ -477,7 +525,11 @@ fn serve_data_stream(
     codec: &WireCodec,
     adapter: &WireAdapter,
     executor: &DataPlaneExecutor,
+    tls: std::sync::Arc<rustls::ServerConfig>,
 ) -> Result<DataPlaneResponse, String> {
+    stream
+        .set_nonblocking(false)
+        .map_err(|err| format!("failed to configure data socket: {err}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|err| format!("failed to configure data read timeout: {err}"))?;
@@ -485,25 +537,38 @@ fn serve_data_stream(
         .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|err| format!("failed to configure data write timeout: {err}"))?;
 
+    let mut connection = rustls::ServerConnection::new(tls).map_err(|err| err.to_string())?;
+    while connection.is_handshaking() {
+        connection
+            .complete_io(&mut stream)
+            .map_err(|err| format!("TLS client authentication failed: {err}"))?;
+    }
+    let certificate = connection
+        .peer_certificates()
+        .and_then(|certs| certs.first())
+        .ok_or("TLS peer certificate is required")?;
+    let fingerprint = crate::tls::certificate_fingerprint(certificate.as_ref());
+    let mut stream = rustls::StreamOwned::new(connection, stream);
     let response = read_data_frame(&mut stream)
         .and_then(|frame| {
             codec
                 .decode_and_admit(&frame, adapter)
                 .map_err(|err| err.message)
         })
-        .map(|decision| data_plane_response(decision, executor))
+        .map(|decision| data_plane_response(decision, executor, &fingerprint))
         .unwrap_or_else(|reason| DataPlaneResponse::Corrupt { reason });
     let body = render_data_plane_response(&response);
     stream
         .write_all(body.as_bytes())
         .map_err(|err| format!("failed to write daemon data response: {err}"))?;
+    stream.conn.send_close_notify();
     stream
         .flush()
         .map_err(|err| format!("failed to flush daemon data response: {err}"))?;
     Ok(response)
 }
 
-fn read_data_frame(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
+fn read_data_frame(stream: &mut impl Read) -> Result<Vec<u8>, String> {
     let mut len = [0_u8; 4];
     stream
         .read_exact(&mut len)
@@ -525,9 +590,13 @@ fn read_data_frame(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
     Ok(frame)
 }
 
-fn data_plane_response(decision: WireDecision, executor: &DataPlaneExecutor) -> DataPlaneResponse {
+fn data_plane_response(
+    decision: WireDecision,
+    executor: &DataPlaneExecutor,
+    fingerprint: &[u8; 32],
+) -> DataPlaneResponse {
     match decision {
-        WireDecision::Accepted(envelope) => executor.execute(envelope),
+        WireDecision::Accepted(envelope) => executor.execute(envelope, fingerprint),
         WireDecision::Rejected { protocol, reason } => DataPlaneResponse::Rejected {
             protocol: protocol.as_str(),
             reason,
@@ -772,9 +841,9 @@ fn client_request_from_envelope_for_surface(
         format!(
             "wire:{}:{}:{}:{}",
             surface,
-            envelope.principal,
-            envelope.namespace.as_deref().unwrap_or(""),
-            key
+            hex_bytes(envelope.principal.as_bytes()),
+            hex_bytes(envelope.namespace.as_deref().unwrap_or("").as_bytes()),
+            hex_bytes(key.as_bytes())
         ),
         stable_request_nonce(key),
     ))

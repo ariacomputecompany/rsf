@@ -50,6 +50,8 @@ run_domain membership tests/membership-host.pass.fozzy.json
 run_domain protocol tests/protocol-host.pass.fozzy.json
 run_domain kv-transactions tests/kv-txn-host.pass.fozzy.json
 run_domain sql tests/sql-host.pass.fozzy.json
+run_domain authentication tests/auth-host.pass.fozzy.json
+run_domain tenancy tests/tenancy-host.pass.fozzy.json
 run_domain daemon tests/rsfd-host.pass.fozzy.json
 run_domain object-blob tests/object-blob-host.pass.fozzy.json
 run_domain recovery tests/recovery-host.pass.fozzy.json

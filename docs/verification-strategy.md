@@ -18,7 +18,7 @@ FOZZY_BIN=/path/to/fozzy FOZZY_SEED=20260930 sh scripts/verify-fozzy.sh
 
 Each invocation creates a fresh `artifacts/verification.*` directory containing
 host scenarios and recorded traces for storage, VSR, membership, protocol, KV
-transactions, SQL, the daemon, objects/blobs, recovery, policy, the POC, and the
+transactions, SQL, authentication, tenancy, the daemon, objects/blobs, recovery, policy, the POC, and the
 complete workspace test suite.
 It first runs five seeded doctor checks and strict deterministic tests. Those
 checks use scripted process responses and verify scenario orchestration; they
@@ -58,6 +58,15 @@ protocol and admin voter sets agree. Uncommitted prepares cannot reuse votes
 across a view change. Legacy logs without a bootstrap record still require
 their original initial configuration; an explicit migration remains required
 before upgrading such state and changing its topology.
+
+Data-plane tests use real TLS 1.3 handshakes with generated test certificates.
+They reject plaintext, missing/expired/untrusted certificates, unregistered
+fingerprints, principal spoofing, missing grants, and disabled surfaces before
+creating namespace storage. Tests revoke certificates and grants while the
+listener remains running. SQL, KV, object, and blob tests use identical names
+in separate tenant namespaces and verify independent data after reopen.
+Local security command tests verify durable grants, revocation, and audit
+records. Legacy shared data roots fail closed pending explicit migration.
 
 ## Required Verification Layers
 

@@ -7,6 +7,11 @@ rust-version.workspace = true
 
 [dependencies]
 serde_json = "1"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+rustls-pemfile = "2"
+sha2 = "0.10"
+rsf-auth = { path = "../rsf-auth" }
+rsf-tenancy = { path = "../rsf-tenancy" }
 rsf-admin = { path = "../rsf-admin" }
 rsf-blob = { path = "../rsf-blob" }
 rsf-control = { path = "../rsf-control" }
@@ -20,6 +25,9 @@ rsf-sql = { path = "../rsf-sql" }
 rsf-upgrade = { path = "../rsf-upgrade" }
 rsf-vsr = { path = "../rsf-vsr" }
 rsf-wire = { path = "../rsf-wire" }
+
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
 [[bin]]
 name = "rsfd"

@@ -19,7 +19,7 @@ The developer experience standard is equally high: scaling from one server to re
 
 RSF is still under development. The daemon has local durable SQL autocommit,
 KV, object, and blob paths, but its default replication transport is local.
-Authenticated network replication, tenant isolation, durable SQL sessions, and
+Authenticated network replication, legacy-state migration, durable SQL sessions, and
 measured production release gates remain open in [WORK.md](./WORK.md).
 
 `rsfd init` selects a standalone policy with one durable copy. That node can
@@ -27,6 +27,8 @@ serve writes and recover them after restart, but cannot survive loss of its
 storage. A redundant policy requires at least three replicas. Voter admission
 advances one node at a time; the two-voter transition requires both votes.
 Local join/restart coverage does not establish independent replica durability.
+Data listeners require mutual TLS and explicit namespace/capability grants;
+see [client setup](./docs/client-access.md).
 
 - [Protocol Architecture Research](./docs/protocol-architecture-research.md)
 - [Full Implementation Plan](./PLAN.md)
@@ -36,6 +38,7 @@ Local join/restart coverage does not establish independent replica durability.
 - [Implementation Map](./docs/implementation-map.md)
 - [Storage Engine Design](./docs/storage-engine-design.md)
 - [Verification Strategy](./docs/verification-strategy.md)
+- [Data-plane Client Access](./docs/client-access.md)
 - [Decision Record](./docs/decision-record.md)
 - [End-To-End POC](./docs/poc.md)
 
