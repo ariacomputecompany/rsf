@@ -293,9 +293,12 @@ impl DataPlaneExecutor {
         )?;
         match command {
             BlobCommand::Put { name: _, bytes } => {
-                let record = runtime
-                    .blobs
-                    .put(&mut runtime.router, PlacementGroupId(1), bytes)?;
+                let record = runtime.blobs.put_request(
+                    &mut runtime.router,
+                    PlacementGroupId(1),
+                    client_request_from_envelope_for_surface(&envelope, "blob")?,
+                    bytes,
+                )?;
                 Ok(DataPlaneResponse::Executed {
                     protocol: envelope.protocol.as_str(),
                     operation_kind: operation_kind_label(envelope.operation_kind),
@@ -435,7 +438,7 @@ impl DataPlaneExecutor {
         let (mut router, _) = self.open_router()?;
         if router.transport_mut().is_network() {
             return Err(invalid(
-                "network application execution currently requires the KV surface; this surface needs its complete replay codec",
+                "network execution for this surface requires its complete replay codec; KV and blob are supported",
             ));
         }
         let sql = DurableSqlEngine::open(
@@ -445,15 +448,18 @@ impl DataPlaneExecutor {
     }
 
     fn open_blob_runtime(&self, namespace: &str) -> RsfResult<BlobRuntime> {
-        let (mut router, _) = self.open_router()?;
-        if router.transport_mut().is_network() {
-            return Err(invalid(
-                "network application execution currently requires the KV surface; this surface needs its complete replay codec",
-            ));
-        }
-        let blobs = DurableBlobEngine::open(
+        let (router, _) = self.open_router()?;
+        let mut blobs = DurableBlobEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("blob"),
+            namespace,
         )?;
+        for command in router.committed_application_commands() {
+            if command.application.surface == rsf_protocol::ApplicationSurface::Blob
+                && command.application.namespace == namespace
+            {
+                blobs.apply_application_command(&command)?;
+            }
+        }
         Ok(BlobRuntime { router, blobs })
     }
 
@@ -461,7 +467,7 @@ impl DataPlaneExecutor {
         let (mut router, _) = self.open_router()?;
         if router.transport_mut().is_network() {
             return Err(invalid(
-                "network application execution currently requires the KV surface; this surface needs its complete replay codec",
+                "network execution for this surface requires its complete replay codec; KV and blob are supported",
             ));
         }
         let mut objects = DurableObjectStore::open(

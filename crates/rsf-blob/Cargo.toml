@@ -13,5 +13,7 @@ rsf-protocol = { path = "../rsf-protocol" }
 rsf-retention = { path = "../rsf-retention" }
 rsf-stream = { path = "../rsf-stream" }
 
+rsf-storage = { path = "../rsf-storage" }
+
 [lints]
 workspace = true

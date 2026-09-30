@@ -75,8 +75,9 @@ under a different namespace or silently revert to metadata-only commits. A
 nonempty legacy store requires explicit migration; refusing the new mode leaves
 its old data intact. Do not delete the namespace binding or receipt history.
 
-Network SQL, object and blob execution currently rejects requests because their
-complete surface codecs/materializers are unfinished. They remain available in
+Network SQL and object execution currently rejects requests because their
+complete surface codecs/materializers are unfinished. Blob replication is described in
+[the blob command contract](blob-network-replication.md). SQL and object remain available in
 standalone mode. Raw legacy VSR operations remain log-only and are not presented
 as materialized application commands. The primary's native frame limit remains
 64 KiB, and complete VSR commands must fit the 1 MiB command bound. KV validates

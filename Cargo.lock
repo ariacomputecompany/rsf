@@ -408,6 +408,7 @@ dependencies = [
  "rsf-core",
  "rsf-protocol",
  "rsf-retention",
+ "rsf-storage",
  "rsf-stream",
 ]
 

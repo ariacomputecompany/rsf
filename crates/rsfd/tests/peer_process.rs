@@ -304,8 +304,23 @@ impl Process {
     }
 }
 fn kv_request(address: SocketAddr, operation: &str, request: &str, value: &[u8]) -> String {
-    let frame = rsf_wire::RawFrame::with_body(
+    surface_request(
+        address,
         rsf_wire::WireProtocol::Kv,
+        operation,
+        request,
+        value,
+    )
+}
+fn surface_request(
+    address: SocketAddr,
+    protocol: rsf_wire::WireProtocol,
+    operation: &str,
+    request: &str,
+    value: &[u8],
+) -> String {
+    let frame = rsf_wire::RawFrame::with_body(
+        protocol,
         "app-client",
         Some("app".into()),
         operation,
@@ -402,4 +417,84 @@ fn native_kv_ingress_replicates_and_materializes_on_real_daemon_peers() {
     let follower = follower_kv(&root, 2);
     assert_eq!(follower.get(b"user/1").unwrap().value, b"second");
     assert_eq!(follower.changes_since(rsf_core::CommitVersion(0)).len(), 2);
+}
+
+fn follower_blob(root: &Path, node: u64) -> rsf_blob::DurableBlobEngine {
+    use sha2::{Digest, Sha256};
+    let namespace = Sha256::digest(b"app")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    rsf_blob::DurableBlobEngine::open_replicated(
+        root.join(format!(
+            "store-{node}/application/namespaces/{namespace}/blob"
+        )),
+        "app",
+    )
+    .unwrap()
+}
+
+#[test]
+fn native_blob_ingress_preserves_payload_on_peers_after_primary_loss() {
+    use rsf_wire::WireProtocol::Blob;
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    let first = Process::start(&root.join("peer-1.json"));
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let bytes = b"blob bytes survive loss of primary and quorum peer";
+    let id = rsf_core::blob::ContentId::for_bytes(bytes);
+    let first_result = surface_request(primary.address, Blob, "PUT payload", "blob-1", bytes);
+    assert!(first_result.contains("RSF/1 executed"), "{first_result}");
+    drop(second);
+    let later = b"second immutable value";
+    let later_id = rsf_core::blob::ContentId::for_bytes(later);
+    let result = surface_request(primary.address, Blob, "PUT later", "blob-2", later);
+    assert!(result.contains("RSF/1 executed"), "{result}");
+    let changed = surface_request(primary.address, Blob, "PUT payload", "blob-1", b"changed");
+    assert!(changed.contains("RSF/1 rejected"), "{changed}");
+    drop(primary);
+    drop(first);
+    {
+        let mut follower = follower_blob(&root, 1);
+        assert_eq!(follower.read_verified(&id).unwrap(), bytes);
+        assert_eq!(follower.read_verified(&later_id).unwrap(), later);
+        assert_eq!(follower.verify_all().unwrap().pinned, 2);
+    }
+    {
+        let mut follower = follower_blob(&root, 2);
+        assert_eq!(follower.read_verified(&id).unwrap(), bytes);
+        assert!(follower.read_verified(&later_id).is_err());
+    }
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let retry = surface_request(primary.address, Blob, "PUT later", "blob-2", later);
+    assert!(retry.contains("RSF/1 executed"), "{retry}");
+    drop(second);
+    let no_quorum = surface_request(primary.address, Blob, "PUT later", "blob-2", later);
+    assert!(no_quorum.contains("RSF/1 rejected"), "{no_quorum}");
+    // An immutable verified GET remains available with its content proof.
+    let digest = id
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let read = surface_request(
+        primary.address,
+        Blob,
+        &format!("GET blake3:{digest}"),
+        "read",
+        b"",
+    );
+    assert!(read.contains("RSF/1 executed"), "{read}");
+    drop(primary);
+    let mut follower = follower_blob(&root, 2);
+    assert_eq!(follower.read_verified(&later_id).unwrap(), later);
+    assert_eq!(follower.verify_all().unwrap().pinned, 2);
 }

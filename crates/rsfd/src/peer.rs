@@ -235,6 +235,17 @@ fn apply_command(
     root: &Path,
     command: &rsf_protocol::ReplicatedFabricCommand,
 ) -> Result<(), String> {
+    if command.application.surface == rsf_protocol::ApplicationSurface::Blob {
+        let mut blobs = rsf_blob::DurableBlobEngine::open_replicated(
+            crate::security::namespace_root(root, &command.application.namespace).join("blob"),
+            &command.application.namespace,
+        )
+        .map_err(|err| err.message)?;
+        blobs
+            .apply_application_command(command)
+            .map_err(|err| err.message)?;
+        return Ok(());
+    }
     if command.application.surface != rsf_protocol::ApplicationSurface::Kv {
         return Err("peer application materializer does not support this surface yet".into());
     }

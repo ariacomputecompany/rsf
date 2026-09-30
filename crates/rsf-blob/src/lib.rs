@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod replicated;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use std::path::Path;
@@ -62,6 +64,7 @@ pub struct BlobEngine {
 #[derive(Debug)]
 pub struct DurableBlobEngine {
     chunks: DurableChunkStore,
+    replication: replicated::Journal,
 }
 
 impl BlobEngine {
@@ -228,8 +231,11 @@ impl BlobEngine {
 
 impl DurableBlobEngine {
     pub fn open(root: impl AsRef<Path>) -> RsfResult<Self> {
+        let chunks = DurableChunkStore::open(root.as_ref())?;
+        let replication = replicated::Journal::open(root.as_ref())?;
         Ok(Self {
-            chunks: DurableChunkStore::open(root)?,
+            chunks,
+            replication,
         })
     }
 
@@ -239,6 +245,18 @@ impl DurableBlobEngine {
         pg: PlacementGroupId,
         bytes: impl Into<Bytes>,
     ) -> RsfResult<DurableBlobRecord> {
+        let bytes = bytes.into();
+        if let Some(namespace) = &self.replication.namespace {
+            let request = ClientRequestId::new(
+                format!(
+                    "blob:{}:{}",
+                    hex_digest(ContentId::for_bytes(namespace.as_bytes()).as_bytes()),
+                    hex_digest(ContentId::for_bytes(&bytes).as_bytes())
+                ),
+                0,
+            );
+            return self.put_request(router, pg, request, bytes);
+        }
         let staged = self.stage(bytes)?;
         let id = staged.id;
         let stored_bytes = staged.bytes;
@@ -280,6 +298,7 @@ impl DurableBlobEngine {
 
     /// Persist and verify immutable payload before journaling an object intent.
     pub fn stage(&mut self, bytes: impl Into<Bytes>) -> RsfResult<StagedBlob> {
+        self.replication.ensure_healthy()?;
         let bytes = bytes.into();
         let id = ContentId::for_bytes(&bytes);
         let decision = self.chunks.ensure_pinned(ChunkWrite::new(
@@ -326,6 +345,7 @@ impl DurableBlobEngine {
     }
 
     pub fn read_verified(&mut self, id: &ContentId) -> RsfResult<Bytes> {
+        self.replication.ensure_healthy()?;
         self.chunks.read_bytes_verified(id)
     }
 

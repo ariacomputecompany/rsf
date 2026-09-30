@@ -10,10 +10,11 @@ cargo run -p rsfd -- peer serve --config peer-1.json
 
 The router can replicate complete versioned application commands through this
 service using `commit_application`; see [the command contract](replicated-application-commands.md).
-The native KV data plane now uses this path with namespace-bound complete commands;
+The native KV and blob data planes now use this path with namespace-bound complete commands;
 peer services materialize those commands durably before acknowledging them. See
 [KV network execution](kv-network-replication.md) for primary configuration and
-recovery behavior. SQL/object/blob replay, automatic membership and failover are
+recovery behavior, and [blob network replication](blob-network-replication.md) for
+immutable payloads. SQL/object replay, automatic membership and failover are
 still unfinished. Admin/policy paths still use the in-process transport in places;
 `LocalVsrTransport` itself remains a simulation with no remote disk durability.
 
