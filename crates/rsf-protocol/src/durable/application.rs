@@ -227,7 +227,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         commands
     }
 
-    fn ensure_application_healthy(&self) -> RsfResult<()> {
+    pub(super) fn ensure_application_healthy(&self) -> RsfResult<()> {
         if let Some(reason) = &self.application_failure {
             return Err(corrupt(format!(
                 "application protocol persistence failed; reopen before continuing: {reason}"

@@ -339,6 +339,11 @@ impl DataPlaneExecutor {
                 .as_deref()
                 .ok_or_else(|| invalid("namespace is required"))?,
         )?;
+        if matches!(&command, ObjectCommand::Get { .. })
+            && runtime.router.transport_mut().is_network()
+        {
+            runtime.router.confirm_read_quorum()?;
+        }
         match command {
             ObjectCommand::CreateBucket { bucket } => {
                 let record = runtime.objects.create_bucket_request(
@@ -438,7 +443,7 @@ impl DataPlaneExecutor {
         let (mut router, _) = self.open_router()?;
         if router.transport_mut().is_network() {
             return Err(invalid(
-                "network execution for this surface requires its complete replay codec; KV and blob are supported",
+                "network execution for this surface requires its complete replay codec; KV, object and blob are supported",
             ));
         }
         let sql = DurableSqlEngine::open(
@@ -465,14 +470,17 @@ impl DataPlaneExecutor {
 
     fn open_object_runtime(&self, namespace: &str) -> RsfResult<ObjectRuntime> {
         let (mut router, _) = self.open_router()?;
-        if router.transport_mut().is_network() {
-            return Err(invalid(
-                "network execution for this surface requires its complete replay codec; KV and blob are supported",
-            ));
-        }
-        let mut objects = DurableObjectStore::open(
+        let mut objects = DurableObjectStore::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("object"),
+            namespace,
         )?;
+        for command in router.committed_application_commands() {
+            if command.application.surface == rsf_protocol::ApplicationSurface::Object
+                && command.application.namespace == namespace
+            {
+                objects.apply_application_command(&command)?;
+            }
+        }
         objects.reconcile(&mut router)?;
         Ok(ObjectRuntime { router, objects })
     }

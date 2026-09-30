@@ -67,6 +67,24 @@ struct InterruptAfterCommit {
     fail_path: Option<PathBuf>,
     kill: bool,
 }
+impl InterruptAfterCommit {
+    fn after_commit(&mut self, boundary: &str) {
+        if self.boundary == boundary {
+            if self.kill {
+                use std::io::Write;
+                println!("OBJECT_PROTOCOL_DURABLE");
+                std::io::stdout().flush().unwrap();
+                loop {
+                    std::thread::park_timeout(std::time::Duration::from_secs(1));
+                }
+            }
+            if let Some(path) = self.fail_path.take() {
+                fs::rename(&path, path.with_extension("displaced")).unwrap();
+                fs::write(path, b"not a directory").unwrap();
+            }
+        }
+    }
+}
 impl FabricRouterPort for InterruptAfterCommit {
     fn route_operation(&self, operation: &FabricOperation) -> Option<PlacementGroupId> {
         self.inner.route_operation(operation)
@@ -113,20 +131,45 @@ impl FabricRouterPort for InterruptAfterCommit {
             mode,
             operation,
         )?;
-        if self.boundary == boundary {
-            if self.kill {
-                use std::io::Write;
-                println!("OBJECT_PROTOCOL_DURABLE");
-                std::io::stdout().flush().unwrap();
-                loop {
-                    std::thread::park_timeout(std::time::Duration::from_secs(1));
-                }
-            }
-            if let Some(path) = self.fail_path.take() {
-                fs::rename(&path, path.with_extension("displaced")).unwrap();
-                fs::write(path, b"not a directory").unwrap();
-            }
-        }
+        self.after_commit(boundary);
+        Ok(result)
+    }
+    fn validate_request(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+    ) -> RsfResult<()> {
+        self.inner.validate_request(pg, request, mode, operation)
+    }
+    fn validate_application_request(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+        application: &rsf_protocol::ApplicationPayload,
+    ) -> RsfResult<()> {
+        self.inner
+            .validate_application_request(pg, request, mode, operation, application)
+    }
+    fn commit_application_request(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        mode: ConsistencyMode,
+        operation: FabricOperation,
+        application: rsf_protocol::ApplicationPayload,
+    ) -> RsfResult<RequestCommitEvidence> {
+        let boundary = match &operation {
+            FabricOperation::ObjectManifest { .. } => "head",
+            _ => "bucket",
+        };
+        let result =
+            self.inner
+                .commit_application_request(pg, request, mode, operation, application)?;
+        self.after_commit(boundary);
         Ok(result)
     }
     fn request_certificate(&self, request: &ClientRequestId) -> Option<CommitCertificate> {
@@ -152,7 +195,11 @@ fn interrupted_writer_process() {
         fail_path: None,
         kill: true,
     };
-    let mut objects = DurableObjectStore::open(root.join("object")).unwrap();
+    let mut objects = if std::env::var("RSF_OBJECT_SCOPED").as_deref() == Ok("1") {
+        DurableObjectStore::open_replicated(root.join("object"), "tenant").unwrap()
+    } else {
+        DurableObjectStore::open(root.join("object")).unwrap()
+    };
     objects
         .create_bucket(&mut router, PlacementGroupId(1), "media")
         .unwrap();
@@ -160,6 +207,11 @@ fn interrupted_writer_process() {
 }
 #[test]
 fn process_kill_recovers_payload_at_both_commit_boundaries() {
+    for scoped in [false, true] {
+        killed_object(scoped);
+    }
+}
+fn killed_object(scoped: bool) {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
     for boundary in ["pin", "head"] {
@@ -172,6 +224,7 @@ fn process_kill_recovers_payload_at_both_commit_boundaries() {
             ])
             .env("RSF_OBJECT_JOURNAL_ROOT", &root)
             .env("RSF_OBJECT_BOUNDARY", boundary)
+            .env("RSF_OBJECT_SCOPED", if scoped { "1" } else { "0" })
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -204,10 +257,19 @@ fn process_kill_recovers_payload_at_both_commit_boundaries() {
         );
         assert_eq!(router.latest_version(), CommitVersion(3));
         assert_eq!(objects.versions("media", "key").unwrap().len(), 1);
+        assert_eq!(
+            router.committed_application_commands().len(),
+            if scoped { 2 } else { 0 }
+        );
     }
 }
 #[test]
 fn failed_receipt_is_fenced_and_reconciled_without_publishing_head() {
+    for scoped in [false, true] {
+        failed_receipt(scoped);
+    }
+}
+fn failed_receipt(scoped: bool) {
     let root = root("receipt-failure");
     let journal = root.join("object/journal");
     let mut router = InterruptAfterCommit {
@@ -216,7 +278,11 @@ fn failed_receipt_is_fenced_and_reconciled_without_publishing_head() {
         fail_path: Some(journal.clone()),
         kill: false,
     };
-    let mut objects = DurableObjectStore::open(root.join("object")).unwrap();
+    let mut objects = if scoped {
+        DurableObjectStore::open_replicated(root.join("object"), "tenant").unwrap()
+    } else {
+        DurableObjectStore::open(root.join("object")).unwrap()
+    };
     objects
         .create_bucket(&mut router, PlacementGroupId(1), "media")
         .unwrap();

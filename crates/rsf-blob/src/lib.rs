@@ -101,7 +101,7 @@ impl BlobEngine {
 
         let commit = router.commit_request_with_mode(
             pg,
-            ClientRequestId::new(format!("blob:{}", hex_digest(&id.0)), 0),
+            content_pin_request(&id),
             ConsistencyMode::AvailabilityFirst,
             FabricOperation::BlobPin { digest: id.0 },
         )?;
@@ -264,7 +264,7 @@ impl DurableBlobEngine {
         let pins = staged.pins;
         let commit = router.commit_request_with_mode(
             pg,
-            ClientRequestId::new(format!("blob:{}", hex_digest(id.as_bytes())), 0),
+            content_pin_request(&id),
             ConsistencyMode::AvailabilityFirst,
             FabricOperation::BlobPin {
                 digest: *id.as_bytes(),
@@ -294,6 +294,31 @@ impl DurableBlobEngine {
             deduped,
             pins,
         })
+    }
+
+    /// Preflight the internal content pin used by an object intent. Bound blob
+    /// stores use complete commands and cannot issue this metadata-only request.
+    pub fn validate_pin_request(
+        &self,
+        router: &impl FabricRouterPort,
+        pg: PlacementGroupId,
+        content: &ContentId,
+    ) -> RsfResult<()> {
+        self.replication.ensure_healthy()?;
+        if self.replication.namespace.is_some() {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "bound blob stores require complete commands",
+            ));
+        }
+        router.validate_request(
+            pg,
+            &content_pin_request(content),
+            ConsistencyMode::AvailabilityFirst,
+            &FabricOperation::BlobPin {
+                digest: *content.as_bytes(),
+            },
+        )
     }
 
     /// Persist and verify immutable payload before journaling an object intent.
@@ -352,6 +377,10 @@ impl DurableBlobEngine {
     pub fn verify_all(&mut self) -> RsfResult<rsf_chunkstore::ChunkStoreReport> {
         self.chunks.verify_all()
     }
+}
+
+fn content_pin_request(id: &ContentId) -> ClientRequestId {
+    ClientRequestId::new(format!("blob:{}", hex_digest(id.as_bytes())), 0)
 }
 
 fn content_id_from_digest(digest: Digest) -> RsfResult<ContentId> {

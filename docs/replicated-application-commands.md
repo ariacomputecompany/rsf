@@ -11,10 +11,11 @@ The payload must contain the values needed for deterministic application replay
 or references to independently durable immutable content. The router does not
 interpret surface payloads, authorize namespaces, or transfer referenced blobs.
 Those responsibilities belong to the authenticated ingress and application
-materializer. The daemon KV and blob paths call this API and peer services apply their commands durably;
+materializer. The daemon KV, object and blob paths call this API and peer services apply their commands durably;
 see [KV network replication](kv-network-replication.md) and
-[blob network replication](blob-network-replication.md). SQL/object codecs and
-peer materializers still need integration. The default router
+[blob network replication](blob-network-replication.md), and
+[object network replication](object-network-replication.md). The SQL codec and
+peer materializer still need integration. The default router
 constructor still selects `LocalVsrTransport`; use `open_with_transport` with the
 authenticated `NetworkVsrTransport` for actual remote disk acknowledgement.
 

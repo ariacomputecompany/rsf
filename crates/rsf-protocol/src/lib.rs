@@ -322,6 +322,21 @@ pub trait FabricRouterPort {
         operation: FabricOperation,
     ) -> RsfResult<RequestCommitEvidence>;
 
+    /// Validate a metadata request's placement, policy and existing identity
+    /// before persisting an application intent that depends on that request.
+    fn validate_request(
+        &self,
+        _pg: PlacementGroupId,
+        _request: &ClientRequestId,
+        _mode: ConsistencyMode,
+        _operation: &FabricOperation,
+    ) -> RsfResult<()> {
+        Err(RsfError::new(
+            ErrorCode::InvalidInput,
+            "router does not support metadata request preflight",
+        ))
+    }
+
     /// Validate a complete command before the caller persists its local intent.
     fn validate_application_request(
         &self,

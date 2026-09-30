@@ -292,7 +292,9 @@ impl HealthListener {
         loop {
             match self.listener.accept() {
                 Ok((stream, _peer)) => {
-                    serve_http_stream(stream, snapshot)?;
+                    if let Err(error) = serve_http_stream(stream, snapshot) {
+                        eprintln!("daemon health_connection outcome=rejected reason={error}");
+                    }
                     served = served.saturating_add(1);
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(served),
@@ -302,30 +304,83 @@ impl HealthListener {
     }
 }
 
-fn serve_http_stream(mut stream: TcpStream, snapshot: &DaemonSnapshot) -> Result<(), String> {
+fn serve_http_stream(stream: TcpStream, snapshot: &DaemonSnapshot) -> Result<(), String> {
+    serve_http_stream_with_timeout(stream, snapshot, Duration::from_secs(2))
+}
+
+fn serve_http_stream_with_timeout(
+    mut stream: TcpStream,
+    snapshot: &DaemonSnapshot,
+    timeout: Duration,
+) -> Result<(), String> {
+    // Accepted sockets may inherit the nonblocking listener's mode on the host.
+    stream
+        .set_nonblocking(false)
+        .map_err(|err| format!("failed to configure health socket: {err}"))?;
+    let deadline = std::time::Instant::now() + timeout;
     let mut reader = BufReader::new(
         stream
             .try_clone()
             .map_err(|err| format!("failed to clone health stream: {err}"))?,
     );
-    let mut request_line = String::new();
-    let bytes = reader
-        .read_line(&mut request_line)
-        .map_err(|err| format!("failed to read daemon health request: {err}"))?;
-    let response = if bytes == 0 {
-        http_response(400, "text/plain", "empty request\n")
+    let mut line = Vec::new();
+    const MAX_REQUEST_LINE: usize = 8192;
+    loop {
+        reader
+            .get_mut()
+            .set_read_timeout(Some(health_time_remaining(deadline)?))
+            .map_err(|err| format!("failed to configure health read deadline: {err}"))?;
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(format!("failed to read daemon health request: {err}")),
+        };
+        if available.is_empty() {
+            break;
+        }
+        let take = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |i| i + 1)
+            .min(MAX_REQUEST_LINE + 1 - line.len());
+        line.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if line.last() == Some(&b'\n') || line.len() > MAX_REQUEST_LINE {
+            break;
+        }
+    }
+    let response = if line.len() > MAX_REQUEST_LINE {
+        http_response(414, "text/plain", "request line too long\n")
+    } else if line.last() != Some(&b'\n') {
+        http_response(400, "text/plain", "incomplete request line\n")
     } else {
-        match parse_health_request_path(&request_line) {
-            Ok(endpoint) => render_endpoint(snapshot, endpoint).and_then(endpoint_http_response),
-            Err(status) => Ok(status),
-        }?
+        match std::str::from_utf8(&line) {
+            Ok(line) => match parse_health_request_path(line) {
+                Ok(endpoint) => endpoint_http_response(render_endpoint(snapshot, endpoint)?)?,
+                Err(response) => response,
+            },
+            Err(_) => http_response(400, "text/plain", "invalid request encoding\n"),
+        }
     };
-    stream
-        .write_all(response.as_bytes())
-        .map_err(|err| format!("failed to write daemon health response: {err}"))?;
-    stream
-        .flush()
-        .map_err(|err| format!("failed to flush daemon health response: {err}"))
+    let mut remaining = response.as_bytes();
+    while !remaining.is_empty() {
+        stream
+            .set_write_timeout(Some(health_time_remaining(deadline)?))
+            .map_err(|err| format!("failed to configure health write deadline: {err}"))?;
+        match stream.write(remaining) {
+            Ok(0) => return Err("health response connection closed".into()),
+            Ok(written) => remaining = &remaining[written..],
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(format!("failed to write daemon health response: {err}")),
+        }
+    }
+    Ok(())
+}
+fn health_time_remaining(deadline: std::time::Instant) -> Result<Duration, String> {
+    deadline
+        .checked_duration_since(std::time::Instant::now())
+        .filter(|time| !time.is_zero())
+        .ok_or_else(|| "health connection deadline elapsed".into())
 }
 
 fn endpoint_http_response(response: EndpointResponse) -> Result<String, String> {
@@ -368,6 +423,7 @@ fn http_response(status: u16, content_type: &'static str, body: &str) -> String 
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        414 => "URI Too Long",
         503 => "Service Unavailable",
         _ => "Internal Server Error",
     };
@@ -863,6 +919,50 @@ fn format_u64_list(values: &[u64]) -> String {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn accepted_nonblocking_health_socket_waits_for_the_request() {
+        use std::io::Read;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (accepted, _) = listener.accept().unwrap();
+        accepted.set_nonblocking(true).unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            send.send(()).unwrap();
+            serve_http_stream(accepted, &test_snapshot())
+        });
+        receive.recv().unwrap();
+        // Reproduce a connection accepted before its request data is available.
+        std::thread::sleep(Duration::from_millis(40));
+        client.write_all(b"GET /healthz HTTP/1.1\r\n\r\n").unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        server.join().unwrap().unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+    }
+
+    #[test]
+    fn health_connections_have_bounded_lines_and_idle_deadlines() {
+        use std::io::Read;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (accepted, _) = listener.accept().unwrap();
+        client.write_all(&vec![b'a'; 8193]).unwrap();
+        let server = std::thread::spawn(move || serve_http_stream(accepted, &test_snapshot()));
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        server.join().unwrap().unwrap();
+        assert!(response.starts_with("HTTP/1.1 414 URI Too Long"));
+
+        let _idle = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (accepted, _) = listener.accept().unwrap();
+        assert!(
+            serve_http_stream_with_timeout(accepted, &test_snapshot(), Duration::from_millis(20))
+                .is_err()
+        );
+        assert!(health_time_remaining(std::time::Instant::now()).is_err());
+    }
 
     #[test]
     fn supervisor_resets_after_successful_tick() {

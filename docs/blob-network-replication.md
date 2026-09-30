@@ -50,9 +50,11 @@ does not substitute local-only acknowledgement for that contract.
 Plain `open` recovers any existing namespace binding. A store cannot silently
 revert to metadata-only pin commits or change namespace. Nonempty legacy blob
 stores require explicit migration; refusal leaves their bytes intact. Existing
-unbound library callers, including the not-yet-replicated object store, retain
-their original metadata-only pin API. Network object and SQL execution remain
-disabled until their complete command/materializer paths are implemented.
+unbound library callers, including internal object pinning, retain
+their original metadata-only pin API. [Object replication](object-network-replication.md)
+uses a complete Object command to carry both the pin evidence and its bytes before
+acknowledging an object head. Network SQL execution remains disabled until its
+complete command/materializer path is implemented.
 
 Native frames remain bounded to 64 KiB and complete VSR commands to 1 MiB. Request
 validation rejects oversized commands before staging bytes. Large payload chunk

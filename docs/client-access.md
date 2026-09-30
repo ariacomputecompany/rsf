@@ -4,6 +4,13 @@ The daemon's data listener requires TLS 1.3 and a client certificate. There is
 no plaintext or anonymous fallback. The health listener remains a separate
 HTTP endpoint and does not execute data requests.
 
+Health connections have an 8 KiB request-line limit and a two-second deadline
+covering request reading and response writing. Accepted sockets explicitly enter
+blocking mode with bounded I/O, independent of the listener's host-specific socket
+inheritance. A rejected or disconnected health client is logged to stderr without
+counting as a daemon runtime failure; listener accept failures still reach the
+runtime supervisor.
+
 ## Configure server trust
 
 After `rsfd init`, install these PEM files under the cluster state directory:

@@ -235,6 +235,17 @@ fn apply_command(
     root: &Path,
     command: &rsf_protocol::ReplicatedFabricCommand,
 ) -> Result<(), String> {
+    if command.application.surface == rsf_protocol::ApplicationSurface::Object {
+        let mut objects = rsf_object::DurableObjectStore::open_replicated(
+            crate::security::namespace_root(root, &command.application.namespace).join("object"),
+            &command.application.namespace,
+        )
+        .map_err(|err| err.message)?;
+        objects
+            .apply_application_command(command)
+            .map_err(|err| err.message)?;
+        return Ok(());
+    }
     if command.application.surface == rsf_protocol::ApplicationSurface::Blob {
         let mut blobs = rsf_blob::DurableBlobEngine::open_replicated(
             crate::security::namespace_root(root, &command.application.namespace).join("blob"),

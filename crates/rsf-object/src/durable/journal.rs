@@ -37,6 +37,9 @@ pub(super) struct Journal {
     pending: Option<Intent>,
     receipts: BTreeMap<ClientRequestId, Receipt>,
     failure: Option<String>,
+    namespace: Option<String>,
+    commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
+    highest_command: CommitVersion,
 }
 fn invalid(message: impl Into<String>) -> RsfError {
     RsfError::new(ErrorCode::InvalidInput, message)
@@ -53,6 +56,9 @@ impl Journal {
             pending: None,
             receipts: BTreeMap::new(),
             failure: None,
+            namespace: None,
+            commands: BTreeMap::new(),
+            highest_command: CommitVersion::GENESIS,
         })
     }
     pub(super) fn scope(&self) -> &str {
@@ -144,6 +150,13 @@ impl DurableObjectStore {
                     &mut self.heads,
                     &mut self.versions,
                 )?;
+            } else if let Some(encoded) = text.strip_prefix("namespace\t") {
+                let namespace = decode_string(encoded, "namespace")?;
+                self.validate_namespace_binding(&namespace)?;
+                self.journal.namespace = Some(namespace);
+            } else if let Some(encoded) = text.strip_prefix("application\t") {
+                let command = rsf_protocol::ReplicatedFabricCommand::decode(&hex_decode(encoded)?)?;
+                self.install_application_command(command)?;
             } else if text.starts_with("intent\t") {
                 let intent = decode_intent(text)?;
                 if self.journal.pending.is_some()
@@ -156,6 +169,11 @@ impl DurableObjectStore {
                 validate_action(&intent.action)?;
                 self.journal.pending = Some(intent);
             } else {
+                if self.journal.namespace.is_some() {
+                    return Err(corrupt(
+                        "namespace-bound object journal contains a metadata-only receipt",
+                    ));
+                }
                 let (request, receipt) = decode_receipt(text)?;
                 self.install_receipt(request, receipt)?;
             }
@@ -177,7 +195,8 @@ impl DurableObjectStore {
             .map(|bucket| bucket.version)
             .chain(self.heads.values().map(|head| head.version))
             .max()
-            .unwrap_or(CommitVersion::GENESIS);
+            .unwrap_or(CommitVersion::GENESIS)
+            .max(self.journal.highest_command);
         if router.latest_version() < applied {
             return Err(corrupt(
                 "object state is ahead of the recovered protocol; restore the matching protocol log",
@@ -186,6 +205,10 @@ impl DurableObjectStore {
         let Some(intent) = self.journal.pending.clone() else {
             return Ok(0);
         };
+        if self.journal.namespace.is_some() {
+            self.reconcile_replicated(router, intent)?;
+            return Ok(1);
+        }
         let receipt = match &intent.action {
             Action::Bucket { pg, bucket } => {
                 let operation = FabricOperation::ObjectBucket {
@@ -260,10 +283,31 @@ impl DurableObjectStore {
         self.check_retry(&request, &action)?;
         self.reconcile(router)?;
         if let Some(receipt) = self.journal.receipts.get(&request) {
+            self.confirm_replicated_retry(router, &request)?;
             return match receipt {
                 Receipt::Bucket(bucket) => Ok(bucket.clone()),
                 _ => Err(invalid("object request was reused for another action")),
             };
+        }
+        if self.journal.namespace.is_some() {
+            if self
+                .buckets
+                .get(&bucket)
+                .is_some_and(|old| old.evidence.placement_group != pg)
+            {
+                return Err(invalid("bucket already belongs to another placement group"));
+            }
+            let intent = Intent {
+                request: request.clone(),
+                action,
+            };
+            self.preflight_replicated(router, &intent, &[])?;
+            self.start_intent(intent)?;
+            self.reconcile(router)?;
+            let Receipt::Bucket(bucket) = &self.journal.receipts[&request] else {
+                unreachable!()
+            };
+            return Ok(bucket.clone());
         }
         if let Some(certificate) = router.request_certificate(&request) {
             validate_certificate(
@@ -330,10 +374,34 @@ impl DurableObjectStore {
         self.reconcile(router)?;
         self.require_bucket(&bucket)?;
         if let Some(receipt) = self.journal.receipts.get(&request) {
+            self.confirm_replicated_retry(router, &request)?;
             return match receipt {
                 Receipt::Put(put) => Ok(put.clone()),
                 _ => Err(invalid("object request was reused for another action")),
             };
+        }
+        if self.journal.namespace.is_some() {
+            self.preflight_replicated(
+                router,
+                &Intent {
+                    request: request.clone(),
+                    action: action.clone(),
+                },
+                &payload,
+            )?;
+            let staged = self.blobs.stage(payload)?;
+            if let Action::Put { deduped, .. } = &mut action {
+                *deduped = staged.deduped;
+            }
+            self.start_intent(Intent {
+                request: request.clone(),
+                action,
+            })?;
+            self.reconcile(router)?;
+            let Receipt::Put(put) = &self.journal.receipts[&request] else {
+                unreachable!()
+            };
+            return Ok(put.clone());
         }
         if let Some(certificate) = router.request_certificate(&request) {
             let operation = FabricOperation::ObjectManifest {
@@ -385,6 +453,11 @@ impl DurableObjectStore {
         request: ClientRequestId,
         bucket: DurableObjectBucket,
     ) -> RsfResult<DurableObjectBucket> {
+        if self.journal.namespace.is_some() {
+            return Err(invalid(
+                "bound object stores require complete application commands",
+            ));
+        }
         let receipt = Receipt::Bucket(bucket.clone());
         self.apply_receipt(request, receipt)?;
         Ok(bucket)
@@ -400,6 +473,11 @@ impl DurableObjectStore {
         payload: Vec<u8>,
     ) -> RsfResult<DurableObjectPut> {
         self.journal.ensure_healthy()?;
+        if self.journal.namespace.is_some() {
+            return Err(invalid(
+                "bound object stores require complete application commands",
+            ));
+        }
         if ContentId::for_bytes(&payload) != put.head.content
             || payload.len() as u64 != put.head.bytes
         {
@@ -645,6 +723,7 @@ fn validate_certificate(
 }
 
 mod codec;
+mod replicated;
 use codec::*;
 #[cfg(test)]
 mod tests;

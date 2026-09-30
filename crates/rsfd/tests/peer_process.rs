@@ -498,3 +498,135 @@ fn native_blob_ingress_preserves_payload_on_peers_after_primary_loss() {
     assert_eq!(follower.read_verified(&later_id).unwrap(), later);
     assert_eq!(follower.verify_all().unwrap().pinned, 2);
 }
+
+fn follower_objects(root: &Path, node: u64) -> rsf_object::DurableObjectStore {
+    use sha2::{Digest, Sha256};
+    let namespace = Sha256::digest(b"app")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    rsf_object::DurableObjectStore::open_replicated(
+        root.join(format!(
+            "store-{node}/application/namespaces/{namespace}/object"
+        )),
+        "app",
+    )
+    .unwrap()
+}
+
+#[test]
+fn native_object_ingress_recovers_heads_and_bytes_from_independent_peers() {
+    use rsf_wire::WireProtocol::Object;
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    let first = Process::start(&root.join("peer-1.json"));
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let bucket = surface_request(
+        primary.address,
+        Object,
+        "CREATE_BUCKET media",
+        "bucket-1",
+        b"",
+    );
+    assert!(bucket.contains("RSF/1 executed"), "{bucket}");
+    let alias = surface_request(
+        primary.address,
+        Object,
+        "CREATE_BUCKET media",
+        "bucket-alias",
+        b"",
+    );
+    assert_eq!(alias, bucket);
+    let first_result = surface_request(
+        primary.address,
+        Object,
+        "PUT media/key",
+        "object-1",
+        b"first object bytes",
+    );
+    assert!(first_result.contains("RSF/1 executed"), "{first_result}");
+    drop(second);
+    let second_result = surface_request(
+        primary.address,
+        Object,
+        "PUT media/key",
+        "object-2",
+        b"second object bytes",
+    );
+    assert!(second_result.contains("RSF/1 executed"), "{second_result}");
+    let changed = surface_request(
+        primary.address,
+        Object,
+        "PUT media/key",
+        "object-2",
+        b"changed bytes",
+    );
+    assert!(changed.contains("RSF/1 rejected"), "{changed}");
+    drop(primary);
+    drop(first);
+    {
+        let mut objects = follower_objects(&root, 1);
+        assert_eq!(
+            objects.read_verified("media", "key").unwrap(),
+            b"second object bytes"
+        );
+        assert_eq!(objects.versions("media", "key").unwrap().len(), 2);
+    }
+    {
+        let mut objects = follower_objects(&root, 2);
+        assert_eq!(
+            objects.read_verified("media", "key").unwrap(),
+            b"first object bytes"
+        );
+    }
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let retry = surface_request(
+        primary.address,
+        Object,
+        "PUT media/key",
+        "object-2",
+        b"second object bytes",
+    );
+    assert_eq!(retry, second_result);
+    let old = surface_request(
+        primary.address,
+        Object,
+        "PUT media/key",
+        "object-1",
+        b"first object bytes",
+    );
+    assert_eq!(old, first_result);
+    let read = surface_request(primary.address, Object, "GET media/key", "read", b"");
+    assert!(read.contains("RSF/1 executed"), "{read}");
+    let expected = b"second object bytes"
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert!(read.contains(&format!("payload_hex={expected}")), "{read}");
+    drop(second);
+    let read = surface_request(primary.address, Object, "GET media/key", "read", b"");
+    assert!(read.contains("RSF/1 rejected"), "{read}");
+    let retry = surface_request(
+        primary.address,
+        Object,
+        "PUT media/key",
+        "object-2",
+        b"second object bytes",
+    );
+    assert!(retry.contains("RSF/1 rejected"), "{retry}");
+    drop(primary);
+    let mut objects = follower_objects(&root, 2);
+    assert_eq!(
+        objects.read_verified("media", "key").unwrap(),
+        b"second object bytes"
+    );
+    assert_eq!(objects.versions("media", "key").unwrap().len(), 2);
+}

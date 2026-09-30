@@ -1442,6 +1442,36 @@ impl<T: VsrTransport> FabricRouterPort for VsrBackedFabricRouter<T> {
         })
     }
 
+    fn validate_request(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+    ) -> RsfResult<()> {
+        self.ensure_application_healthy()?;
+        self.policy.validate_commit(mode, operation)?;
+        self.router.next_commit(pg, mode, operation.clone())?;
+        if self.application_commands.contains_key(request) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "metadata request cannot replace a complete application command",
+            ));
+        }
+        if let Some(certificate) = self.router.request_certificate(request) {
+            if certificate.pg != pg
+                || certificate.mode != mode
+                || certificate.operation_id != operation.operation_id()
+            {
+                return Err(RsfError::new(
+                    ErrorCode::InvalidInput,
+                    "metadata request differs from its original certificate",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn validate_application_request(
         &self,
         pg: PlacementGroupId,
