@@ -6,15 +6,13 @@
       "type": "proc_when",
       "cmd": "cargo",
       "args": [
-        "run",
+        "test",
         "-p",
-        "rsfd",
+        "rsf-poc",
+        "--lib",
+        "runner::tests::run_output_writes_full_summary_and_service_logs",
         "--",
-        "demo",
-        "run",
-        "universal-vsr-rados",
-        "--out",
-        "runs/fozzy-universal-vsr-rados"
+        "--exact"
       ],
       "exit_code": 0,
       "stdout": "",
@@ -25,15 +23,13 @@
       "type": "proc_spawn",
       "cmd": "cargo",
       "args": [
-        "run",
+        "test",
         "-p",
-        "rsfd",
+        "rsf-poc",
+        "--lib",
+        "runner::tests::run_output_writes_full_summary_and_service_logs",
         "--",
-        "demo",
-        "run",
-        "universal-vsr-rados",
-        "--out",
-        "runs/fozzy-universal-vsr-rados"
+        "--exact"
       ],
       "expect_exit": 0
     }

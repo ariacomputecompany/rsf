@@ -1477,6 +1477,9 @@ Current scope:
 - row, index, and physical KV bytes share relational protocol commit versions
 - deletes leave physical KV tombstones
 - snapshot access to encoded physical rows
+- durable autocommit checkpoint/recovery for table descriptors and committed relational KV versions, with a BLAKE3 checksum, exclusive OS writer lock, synced atomic publication, and persistence-failure fencing
+- recovered live page slots supporting subsequent update/delete alongside rebuilt indexes and tuple history
+- synced request intents before protocol commit, atomic request receipts with retained MVCC versions, crash-window reconciliation, and original-result replay after later updates/deletes
 
 Next scope:
 
@@ -1484,6 +1487,9 @@ Next scope:
 - broader SQL parser
 - planner/executor operators beyond equality lookup
 - MVCC read timestamps
+- durable SQL session transaction recovery for daemon data-plane transaction control
+- coordinated receipt expiry and MVCC history retention
+- incremental persistence and multiple relational pages per table
 
 ### rsf-sqlpipeline
 
@@ -1977,11 +1983,32 @@ Current scope:
 - policy status, plan, set, add-region, and idempotent apply
 - durable audit log reads
 - upgrade planning with compatibility gates
-- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed KV request execution including payload-backed KV writes, durable chunk-backed blob PUT/GET execution, durable object bucket/PUT/GET execution, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
+- `serve` runtime with stdout readiness, protocol runtime status, a real TCP health/metrics listener, canonical `rsf-wire` data-plane ingress admission over TCP, durable protocol-backed SQL autocommit execution with create/insert/select recovery after reopen, durable protocol-backed KV request execution including payload-backed KV writes, durable chunk-backed blob PUT/GET execution, durable object bucket/PUT/GET execution, operator profiles with topology-specific readiness gates, and bounded runtime supervision for consecutive transient errors
 
 Next scope:
 
-- data-plane request execution handoff from admitted `rsf-wire` envelopes into the protocol-backed SQL surface
+- durable SQL session transaction recovery for data-plane transaction-control statements
+- authenticated data-plane identity and namespace isolation across every surface
+- network replication between independent daemon processes; the default router currently uses local VSR transport
+
+The canonical data listener returns one `RSF/1` response line per connection.
+Executed responses include `payload_hex=<lowercase hex>` before `detail=`.
+KV, object, and blob reads return the original value bytes; SQL SELECT returns
+a UTF-8 JSON array of column-name/value objects using the current SQL engine's
+string values. SQL mutations return an empty payload and describe the operation
+in `detail`. The SQL `bytes` field counts encoded payload bytes. For the other
+surfaces it counts bytes read or written. Payload contents are excluded from
+operator logs, and response/log control characters are escaped.
+
+SQL checkpoint format V3 includes checksummed request receipts. The unfinished
+V1/V2 formats are rejected because they cannot establish the same retry contract.
+Mutating requests save a checksummed intent before entering the protocol. The
+next request resolves an interrupted intent before reading or changing SQL state.
+Retries require the same placement group and exact statement text; conflicting
+reuse of an idempotency key is rejected. Receipts and retained MVCC history
+return the original result and commit version, with `replayed=true` in the
+daemon response, even after the row changes or is deleted. An uncertain write
+may finish during restart recovery; clients should retry with their original key.
 
 ## Deferred Crates
 

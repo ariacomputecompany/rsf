@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod durable;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_buffer::{BufferDecision, BufferPool};
@@ -37,6 +39,8 @@ use rsf_stats::{
 use rsf_tuple::{TupleDecision, TupleKey, TupleStore, TupleVersion};
 use rsf_vacuum::{VacuumDecision, VacuumPlanner, VacuumPolicy};
 use rsf_wal::{FlushRequest, WalDecision, WalGate, WalPolicy};
+
+pub use durable::{DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery};
 
 const DEFAULT_PAGE_SIZE: u32 = 4096;
 
@@ -271,6 +275,7 @@ pub struct SqlEngine {
     schema_version: CommitVersion,
     transaction: Option<SqlTransactionState>,
     next_transaction: u64,
+    request_client: Option<String>,
 }
 
 impl Default for SqlEngine {
@@ -297,6 +302,7 @@ impl Default for SqlEngine {
             schema_version: CommitVersion::GENESIS,
             transaction: None,
             next_transaction: 1,
+            request_client: None,
         }
     }
 }
@@ -314,10 +320,16 @@ impl SqlEngine {
                 primary_key,
                 columns,
             } => {
+                if self.tables.contains_key(&table) {
+                    return Err(RsfError::new(
+                        ErrorCode::InvalidInput,
+                        format!("table {table} already exists"),
+                    ));
+                }
                 let evidence = commit_sql_request(
                     router,
                     pg,
-                    ClientRequestId::new(format!("sql:create-table:{table}:{primary_key}"), 0),
+                    self.sql_request(format!("create-table:{table}:{primary_key}")),
                     FabricOperation::RelationalCatalog {
                         table: table.clone(),
                         item: "table".to_string(),
@@ -336,7 +348,7 @@ impl SqlEngine {
                 let evidence = commit_sql_request(
                     router,
                     pg,
-                    ClientRequestId::new(format!("sql:create-index:{table}:{column}"), 0),
+                    self.sql_request(format!("create-index:{table}:{column}")),
                     FabricOperation::RelationalCatalog {
                         table: table.clone(),
                         item: format!("index:{column}"),
@@ -455,6 +467,19 @@ impl SqlEngine {
         }
     }
 
+    pub fn execute_with_request_client(
+        &mut self,
+        router: &mut impl FabricRouterPort,
+        pg: PlacementGroupId,
+        statement: &str,
+        request_client: impl Into<String>,
+    ) -> RsfResult<SqlOutcome> {
+        let previous = self.request_client.replace(request_client.into());
+        let outcome = self.execute(router, pg, statement);
+        self.request_client = previous;
+        outcome
+    }
+
     pub fn create_table(&mut self, name: impl Into<String>, primary_key: impl Into<String>) {
         let primary_key = primary_key.into();
         self.create_table_with_columns(name, primary_key.clone(), [primary_key])
@@ -535,6 +560,22 @@ impl SqlEngine {
         self.kv.clone()
     }
 
+    fn recovered_tables_for_checkpoint(&self) -> Vec<SqlRecoveredTable> {
+        self.tables
+            .values()
+            .map(|table| SqlRecoveredTable {
+                descriptor: table.descriptor.clone(),
+                profile: table.layout_profile,
+                constraints: table.constraints.clone(),
+                secondary_indexes: table.secondary_indexes.clone(),
+            })
+            .collect()
+    }
+
+    fn committed_kv_versions_for_checkpoint(&self) -> Vec<(Vec<u8>, Vec<KvVersionedValue>)> {
+        self.kv.scan_prefix_versions(b"")
+    }
+
     pub fn recover_from_committed_kv(
         kv: KvEngine,
         tables: impl IntoIterator<Item = SqlRecoveredTable>,
@@ -547,6 +588,26 @@ impl SqlEngine {
             engine.register_recovered_table(recovered)?;
         }
         let report = engine.rebuild_recovered_relational_state()?;
+        // KV versions are the durable source for this recovery path. Rebuild
+        // live page slots too, so subsequent UPDATE/DELETE redo has a base row.
+        for row in engine.rows.values().cloned().collect::<Vec<_>>() {
+            let key = logical_row_key(&row.table, &row.primary_key);
+            let payload = engine
+                .kv
+                .get(&key)
+                .expect("recovered live row has KV bytes")
+                .value
+                .clone();
+            engine.apply_page_wal(
+                &row.table,
+                RedoOperation::InsertRow,
+                row.version,
+                1,
+                checked_len_i32(&payload)?,
+                key,
+                Some(payload),
+            )?;
+        }
         Ok((engine, report))
     }
 
@@ -768,13 +829,10 @@ impl SqlEngine {
         let evidence = commit_sql_request(
             router,
             pg,
-            ClientRequestId::new(
-                format!(
-                    "sql:insert:{table}:{primary_key}:{}",
-                    stable_hash(&request_payload)
-                ),
-                0,
-            ),
+            self.sql_request(format!(
+                "insert:{table}:{primary_key}:{}",
+                stable_hash(&request_payload)
+            )),
             FabricOperation::RelationalMutation {
                 table: table.to_string(),
                 key: logical_key.clone(),
@@ -832,13 +890,10 @@ impl SqlEngine {
         let evidence = commit_sql_request(
             router,
             pg,
-            ClientRequestId::new(
-                format!(
-                    "sql:update:{table}:{primary_key}:{}",
-                    stable_hash(&request_payload)
-                ),
-                0,
-            ),
+            self.sql_request(format!(
+                "update:{table}:{primary_key}:{}",
+                stable_hash(&request_payload)
+            )),
             FabricOperation::RelationalMutation {
                 table: table.to_string(),
                 key: logical_key.clone(),
@@ -884,7 +939,7 @@ impl SqlEngine {
         let evidence = commit_sql_request(
             router,
             pg,
-            ClientRequestId::new(format!("sql:delete:{table}:{primary_key}"), 0),
+            self.sql_request(format!("delete:{table}:{primary_key}")),
             FabricOperation::RelationalMutation {
                 table: table.to_string(),
                 key: logical_key.clone(),
@@ -1268,10 +1323,10 @@ impl SqlEngine {
         let evidence = commit_sql_request(
             router,
             pg,
-            ClientRequestId::new(
-                format!("sql:transaction:{}", transaction_id_number(&transaction.id)),
-                0,
-            ),
+            self.sql_request(format!(
+                "transaction:{}",
+                transaction_id_number(&transaction.id)
+            )),
             FabricOperation::TransactionCommit {
                 transaction: transaction.id.0,
             },
@@ -2701,6 +2756,15 @@ impl SqlEngine {
         self.tables
             .get(table)
             .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, format!("unknown table {table}")))
+    }
+
+    fn sql_request(&self, label: impl Into<String>) -> ClientRequestId {
+        ClientRequestId::new(
+            self.request_client
+                .clone()
+                .unwrap_or_else(|| format!("sql:{}", label.into())),
+            0,
+        )
     }
 }
 

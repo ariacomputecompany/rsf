@@ -6,6 +6,46 @@ Date: 2026-09-10
 
 Testing is not enough for RSF. The database must be designed so its failure cases can be simulated, traced, replayed, shrunk, and audited.
 
+## Running the release checks
+
+Use the Fozzy determinism engine. `fz` is the FozzyLang compiler, and some
+machines also install that compiler under the name `fozzy`. The verification
+script checks the CLI identity and accepts an explicit engine path:
+
+```sh
+FOZZY_BIN=/path/to/fozzy FOZZY_SEED=20260930 sh scripts/verify-fozzy.sh
+```
+
+Each invocation creates a fresh `artifacts/verification.*` directory containing
+host scenarios and recorded traces for storage, VSR, membership, protocol, KV
+transactions, SQL, the daemon, objects/blobs, recovery, policy, the POC, and the
+complete workspace test suite.
+It first runs five seeded doctor checks and strict deterministic tests. Those
+checks use scripted process responses and verify scenario orchestration; they
+do not execute Rust tests. The script then removes `proc_when` mock responses
+from a copy of each scenario and runs its actual process steps with host
+backends. Cargo must exit successfully. Host stdout and stderr are recorded
+without asserting that variable test timing or scheduling matches empty mock
+output. Every host trace must pass strict integrity verification, replay, and
+CI. Replay verifies recorded observations; it does not constitute another fresh
+execution of the Rust tests.
+
+The script requires Python 3 to prepare host scenarios and Cargo to execute
+them. A pass from a compiler shim or a scripted-only scenario is insufficient
+release evidence. The historical run IDs below do not replace a fresh host
+run against the current source.
+
+SQL durability coverage includes transaction-control rejection through the
+same parser used for execution, checkpoint byte corruption and truncation,
+exclusive writer ownership, persistence-failure fencing, repeated reopen with
+insert/index/update/delete, and recovered tuple history. Daemon TCP tests
+assert returned SQL rows and KV/object/blob payloads after reopening storage.
+SQL retry tests reopen both SQL state and the VSR router at the intent/commit/
+checkpoint boundaries, assert a single commit per request, replay historical
+results after update/delete, reject key conflicts, and recover from failed
+checkpoint publication. These are local durable recovery tests; independent
+network peers and machine-failure tests remain release requirements.
+
 ## Required Verification Layers
 
 ### Deterministic Simulation

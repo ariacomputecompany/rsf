@@ -72,30 +72,22 @@ Each service emits logs so one run shows how the whole database architecture com
 
 ## Run
 
-List demo profiles:
+The POC is a verification library; the production daemon does not expose demo
+commands. Exercise all profiles and invariant assertions with:
 
-```text
-cargo run -p rsfd -- demo list
+```sh
+cargo test -p rsf-poc
 ```
 
-Run one:
+Verify full, summary, and per-service log generation with:
 
-```text
-cargo run -p rsfd -- demo run universal-vsr-rados
+```sh
+cargo test -p rsf-poc --lib runner::tests::run_output_writes_full_summary_and_service_logs -- --exact
 ```
 
-Run all:
-
-```text
-cargo run -p rsfd -- demo run all
-```
-
-Write logs to disk:
-
-```text
-cargo run -p rsfd -- demo run universal-vsr-rados --out demo-impls/universal-vsr-rados/runs/latest
-cargo run -p rsfd -- demo run all --out runs/latest
-```
+The artifact test creates and checks its own temporary output directory. Library
+callers can use `run_one` or `run_all` and `RunOutput::write_logs` when they need
+to retain POC output at a chosen path.
 
 Implementation package sources:
 

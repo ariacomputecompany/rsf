@@ -17,6 +17,11 @@ The developer experience standard is equally high: scaling from one server to re
 
 ## Current Docs
 
+RSF is still under development. The daemon has local durable SQL autocommit,
+KV, object, and blob paths, but its default replication transport is local.
+Authenticated network replication, tenant isolation, durable SQL sessions, and
+measured production release gates remain open in [WORK.md](./WORK.md).
+
 - [Protocol Architecture Research](./docs/protocol-architecture-research.md)
 - [Full Implementation Plan](./PLAN.md)
 - [Product Requirements](./docs/requirements.md)

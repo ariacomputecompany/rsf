@@ -545,6 +545,7 @@ pub fn build_metrics(snapshot: &DaemonSnapshot) -> Result<ObservabilityRegistry,
     Ok(registry)
 }
 
+#[cfg(test)]
 pub fn load_snapshot(state: &Path) -> Result<DaemonSnapshot, String> {
     load_snapshot_for_profile(state, OperatorProfile::Standalone)
 }

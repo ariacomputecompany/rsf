@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+serde_json = "1"
 rsf-admin = { path = "../rsf-admin" }
 rsf-blob = { path = "../rsf-blob" }
 rsf-control = { path = "../rsf-control" }
@@ -15,6 +16,7 @@ rsf-object = { path = "../rsf-object" }
 rsf-observability = { path = "../rsf-observability" }
 rsf-policy = { path = "../rsf-policy" }
 rsf-protocol = { path = "../rsf-protocol" }
+rsf-sql = { path = "../rsf-sql" }
 rsf-upgrade = { path = "../rsf-upgrade" }
 rsf-wire = { path = "../rsf-wire" }
 

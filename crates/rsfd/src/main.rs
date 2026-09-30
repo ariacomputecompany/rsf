@@ -4,10 +4,8 @@ mod config;
 mod daemon;
 mod data;
 
-use std::time::Duration;
-
 use config::{ServeConfigOverrides, resolve_daemon_config};
-use daemon::{DaemonConfig, OperatorProfile, run_daemon};
+use daemon::{OperatorProfile, run_daemon};
 use rsf_admin::{AdminPlane, InviteToken, JoinRequest, NodeIdentity};
 use rsf_control::{PolicyProgressEvent, PolicyProgressPhase, PolicyProgressSink, PolicyReconciler};
 use rsf_core::cluster::{NodeDescriptor, NodeRole};
@@ -927,11 +925,12 @@ fn region_role_label(role: RegionRole) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use daemon::DaemonConfig;
     use rsf_core::blob::ContentId;
     use rsf_wire::{RawFrame, WireCodec, WireProtocol};
     use std::io::{Read, Write};
     use std::net::TcpStream;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn cli_without_args_returns_production_usage() {
@@ -1809,7 +1808,132 @@ mod tests {
         assert!(get_response.contains("surface=kv"));
         assert!(get_response.contains("detail=hit key=user/1"));
         assert!(get_response.contains("bytes=3"));
+        assert_eq!(response_payload(&get_response), b"ada");
         assert!(get_output.contains("status=executed"));
+
+        let _ = std::fs::remove_dir_all(state);
+    }
+
+    #[test]
+    fn daemon_data_listener_executes_durable_sql_requests_over_tcp() {
+        let state = test_path("daemon_data_listener_executes_durable_sql_requests_over_tcp");
+        let state_arg = state.display().to_string();
+        bootstrap_three_nodes(&state_arg);
+
+        let listener = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("bind data listener");
+        let create_addr = listener.local_addr();
+        let create_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Sql,
+            "app-client",
+            Some("app".to_string()),
+            "CREATE TABLE users(id PRIMARY KEY, name)",
+            Some("sql-create-users".to_string()),
+            0,
+        ));
+        let create_client = std::thread::spawn(move || send_data_frame(create_addr, create_frame));
+        let mut create_out = Vec::new();
+        wait_for_data_request(&listener, &mut create_out, "sql create");
+        let create_response = create_client.join().expect("create client thread");
+        let create_output = String::from_utf8(create_out).expect("stdout is utf8");
+
+        assert!(create_response.contains("RSF/1 executed"));
+        assert!(create_response.contains("surface=sql"));
+        assert!(create_response.contains("detail=create_table table=users"));
+        assert!(create_output.contains("status=executed"));
+        assert!(create_output.contains("surface=sql"));
+
+        let insert_addr = listener.local_addr();
+        let insert_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Sql,
+            "app-client",
+            Some("app".to_string()),
+            "INSERT INTO users (id, name) VALUES (1, ada)",
+            Some("sql-insert-user-1".to_string()),
+            0,
+        ));
+        let insert_client = std::thread::spawn(move || send_data_frame(insert_addr, insert_frame));
+        let mut insert_out = Vec::new();
+        wait_for_data_request(&listener, &mut insert_out, "sql insert");
+        let insert_response = insert_client.join().expect("insert client thread");
+        let insert_output = String::from_utf8(insert_out).expect("stdout is utf8");
+
+        assert!(insert_response.contains("RSF/1 executed"));
+        assert!(insert_response.contains("surface=sql"));
+        assert!(insert_response.contains("detail=insert table=users primary_key=1"));
+        assert!(response_payload(&insert_response).is_empty());
+        assert!(insert_output.contains("status=executed"));
+        assert!(insert_output.contains("surface=sql"));
+
+        let reopened = data::DataPlaneListener::bind(
+            "127.0.0.1:0".parse().expect("data listener addr"),
+            &state,
+        )
+        .expect("rebind data listener");
+        let select_addr = reopened.local_addr();
+        let select_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Sql,
+            "app-client",
+            Some("app".to_string()),
+            "SELECT * FROM users WHERE id = 1",
+            None,
+            0,
+        ));
+        let select_client = std::thread::spawn(move || send_data_frame(select_addr, select_frame));
+        let mut select_out = Vec::new();
+        wait_for_data_request(&reopened, &mut select_out, "sql select");
+        let select_response = select_client.join().expect("select client thread");
+        let select_output = String::from_utf8(select_out).expect("stdout is utf8");
+
+        assert!(select_response.contains("RSF/1 executed"));
+        assert!(select_response.contains("surface=sql"));
+        assert!(select_response.contains("detail=select rows=1"));
+        let rows: serde_json::Value =
+            serde_json::from_slice(&response_payload(&select_response)).expect("SQL rows JSON");
+        assert_eq!(rows, serde_json::json!([{"id": "1", "name": "ada"}]));
+        assert!(!select_output.contains("payload_hex="));
+        assert!(select_output.contains("status=executed"));
+        assert!(select_output.contains("surface=sql"));
+
+        let retry_addr = reopened.local_addr();
+        let retry_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Sql,
+            "app-client",
+            Some("app".to_string()),
+            "INSERT INTO users (id, name) VALUES (1, ada)",
+            Some("sql-insert-user-1".to_string()),
+            0,
+        ));
+        let retry_client = std::thread::spawn(move || send_data_frame(retry_addr, retry_frame));
+        wait_for_data_request(&reopened, &mut Vec::new(), "sql retry");
+        let retried = retry_client.join().unwrap();
+        assert!(retried.contains("RSF/1 executed"));
+        assert!(retried.contains("replayed=true"));
+        let commit_version = |response: &str| {
+            response
+                .split_whitespace()
+                .find(|field| field.starts_with("version="))
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(commit_version(&retried), commit_version(&insert_response));
+
+        let conflict_addr = reopened.local_addr();
+        let conflict_frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Sql,
+            "app-client",
+            Some("app".to_string()),
+            "INSERT INTO users (id, name) VALUES (2, bob)",
+            Some("sql-insert-user-1".to_string()),
+            0,
+        ));
+        let conflict_client =
+            std::thread::spawn(move || send_data_frame(conflict_addr, conflict_frame));
+        wait_for_data_request(&reopened, &mut Vec::new(), "sql conflicting retry");
+        assert!(conflict_client.join().unwrap().contains("RSF/1 rejected"));
 
         let _ = std::fs::remove_dir_all(state);
     }
@@ -1876,6 +2000,7 @@ mod tests {
         assert!(get_response.contains("surface=blob"));
         assert!(get_response.contains(&format!("detail=hit id={expected_id}")));
         assert!(get_response.contains("bytes=12"));
+        assert_eq!(response_payload(&get_response), b"blob-payload");
         assert!(get_output.contains("status=executed"));
         assert!(get_output.contains("surface=blob"));
 
@@ -1966,6 +2091,7 @@ mod tests {
         assert!(get_response.contains("detail=hit bucket=media key=hero.txt"));
         assert!(get_response.contains(&expected_id));
         assert!(get_response.contains("bytes=14"));
+        assert_eq!(response_payload(&get_response), b"object-payload");
         assert!(get_output.contains("status=executed"));
         assert!(get_output.contains("surface=object"));
 
@@ -1984,6 +2110,18 @@ mod tests {
             out.push(HEX[(byte & 0x0f) as usize] as char);
         }
         out
+    }
+
+    fn response_payload(response: &str) -> Vec<u8> {
+        let encoded = response
+            .split_whitespace()
+            .find_map(|field| field.strip_prefix("payload_hex="))
+            .expect("response payload");
+        assert_eq!(encoded.len() % 2, 0);
+        (0..encoded.len())
+            .step_by(2)
+            .map(|offset| u8::from_str_radix(&encoded[offset..offset + 2], 16).unwrap())
+            .collect()
     }
 
     fn send_data_frame(addr: std::net::SocketAddr, frame: Vec<u8>) -> String {

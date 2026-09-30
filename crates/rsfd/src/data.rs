@@ -9,6 +9,7 @@ use rsf_core::{Epoch, ErrorCode, PlacementGroupId, RsfError, RsfResult, blob::Co
 use rsf_kv::{DurableKvEngine, KvBatch, KvMutation};
 use rsf_object::DurableObjectStore;
 use rsf_protocol::{ClientRequestId, VsrBackedFabricRouter};
+use rsf_sql::{DurableSqlEngine, SqlMutationEvidence, SqlOutcome};
 use rsf_wire::{
     RequestEnvelope, WireAdapter, WireCodec, WireDecision, WireOperationKind, WireProtocol,
 };
@@ -68,6 +69,7 @@ pub enum DataPlaneResponse {
         surface: &'static str,
         version: Option<u64>,
         bytes: u64,
+        payload: Vec<u8>,
         detail: String,
     },
     Rejected {
@@ -93,6 +95,13 @@ impl DataPlaneExecutor {
 
     fn execute(&self, envelope: RequestEnvelope) -> DataPlaneResponse {
         match envelope.protocol {
+            WireProtocol::Sql => {
+                self.execute_sql(envelope)
+                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
+                        protocol: WireProtocol::Sql.as_str(),
+                        reason: err.message,
+                    })
+            }
             WireProtocol::Kv => {
                 self.execute_kv(envelope)
                     .unwrap_or_else(|err| DataPlaneResponse::Rejected {
@@ -116,10 +125,42 @@ impl DataPlaneExecutor {
             }
             protocol => DataPlaneResponse::Rejected {
                 protocol: protocol.as_str(),
-                reason: "data-plane execution handoff is currently available for kv, blob, and object requests"
+                reason: "data-plane execution handoff is currently available for sql, kv, blob, and object requests"
                     .to_string(),
             },
         }
+    }
+
+    fn execute_sql(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
+        ensure_empty_body(&envelope.body, "sql")?;
+        let request_client = sql_request_client_from_envelope(&envelope)?;
+        let mut runtime = self.open_sql_runtime()?;
+        let execution = runtime.sql.execute(
+            &mut runtime.router,
+            PlacementGroupId(1),
+            &envelope.operation,
+            request_client,
+        )?;
+        let payload = match &execution.outcome {
+            SqlOutcome::Selected { rows } => {
+                serde_json::to_vec(&rows.iter().map(|row| &row.columns).collect::<Vec<_>>())
+                    .map_err(|err| invalid(format!("failed to encode SQL result: {err}")))?
+            }
+            _ => Vec::new(),
+        };
+        Ok(DataPlaneResponse::Executed {
+            protocol: envelope.protocol.as_str(),
+            operation_kind: operation_kind_label(envelope.operation_kind),
+            surface: "sql",
+            version: execution.version.map(|version| version.0),
+            bytes: payload.len() as u64,
+            payload,
+            detail: format!(
+                "{} replayed={}",
+                sql_outcome_detail(&execution.outcome),
+                execution.replayed
+            ),
+        })
     }
 
     fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
@@ -134,6 +175,7 @@ impl DataPlaneExecutor {
                     surface: "kv",
                     version: value.map(|value| value.version.0),
                     bytes: value.map_or(0, |value| value.value.len() as u64),
+                    payload: value.map_or_else(Vec::new, |value| value.value.clone()),
                     detail: match value {
                         Some(value) => format!(
                             "hit key={} version={} deleted={}",
@@ -163,6 +205,7 @@ impl DataPlaneExecutor {
                     surface: "kv",
                     version: Some(result.version.0),
                     bytes: value.len() as u64,
+                    payload: Vec::new(),
                     detail: format!(
                         "set key={} replayed={} placement_group={} log_index={}",
                         key,
@@ -191,6 +234,7 @@ impl DataPlaneExecutor {
                     surface: "kv",
                     version: Some(result.version.0),
                     bytes: 0,
+                    payload: Vec::new(),
                     detail: format!(
                         "clear key={} replayed={} placement_group={} log_index={}",
                         key,
@@ -217,6 +261,7 @@ impl DataPlaneExecutor {
                     surface: "blob",
                     version: Some(record.pin_version.0),
                     bytes: record.bytes,
+                    payload: Vec::new(),
                     detail: format!(
                         "put id=blake3:{} deduped={} pins={} placement_group={} log_index={}",
                         hex_bytes(record.id.as_bytes()),
@@ -235,6 +280,7 @@ impl DataPlaneExecutor {
                     surface: "blob",
                     version: None,
                     bytes: bytes.len() as u64,
+                    payload: bytes,
                     detail: format!("hit id=blake3:{}", hex_bytes(id.as_bytes())),
                 })
             }
@@ -257,6 +303,7 @@ impl DataPlaneExecutor {
                     surface: "object",
                     version: Some(record.version.0),
                     bytes: 0,
+                    payload: Vec::new(),
                     detail: format!(
                         "create_bucket bucket={} placement_group={} log_index={}",
                         record.name, record.evidence.placement_group.0, record.evidence.log_index.0
@@ -280,6 +327,7 @@ impl DataPlaneExecutor {
                     surface: "object",
                     version: Some(put.head.version.0),
                     bytes: put.head.bytes,
+                    payload: Vec::new(),
                     detail: format!(
                         "put bucket={} key={} id=blake3:{} manifest=blake3:{} deduped={} pins={} placement_group={} log_index={}",
                         put.head.bucket,
@@ -305,6 +353,7 @@ impl DataPlaneExecutor {
                     surface: "object",
                     version: Some(head.version.0),
                     bytes: bytes.len() as u64,
+                    payload: bytes,
                     detail: format!(
                         "hit bucket={} key={} id=blake3:{} manifest=blake3:{}",
                         bucket,
@@ -321,6 +370,12 @@ impl DataPlaneExecutor {
         let (router, epoch) = self.open_router()?;
         let kv = DurableKvEngine::open(self.state.join("kv"), epoch)?;
         Ok(KvRuntime { router, kv })
+    }
+
+    fn open_sql_runtime(&self) -> RsfResult<SqlRuntime> {
+        let (router, _) = self.open_router()?;
+        let sql = DurableSqlEngine::open(self.state.join("sql"))?;
+        Ok(SqlRuntime { router, sql })
     }
 
     fn open_blob_runtime(&self) -> RsfResult<BlobRuntime> {
@@ -365,6 +420,11 @@ impl DataPlaneExecutor {
 struct KvRuntime {
     router: VsrBackedFabricRouter,
     kv: DurableKvEngine,
+}
+
+struct SqlRuntime {
+    router: VsrBackedFabricRouter,
+    sql: DurableSqlEngine,
 }
 
 struct BlobRuntime {
@@ -672,6 +732,27 @@ fn client_request_from_envelope(envelope: &RequestEnvelope) -> RsfResult<ClientR
     client_request_from_envelope_for_surface(envelope, "kv")
 }
 
+fn sql_request_client_from_envelope(envelope: &RequestEnvelope) -> RsfResult<String> {
+    match envelope.operation_kind {
+        WireOperationKind::Read => Ok(format!(
+            "wire:sql:{}:{}:read",
+            hex_bytes(envelope.principal.as_bytes()),
+            hex_bytes(envelope.namespace.as_deref().unwrap_or("").as_bytes())
+        )),
+        WireOperationKind::Write | WireOperationKind::Admin => {
+            let key = envelope.idempotency_key.as_ref().ok_or_else(|| {
+                invalid("sql mutating data-plane request requires an idempotency key")
+            })?;
+            Ok(format!(
+                "wire:sql:{}:{}:write:{}",
+                hex_bytes(envelope.principal.as_bytes()),
+                hex_bytes(envelope.namespace.as_deref().unwrap_or("").as_bytes()),
+                hex_bytes(key.as_bytes())
+            ))
+        }
+    }
+}
+
 fn client_request_from_envelope_for_surface(
     envelope: &RequestEnvelope,
     surface: &str,
@@ -714,6 +795,100 @@ fn operation_kind_label(kind: WireOperationKind) -> &'static str {
     }
 }
 
+fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
+    match outcome {
+        SqlOutcome::TableCreated {
+            table, evidence, ..
+        } => format!(
+            "create_table table={} placement_group={} log_index={}",
+            table, evidence.placement_group.0, evidence.log_index.0
+        ),
+        SqlOutcome::IndexCreated {
+            table,
+            column,
+            evidence,
+            ..
+        } => format!(
+            "create_index table={} column={} placement_group={} log_index={}",
+            table, column, evidence.placement_group.0, evidence.log_index.0
+        ),
+        SqlOutcome::Inserted { row, evidence } => {
+            let evidence = committed_sql_evidence(evidence);
+            format!(
+                "insert table={} primary_key={} placement_group={} log_index={}",
+                row.table, row.primary_key, evidence.placement_group.0, evidence.log_index.0
+            )
+        }
+        SqlOutcome::Updated { row, evidence } => {
+            let evidence = committed_sql_evidence(evidence);
+            format!(
+                "update table={} primary_key={} placement_group={} log_index={}",
+                row.table, row.primary_key, evidence.placement_group.0, evidence.log_index.0
+            )
+        }
+        SqlOutcome::Deleted {
+            table,
+            primary_key,
+            evidence,
+        } => {
+            let evidence = committed_sql_evidence(evidence);
+            format!(
+                "delete table={} primary_key={} placement_group={} log_index={}",
+                table, primary_key, evidence.placement_group.0, evidence.log_index.0
+            )
+        }
+        SqlOutcome::Selected { rows } => format!("select rows={}", rows.len()),
+        SqlOutcome::TransactionBegan {
+            session_id,
+            snapshot,
+        } => format!("begin session={} snapshot={}", session_id, snapshot.0),
+        SqlOutcome::SavepointCreated {
+            session_id,
+            name,
+            staged,
+        } => format!(
+            "savepoint session={} name={} staged={}",
+            session_id, name, staged
+        ),
+        SqlOutcome::SavepointRolledBack {
+            session_id,
+            name,
+            staged,
+        } => format!(
+            "rollback_to session={} name={} staged={}",
+            session_id, name, staged
+        ),
+        SqlOutcome::TransactionCommitted {
+            session_id,
+            evidence,
+            mutations,
+        } => format!(
+            "commit session={} mutations={} placement_group={} log_index={}",
+            session_id, mutations, evidence.placement_group.0, evidence.log_index.0
+        ),
+        SqlOutcome::TransactionRolledBack {
+            session_id,
+            discarded,
+        } => format!("rollback session={} discarded={}", session_id, discarded),
+    }
+}
+
+fn committed_sql_evidence(evidence: &SqlMutationEvidence) -> &rsf_core::CommitEvidence {
+    evidence.expect_committed("daemon sql data-plane autocommit")
+}
+
+fn single_line(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_control() {
+            escaped.extend(ch.escape_default());
+        } else {
+            escaped.push(ch);
+        }
+    }
+    escaped
+}
+
 fn render_data_plane_response(response: &DataPlaneResponse) -> String {
     match response {
         DataPlaneResponse::Executed {
@@ -722,20 +897,28 @@ fn render_data_plane_response(response: &DataPlaneResponse) -> String {
             surface,
             version,
             bytes,
+            payload,
             detail,
         } => format!(
-            "RSF/1 executed protocol={} operation_kind={} surface={} version={} bytes={} detail={}\n",
+            "RSF/1 executed protocol={} operation_kind={} surface={} version={} bytes={} payload_hex={} detail={}\n",
             protocol,
             operation_kind,
             surface,
             version.map_or_else(|| "none".to_string(), |version| version.to_string()),
             bytes,
-            detail
+            hex_bytes(payload),
+            single_line(detail)
         ),
         DataPlaneResponse::Rejected { protocol, reason } => {
-            format!("RSF/1 rejected protocol={} reason={}\n", protocol, reason)
+            format!(
+                "RSF/1 rejected protocol={} reason={}\n",
+                protocol,
+                single_line(reason)
+            )
         }
-        DataPlaneResponse::Corrupt { reason } => format!("RSF/1 corrupt reason={reason}\n"),
+        DataPlaneResponse::Corrupt { reason } => {
+            format!("RSF/1 corrupt reason={}\n", single_line(reason))
+        }
     }
 }
 
@@ -752,6 +935,7 @@ fn emit_data_plane_response(
             version,
             bytes,
             detail,
+            ..
         } => writeln!(
             out,
             "daemon data peer={} status=executed protocol={} operation_kind={} surface={} version={} bytes={} detail={}",
@@ -761,18 +945,18 @@ fn emit_data_plane_response(
             surface,
             version.map_or_else(|| "none".to_string(), |version| version.to_string()),
             bytes,
-            detail
+            single_line(detail)
         ),
         DataPlaneResponse::Rejected { protocol, reason } => writeln!(
             out,
             "daemon data peer={} status=rejected protocol={} reason={}",
-            peer, protocol, reason
+            peer, protocol, single_line(reason)
         ),
         DataPlaneResponse::Corrupt { reason } => {
             writeln!(
                 out,
                 "daemon data peer={} status=corrupt reason={}",
-                peer, reason
+                peer, single_line(reason)
             )
         }
     }
@@ -783,6 +967,59 @@ fn emit_data_plane_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sql_request_identity_separates_reads_and_delimiter_containing_scopes() {
+        let mut envelope = RequestEnvelope {
+            protocol: WireProtocol::Sql,
+            principal: "a:b".to_string(),
+            namespace: Some("c".to_string()),
+            operation: "SELECT * FROM users".to_string(),
+            operation_kind: WireOperationKind::Write,
+            idempotency_key: Some("read".to_string()),
+            body_bytes: 0,
+            body: Vec::new(),
+        };
+        let first = sql_request_client_from_envelope(&envelope).unwrap();
+        envelope.principal = "a".to_string();
+        envelope.namespace = Some("b:c".to_string());
+        let second = sql_request_client_from_envelope(&envelope).unwrap();
+        assert_ne!(first, second);
+        envelope.operation_kind = WireOperationKind::Read;
+        assert_ne!(second, sql_request_client_from_envelope(&envelope).unwrap());
+    }
+
+    #[test]
+    fn response_encodes_binary_payload_and_keeps_control_characters_out_of_logs() {
+        let response = DataPlaneResponse::Executed {
+            protocol: "kv-http",
+            operation_kind: "read",
+            surface: "kv",
+            version: Some(1),
+            bytes: 4,
+            payload: vec![0, 255, b'\n', b'\r'],
+            detail: "hit\nforged\rentry".to_string(),
+        };
+        let wire = render_data_plane_response(&response);
+        assert!(wire.contains("payload_hex=00ff0a0d"));
+        assert_eq!(wire.lines().count(), 1);
+        let mut log = Vec::new();
+        emit_data_plane_response(&mut log, "127.0.0.1:1".parse().unwrap(), &response).unwrap();
+        let log = String::from_utf8(log).unwrap();
+        assert_eq!(log.lines().count(), 1);
+        assert!(!log.contains("00ff0a0d"));
+        for response in [
+            DataPlaneResponse::Rejected {
+                protocol: "sql-wire",
+                reason: "bad\ninput".to_string(),
+            },
+            DataPlaneResponse::Corrupt {
+                reason: "bad\r\nframe".to_string(),
+            },
+        ] {
+            assert_eq!(render_data_plane_response(&response).lines().count(), 1);
+        }
+    }
 
     #[test]
     fn kv_command_parser_accepts_read_write_and_clear() {
