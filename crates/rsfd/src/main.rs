@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod peer;
+
 mod config;
 mod daemon;
 mod data;
@@ -36,6 +38,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
         [command, rest @ ..] if command == "init" => run_init_cli(rest),
         [command, rest @ ..] if command == "join" => run_join_cli(rest),
         [command, rest @ ..] if command == "serve" => run_serve_cli(rest),
+        [command, rest @ ..] if command == "peer" => peer::run_cli(rest),
         [command, rest @ ..] if command == "policy" => run_policy_cli(rest),
         [command, rest @ ..] if command == "audit" => run_audit_cli(rest),
         [command, rest @ ..] if command == "auth" || command == "namespace" => {
@@ -47,7 +50,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--data-listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | policy | auth <register|bind|revoke-certificate|grant|revoke-grant> --state <dir> | namespace create --state <dir> --tenant <name> --database <name> --namespace <name> --region <id> --surfaces <sql,kv,object,blob>]"
+    "usage: rsfd [status --state <dir> | audit --state <dir> | upgrade plan --state <dir> --from <semver> --target <semver> [--node-version <node=semver>] [--min-compatible-nodes <n>] | init --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] | join --state <dir> --token <token> --node-key <key> --node-nonce <nonce> --mtls-trust-domain <domain> --tls-cert-sha256 <hex> --region <id> --zone <id> [--capacity-bytes <n>] [--gateway <true|false>] | serve [--config <path>] [--state <dir>] [--once] [--tick-ms <n>] [--listen <ip:port>] [--data-listen <ip:port>] [--profile <standalone|regional|multi-region>] [--max-consecutive-errors <n>] | peer serve --config <peer.json> | policy | auth <register|bind|revoke-certificate|grant|revoke-grant> --state <dir> | namespace create --state <dir> --tenant <name> --database <name> --namespace <name> --region <id> --surfaces <sql,kv,object,blob>]"
         .to_string()
 }
 

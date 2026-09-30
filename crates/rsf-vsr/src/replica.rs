@@ -224,3 +224,117 @@ impl DurableVsrCell {
 
 #[cfg(test)]
 mod tests;
+
+impl DurableVsrCell {
+    /// Commit an existing prepare and confirm durable commit evidence on a
+    /// quorum. Retrying a locally committed index also repairs lagging peers.
+    pub fn replicate_with_transport<T: VsrTransport>(
+        &mut self,
+        primary: NodeId,
+        index: LogIndex,
+        transport: &mut T,
+    ) -> RsfResult<()> {
+        self.ensure_healthy()?;
+        if primary != self.primary() {
+            return Err(invalid_input("replication requires the active primary"));
+        }
+        let prepare = self
+            .prepared(index)
+            .cloned()
+            .ok_or_else(|| invalid_input("replication index has no prepare"))?;
+        let already_committed = self.committed_operation(index).is_some();
+        let replicas = self.replicas();
+        let tail = self.committed_tail();
+        let mut synchronized = BTreeSet::new();
+        let mut failures = Vec::new();
+        for replica in replicas.iter().copied().filter(|node| *node != primary) {
+            let result = (|| {
+                let remote_tail = transport.committed_tail(replica, prepare.pg)?;
+                if remote_tail > tail {
+                    return Err(VsrTransportError {
+                        replica,
+                        reason: "follower committed prefix is ahead of primary".into(),
+                    });
+                }
+                // Validate the common tip as well as the missing suffix. A
+                // matching height alone is not evidence of matching history.
+                for next in remote_tail.0.max(1)..=tail.0 {
+                    let commit = self.cell.committed[(next - 1) as usize].clone();
+                    let entry = VsrCommittedEntry {
+                        prepare: self.cell.pending[&LogIndex(next)].prepare.clone(),
+                        commit,
+                    };
+                    transport.transfer_committed(replica, entry)?;
+                }
+                if already_committed && index != tail {
+                    transport.transfer_committed(
+                        replica,
+                        VsrCommittedEntry {
+                            prepare: prepare.clone(),
+                            commit: self.cell.committed[(index.0 - 1) as usize].clone(),
+                        },
+                    )?;
+                }
+                if !already_committed {
+                    let acknowledged = transport.acknowledge_prepare(VsrPrepareMessage {
+                        prepare: prepare.clone(),
+                        replica,
+                    })?;
+                    if acknowledged != replica {
+                        return Err(VsrTransportError {
+                            replica,
+                            reason: "transport acknowledged a different replica".into(),
+                        });
+                    }
+                    self.acknowledge(replica, prepare.view, index);
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => {
+                    synchronized.insert(replica);
+                }
+                Err(err) => failures.push(format!("node {}: {}", replica.0, err.reason)),
+            }
+        }
+        if already_committed {
+            return quorum_result(1 + synchronized.len(), self.quorum(), &failures);
+        }
+        let commit = match self.commit(primary, index)? {
+            VsrDecision::Committed(commit) => commit,
+            VsrDecision::Rejected { reason, .. } => {
+                return Err(RsfError::new(
+                    ErrorCode::QuorumUnavailable,
+                    format!("{reason}; {}", failures.join("; ")),
+                ));
+            }
+            _ => return Err(corrupt("unexpected replication commit decision")),
+        };
+        let mut durable = 1;
+        for replica in synchronized {
+            match transport.acknowledge_commit(replica, commit.clone()) {
+                Ok(node) if node == replica => durable += 1,
+                Ok(_) => failures.push(format!(
+                    "node {}: transport acknowledged a different replica",
+                    replica.0
+                )),
+                Err(err) => failures.push(format!("node {}: {}", replica.0, err.reason)),
+            }
+        }
+        quorum_result(durable, self.quorum(), &failures)
+    }
+}
+
+fn quorum_result(durable: usize, quorum: usize, failures: &[String]) -> RsfResult<()> {
+    if durable >= quorum {
+        Ok(())
+    } else {
+        Err(RsfError::new(
+            ErrorCode::QuorumUnavailable,
+            format!(
+                "durable commit evidence reached {durable} replicas, requires {quorum}; {}",
+                failures.join("; ")
+            ),
+        ))
+    }
+}

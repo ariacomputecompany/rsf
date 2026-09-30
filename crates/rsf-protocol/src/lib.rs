@@ -1399,7 +1399,7 @@ mod tests {
             )
             .expect_err("no quorum means no certificate");
 
-        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert_eq!(err.code, ErrorCode::QuorumUnavailable);
         assert_eq!(
             router
                 .recovered_certificates(PlacementGroupId(1))
@@ -1463,7 +1463,7 @@ mod tests {
                 },
             )
             .expect_err("new voter partition prevents new quorum");
-        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert_eq!(err.code, ErrorCode::QuorumUnavailable);
         assert_eq!(
             router
                 .recovered_certificates(PlacementGroupId(1))
@@ -1536,7 +1536,7 @@ mod tests {
                 },
             )
             .expect_err("pg1 cannot certify without its new quorum");
-        assert_eq!(pg1_err.code, ErrorCode::InvalidInput);
+        assert_eq!(pg1_err.code, ErrorCode::QuorumUnavailable);
 
         let pg2_commit = router
             .commit(

@@ -6,6 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+rustls-pemfile = "2"
+sha2 = "0.10"
+rsf-vsr = { path = "../rsf-vsr" }
 rsf-core = { path = "../rsf-core" }
 rsf-storage = { path = "../rsf-storage" }
 
@@ -14,3 +18,7 @@ path = "src/lib.rs"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rsf-protocol = { path = "../rsf-protocol" }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }

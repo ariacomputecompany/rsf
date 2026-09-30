@@ -8,7 +8,7 @@ use rsf_core::{
 use rsf_storage::{SegmentStore, SegmentStoreOptions, WalAppend};
 use rsf_vsr::{
     DurableVsrCell, LocalVsrTransport, VsrClientRequestId, VsrDecision, VsrOperation, VsrPrepare,
-    VsrPrepareMessage, VsrTransport,
+    VsrTransport,
 };
 
 use crate::{
@@ -1277,10 +1277,10 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         }
 
         if cell.committed_operation(commit.index) == Some(&expected) {
-            return Ok(());
+            return cell.replicate_with_transport(self.primary, commit.index, &mut self.transport);
         }
 
-        let prepare = match cell.prepared(commit.index).cloned() {
+        match cell.prepared(commit.index).cloned() {
             Some(prepare) if prepare.operation == expected => {
                 if prepare.view != cell.view() {
                     cell.reprepare(self.primary, commit.index)?
@@ -1300,40 +1300,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             None => prepare_vsr_operation(cell, self.primary, commit, expected.clone())?,
         };
 
-        for replica in self
-            .replicas
-            .iter()
-            .copied()
-            .filter(|replica| *replica != self.primary)
-        {
-            let Ok(replica) = self.transport.acknowledge_prepare(VsrPrepareMessage {
-                prepare: prepare.clone(),
-                replica,
-            }) else {
-                continue;
-            };
-            let decision = cell.acknowledge(replica, cell.view(), commit.index);
-            if matches!(
-                decision,
-                VsrDecision::Acknowledged {
-                    acknowledgements,
-                    ..
-                } if acknowledgements >= cell.quorum()
-            ) {
-                break;
-            }
-        }
-
-        match cell.commit(self.primary, commit.index)? {
-            VsrDecision::Committed(committed) if committed.index == commit.index => Ok(()),
-            VsrDecision::Rejected { reason, .. } => {
-                Err(RsfError::new(ErrorCode::InvalidInput, reason))
-            }
-            _ => Err(RsfError::new(
-                ErrorCode::CorruptionDetected,
-                "unexpected vsr commit decision",
-            )),
-        }
+        cell.replicate_with_transport(self.primary, commit.index, &mut self.transport)
     }
 
     fn sync_replicas_from_pg(&mut self, pg: PlacementGroupId) {

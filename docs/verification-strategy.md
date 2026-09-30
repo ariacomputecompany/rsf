@@ -17,7 +17,7 @@ FOZZY_BIN=/path/to/fozzy FOZZY_SEED=20260930 sh scripts/verify-fozzy.sh
 ```
 
 Each invocation creates a fresh `artifacts/verification.*` directory containing
-host scenarios and recorded traces for storage, VSR, membership, protocol, KV
+host scenarios and recorded traces for storage, VSR, membership, protocol, authenticated peer RPC, KV
 transactions, SQL, authentication, tenancy, the daemon, objects/blobs, recovery, policy, the POC, and the
 complete workspace test suite.
 It first runs five seeded doctor checks and strict deterministic tests. Those
@@ -77,7 +77,7 @@ exact payload and expected commit state. A separate persistence-error test
 checks that an unpublished commit stays invisible and further writes require
 reopening. Reproposal after a locally installed view preserves the command and
 requires new votes. These APIs are prerequisites: the daemon still needs
-network transport, quorum-selected view reconciliation, and state-machine replay.
+data-plane integration with the peer transport, quorum-selected view reconciliation, and state-machine replay.
 
 Storage ownership uses operating-system file locks, retained by a reentrant
 in-process registry for recovery. Lock files remain on disk; file existence
@@ -86,6 +86,10 @@ The registry explicitly unlocks its final handle so a concurrent process spawn
 cannot temporarily retain ownership through an inherited descriptor. All old
 sentinel-lock binaries must be stopped before upgrading an existing store;
 they do not participate in the new operating-system lock protocol.
+
+Independent peer-process and actual daemon peer-command tests are described in
+[peer-replication.md](peer-replication.md). They include real TLS traffic, forced
+process termination, quorum loss, prefix repair, and lost commit replies.
 
 ## Required Verification Layers
 

@@ -885,8 +885,14 @@ dependencies = [
 name = "rsf-rpc"
 version = "0.1.0"
 dependencies = [
+ "rcgen",
  "rsf-core",
+ "rsf-protocol",
  "rsf-storage",
+ "rsf-vsr",
+ "rustls",
+ "rustls-pemfile",
+ "sha2",
 ]
 
 [[package]]
@@ -1156,6 +1162,7 @@ dependencies = [
  "rsf-observability",
  "rsf-policy",
  "rsf-protocol",
+ "rsf-rpc",
  "rsf-sql",
  "rsf-tenancy",
  "rsf-upgrade",
@@ -1163,6 +1170,7 @@ dependencies = [
  "rsf-wire",
  "rustls",
  "rustls-pemfile",
+ "serde",
  "serde_json",
  "sha2",
 ]

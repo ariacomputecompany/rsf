@@ -48,6 +48,7 @@ run_domain storage tests/storage-host.pass.fozzy.json
 run_domain vsr tests/vsr-host.pass.fozzy.json
 run_domain membership tests/membership-host.pass.fozzy.json
 run_domain protocol tests/protocol-host.pass.fozzy.json
+run_domain peer-rpc tests/rpc-host.pass.fozzy.json
 run_domain kv-transactions tests/kv-txn-host.pass.fozzy.json
 run_domain sql tests/sql-host.pass.fozzy.json
 run_domain authentication tests/auth-host.pass.fozzy.json

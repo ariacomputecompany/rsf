@@ -1,0 +1,188 @@
+use std::collections::BTreeMap;
+use std::io::BufRead;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
+
+use rcgen::{
+    BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
+    KeyUsagePurpose,
+};
+use rsf_core::{ClusterId, Epoch, LogIndex, NodeId, OperationId, PlacementGroupId};
+use rsf_rpc::replication::{NetworkVsrTransport, PeerEndpoint, PeerIdentity};
+use rsf_vsr::{DurableVsrCell, VsrDecision, VsrOperation};
+
+struct Process {
+    child: Child,
+    address: SocketAddr,
+}
+impl Process {
+    fn start(config: &Path) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+            .args(["peer", "serve", "--config"])
+            .arg(config)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stdout).lines() {
+                let Ok(line) = line else {
+                    break;
+                };
+                let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
+                if event["event"] == "peer.ready" {
+                    let _ = send.send(
+                        event["listen"]
+                            .as_str()
+                            .unwrap()
+                            .parse::<SocketAddr>()
+                            .unwrap(),
+                    );
+                }
+            }
+        });
+        let address = receive.recv_timeout(Duration::from_secs(10));
+        if address.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        Self {
+            child,
+            address: address.expect("daemon peer readiness"),
+        }
+    }
+}
+impl Drop for Process {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+fn root() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "rsfd-network-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
+}
+fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
+    let mut params = CertificateParams::new(Vec::new()).unwrap();
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+    let key = KeyPair::generate().unwrap();
+    let ca = params.self_signed(&key).unwrap();
+    let issuer = Issuer::new(params, key);
+    let mut peers = BTreeMap::new();
+    for node in 0..3 {
+        let mut params = CertificateParams::new(vec!["localhost".into()]).unwrap();
+        params.extended_key_usages = vec![
+            ExtendedKeyUsagePurpose::ClientAuth,
+            ExtendedKeyUsagePurpose::ServerAuth,
+        ];
+        params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        let key = KeyPair::generate().unwrap();
+        let cert = params.signed_by(&key, &issuer).unwrap();
+        let dir = root.join(format!("tls-{node}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("certificate.pem"), cert.pem()).unwrap();
+        std::fs::write(dir.join("key.pem"), key.serialize_pem()).unwrap();
+        std::fs::write(dir.join("ca.pem"), ca.pem()).unwrap();
+        let identity = PeerIdentity::load(&dir).unwrap();
+        peers.insert(
+            NodeId(node),
+            PeerEndpoint {
+                address: "127.0.0.1:1".parse().unwrap(),
+                server_name: "localhost".into(),
+                fingerprint: identity.fingerprint,
+            },
+        );
+    }
+    let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
+    for node in 1..3 {
+        let config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":format!("store-{node}"),"tls":format!("tls-{node}"),"listen":"127.0.0.1:0","timeout_ms":1000,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
+        std::fs::write(
+            root.join(format!("peer-{node}.json")),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+    }
+    peers
+}
+
+#[test]
+fn daemon_peer_cli_replicates_commands_and_recovers_after_forced_termination() {
+    let root = root();
+    let mut peers = provision(&root);
+    let first = Process::start(&root.join("peer-1.json"));
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    let mut network = NetworkVsrTransport::new(
+        NodeId(0),
+        &ClusterId::new("cli-cluster").unwrap(),
+        PeerIdentity::load(&root.join("tls-0")).unwrap(),
+        peers,
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    let mut leader = DurableVsrCell::open(
+        root.join("leader"),
+        PlacementGroupId(1),
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+    )
+    .unwrap();
+    let payload = b"tenant/alpha\0SET customer/7\0independently durable payload";
+    let operation = VsrOperation::ReplicatedCommand {
+        operation_id: OperationId(1),
+        payload: payload.to_vec(),
+    };
+    let VsrDecision::Prepared(prepare) = leader
+        .prepare(NodeId(0), operation.clone(), payload.len() as u32)
+        .unwrap()
+    else {
+        panic!("prepare")
+    };
+    leader
+        .replicate_with_transport(NodeId(0), prepare.index, &mut network)
+        .unwrap();
+    drop(first);
+    drop(second);
+    for node in 1..3 {
+        let recovered = DurableVsrCell::open(
+            root.join(format!("store-{node}/pg-1")),
+            PlacementGroupId(1),
+            Epoch(1),
+            NodeId(0),
+            [NodeId(0), NodeId(1), NodeId(2)],
+        )
+        .unwrap();
+        assert_eq!(recovered.committed_operation(LogIndex(1)), Some(&operation));
+    }
+    let restart = Process::start(&root.join("peer-1.json"));
+    drop(restart);
+    let path = root.join("peer-1.json");
+    let mut config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["cluster"] = "wrong-cluster".into();
+    std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let rejected = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+        .args(["peer", "serve", "--config"])
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("different cluster or node"));
+    drop(leader);
+    std::fs::remove_dir_all(root).unwrap();
+}

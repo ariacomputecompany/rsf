@@ -121,23 +121,45 @@ pub trait VsrTransport {
         &mut self,
         message: VsrPrepareMessage,
     ) -> Result<NodeId, VsrTransportError>;
+
+    fn acknowledge_commit(
+        &mut self,
+        replica: NodeId,
+        commit: VsrCommit,
+    ) -> Result<NodeId, VsrTransportError>;
+
+    fn committed_tail(
+        &mut self,
+        replica: NodeId,
+        pg: PlacementGroupId,
+    ) -> Result<LogIndex, VsrTransportError>;
+
+    fn transfer_committed(
+        &mut self,
+        replica: NodeId,
+        entry: VsrCommittedEntry,
+    ) -> Result<(), VsrTransportError>;
 }
 
+/// In-process reachability model for simulations; it supplies no remote durability.
 #[derive(Clone, Debug)]
 pub struct LocalVsrTransport {
     reachable: BTreeSet<NodeId>,
+    tails: BTreeMap<(NodeId, PlacementGroupId), LogIndex>,
 }
 
 impl LocalVsrTransport {
     pub fn all_reachable(replicas: impl IntoIterator<Item = NodeId>) -> Self {
         Self {
             reachable: replicas.into_iter().collect(),
+            tails: BTreeMap::new(),
         }
     }
 
     pub fn with_reachable(replicas: impl IntoIterator<Item = NodeId>) -> Self {
         Self {
             reachable: replicas.into_iter().collect(),
+            tails: BTreeMap::new(),
         }
     }
 
@@ -161,6 +183,60 @@ impl VsrTransport for LocalVsrTransport {
             Err(VsrTransportError {
                 replica: message.replica,
                 reason: "replica is unreachable".to_string(),
+            })
+        }
+    }
+
+    fn acknowledge_commit(
+        &mut self,
+        replica: NodeId,
+        commit: VsrCommit,
+    ) -> Result<NodeId, VsrTransportError> {
+        self.require_reachable(replica)?;
+        let tail = self
+            .tails
+            .entry((replica, commit.pg))
+            .or_insert(LogIndex(0));
+        if commit.index.0 > tail.0 + 1 {
+            return Err(VsrTransportError {
+                replica,
+                reason: "simulated commit has a missing prefix".into(),
+            });
+        }
+        *tail = (*tail).max(commit.index);
+        Ok(replica)
+    }
+
+    fn committed_tail(
+        &mut self,
+        replica: NodeId,
+        pg: PlacementGroupId,
+    ) -> Result<LogIndex, VsrTransportError> {
+        self.require_reachable(replica)?;
+        Ok(self
+            .tails
+            .get(&(replica, pg))
+            .copied()
+            .unwrap_or(LogIndex(0)))
+    }
+
+    fn transfer_committed(
+        &mut self,
+        replica: NodeId,
+        entry: VsrCommittedEntry,
+    ) -> Result<(), VsrTransportError> {
+        self.acknowledge_commit(replica, entry.commit).map(|_| ())
+    }
+}
+
+impl LocalVsrTransport {
+    fn require_reachable(&self, replica: NodeId) -> Result<NodeId, VsrTransportError> {
+        if self.reachable.contains(&replica) {
+            Ok(replica)
+        } else {
+            Err(VsrTransportError {
+                replica,
+                reason: "replica is unreachable".into(),
             })
         }
     }

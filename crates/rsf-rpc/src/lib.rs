@@ -1,6 +1,7 @@
 use rsf_core::{ErrorCode, RsfError, RsfResult, TraceId};
 
 mod ledger;
+pub mod replication;
 
 pub use ledger::{DurableRpcLedger, RpcCall, RpcCallId, RpcCallState};
 
