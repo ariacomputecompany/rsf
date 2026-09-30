@@ -1,3 +1,6 @@
+mod application;
+pub use application::{ApplicationPayload, ApplicationSurface, ReplicatedFabricCommand};
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -112,8 +115,13 @@ impl ProtocolCommitRecord {
                         "protocol client id length does not fit in memory",
                     )
                 })?;
-                let client_start = 55;
-                let client_end = client_start + client_len;
+                let client_start = 55_usize;
+                let client_end = client_start.checked_add(client_len).ok_or_else(|| {
+                    RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "protocol client id length overflow",
+                    )
+                })?;
                 let client = bytes.get(client_start..client_end).ok_or_else(|| {
                     RsfError::new(
                         ErrorCode::CorruptionDetected,
@@ -967,6 +975,8 @@ pub struct VsrBackedFabricRouter<T: VsrTransport = LocalVsrTransport> {
     primary: NodeId,
     replicas: Vec<NodeId>,
     transport: T,
+    application_commands: BTreeMap<ClientRequestId, ReplicatedFabricCommand>,
+    application_failure: Option<String>,
 }
 
 impl VsrBackedFabricRouter<LocalVsrTransport> {
@@ -1011,7 +1021,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             );
         }
 
-        Ok(Self {
+        let mut router = Self {
             path,
             epoch,
             router,
@@ -1021,7 +1031,11 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             primary,
             replicas: replicas_vec,
             transport,
-        })
+            application_commands: BTreeMap::new(),
+            application_failure: None,
+        };
+        router.recover_application_commands()?;
+        Ok(router)
     }
 
     pub fn transport_mut(&mut self) -> &mut T {
@@ -1065,6 +1079,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         operation: FabricOperation,
     ) -> RsfResult<FabricCommit> {
         self.policy.validate_commit(mode, &operation)?;
+        self.reconcile_application_commands()?;
         let preview = self.router.next_commit(pg, mode, operation)?;
         self.require_vsr_commit(&preview)?;
         self.sync_protocol_epoch(pg)?;
@@ -1078,6 +1093,13 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         mode: ConsistencyMode,
         operation: FabricOperation,
     ) -> RsfResult<DurableRequestCommit> {
+        self.reconcile_application_commands()?;
+        if self.application_commands.contains_key(&request) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "application request retries require the complete command",
+            ));
+        }
         if let Some(certificate) = self.router.request_certificate(&request) {
             return Ok(DurableRequestCommit {
                 certificate,
@@ -1107,6 +1129,13 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         mode: ConsistencyMode,
         operation: FabricOperation,
     ) -> RsfResult<DurableRequestCommit> {
+        self.reconcile_application_commands()?;
+        if self.application_commands.contains_key(&request) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "application request retries require the complete command",
+            ));
+        }
         if let Some(certificate) = self.router.request_certificate(&request) {
             return Ok(DurableRequestCommit {
                 certificate,
@@ -1124,6 +1153,17 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     ) -> RsfResult<PlacementMap> {
         let next = PlacementMap::new(self.placement.version + 1, groups)?;
         self.policy.validate_placement_map(&next)?;
+        if self
+            .application_commands
+            .values()
+            .any(|command| !next.groups.contains(&command.commit.pg))
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "application command groups require certified migration before removal",
+            ));
+        }
+        self.reconcile_application_commands()?;
         append_placement_map(&self.path, self.epoch, &next)?;
         for pg in next.groups.iter().copied() {
             self.router.ensure_group(pg)?;
@@ -1144,6 +1184,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             min_placement_groups,
         )?;
         next.validate_placement_map(&self.placement)?;
+        self.reconcile_application_commands()?;
         append_protocol_policy(&self.path, self.epoch, &next)?;
         self.policy = next.clone();
         Ok(next)

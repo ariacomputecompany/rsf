@@ -8,7 +8,9 @@ certificates, committed-tail queries, and committed-prefix entries over TLS
 cargo run -p rsfd -- peer serve --config peer-1.json
 ```
 
-This is the durable replication service. Application data execution still uses
+The router can replicate complete versioned application commands through this
+service using `commit_application`; see [the command contract](replicated-application-commands.md).
+Application data execution still uses
 the existing router configuration; wiring complete SQL/KV/object/blob commands
 into every peer's state machine remains a release blocker. Starting peer
 services alone does not make existing data-plane writes distributed. The

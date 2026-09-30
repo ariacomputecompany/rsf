@@ -516,3 +516,107 @@ fn equal_tail_with_conflicting_committed_command_cannot_satisfy_retry_quorum() {
     drop(leader);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn protocol_application_commands_survive_independent_peer_processes() {
+    use rsf_protocol::{
+        ApplicationPayload, ApplicationSurface, ClientRequestId, ConsistencyMode, FabricOperation,
+        ReplicatedFabricCommand, VsrBackedFabricRouter,
+    };
+    let root = root("application-command");
+    provision(&root);
+    let first = PeerProcess::spawn(&root, 1);
+    let second = PeerProcess::spawn(&root, 2);
+    let mut peers = endpoints(&root);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    let mut router = VsrBackedFabricRouter::open_with_transport(
+        root.join("protocol"),
+        [PlacementGroupId(1)],
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+        transport(&root, peers.clone()),
+    )
+    .unwrap();
+    let operation = FabricOperation::KvMutation {
+        key: b"key".to_vec(),
+    };
+    let application = ApplicationPayload {
+        namespace: "tenant/database".into(),
+        surface: ApplicationSurface::Kv,
+        bytes: b"full mutation\0value\xff".to_vec(),
+    };
+    let request = ClientRequestId::new("application", 9);
+    let result = router
+        .commit_application(
+            PlacementGroupId(1),
+            request.clone(),
+            ConsistencyMode::Strict,
+            operation.clone(),
+            application.clone(),
+        )
+        .unwrap();
+    drop(first);
+    drop(second);
+    drop(router);
+    for node in [1, 2] {
+        let follower = cell(&root, node);
+        let VsrOperation::ReplicatedCommand { payload, .. } = follower
+            .committed_operation(result.certificate.index)
+            .unwrap()
+        else {
+            panic!("expected complete command");
+        };
+        let command = ReplicatedFabricCommand::decode(payload).unwrap();
+        assert_eq!(command.application, application);
+        assert_eq!(command.request, request);
+        assert_eq!(command.certificate(), result.certificate);
+    }
+    // A persisted local receipt is insufficient to acknowledge a retry without
+    // the configured network quorum.
+    let mut router = VsrBackedFabricRouter::open_with_transport(
+        root.join("protocol"),
+        [PlacementGroupId(1)],
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+        transport(&root, peers.clone()),
+    )
+    .unwrap();
+    assert!(
+        router
+            .commit_application(
+                PlacementGroupId(1),
+                request.clone(),
+                ConsistencyMode::Strict,
+                operation.clone(),
+                application.clone()
+            )
+            .is_err()
+    );
+    drop(router);
+    let first = PeerProcess::spawn(&root, 1);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    let mut router = VsrBackedFabricRouter::open_with_transport(
+        root.join("protocol"),
+        [PlacementGroupId(1)],
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+        transport(&root, peers),
+    )
+    .unwrap();
+    let retry = router
+        .commit_application(
+            PlacementGroupId(1),
+            request,
+            ConsistencyMode::Strict,
+            operation,
+            application,
+        )
+        .unwrap();
+    assert!(retry.replayed);
+    assert_eq!(retry.certificate, result.certificate);
+    assert_eq!(router.committed_application_commands().len(), 1);
+}

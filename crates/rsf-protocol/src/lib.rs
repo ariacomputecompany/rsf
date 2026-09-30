@@ -10,9 +10,9 @@ use rsf_core::{
 };
 
 pub use durable::{
-    DurableFabricRouter, DurableProtocolCommit, DurableRequestCommit, PlacementMap,
-    ProtocolCommitRecord, ProtocolPolicy, ProtocolWal, RecoveredProtocolCommit,
-    VsrBackedFabricRouter,
+    ApplicationPayload, ApplicationSurface, DurableFabricRouter, DurableProtocolCommit,
+    DurableRequestCommit, PlacementMap, ProtocolCommitRecord, ProtocolPolicy, ProtocolWal,
+    RecoveredProtocolCommit, ReplicatedFabricCommand, VsrBackedFabricRouter,
 };
 pub use profile::{
     BorrowedProtocolPart, CustomProtocolProfile, ProtocolSpine, custom_protocol_profile,
