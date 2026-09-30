@@ -613,8 +613,8 @@ fn open_policy_router(state: &str, admin: &AdminPlane) -> Result<VsrBackedFabric
     .map_err(|err| err.message)
 }
 
-fn protocol_membership_matches(
-    router: &VsrBackedFabricRouter,
+fn protocol_membership_matches<T: rsf_vsr::VsrTransport>(
+    router: &VsrBackedFabricRouter<T>,
     voters: &[rsf_core::NodeId],
 ) -> bool {
     router.placement_map().groups.iter().all(|pg| {
@@ -1220,7 +1220,22 @@ mod tests {
             ));
             let client = std::thread::spawn(move || send_data_frame(addr, frame));
             wait_for_data_request(&listener, &mut Vec::new(), "read after growth");
-            assert_eq!(response_payload(&client.join().unwrap()), b"durable");
+            assert!(
+                client
+                    .join()
+                    .unwrap()
+                    .contains("requires authenticated replication.json")
+            );
+            // Membership inventory alone does not create remote disk durability.
+            // The independent-process integration test supplies real peer endpoints.
+            let kv = rsf_kv::DurableKvEngine::open_replicated(
+                crate::security::namespace_root(&state, "app").join("kv"),
+                Epoch(1),
+                "app",
+            )
+            .unwrap();
+            assert_eq!(kv.get(b"first").unwrap().value, b"durable");
+            drop(kv);
             let frame = encode_data_frame(RawFrame::with_body(
                 WireProtocol::Kv,
                 "app-client",
@@ -1231,7 +1246,12 @@ mod tests {
             ));
             let client = std::thread::spawn(move || send_data_frame(addr, frame));
             wait_for_data_request(&listener, &mut Vec::new(), "write after growth");
-            assert!(client.join().unwrap().contains("RSF/1 executed"));
+            assert!(
+                client
+                    .join()
+                    .unwrap()
+                    .contains("requires authenticated replication.json")
+            );
         }
 
         let _ = std::fs::remove_dir_all(state);
@@ -1976,7 +1996,7 @@ mod tests {
     fn daemon_data_listener_executes_durable_kv_requests_over_tcp() {
         let state = test_path("daemon_data_listener_executes_durable_kv_requests_over_tcp");
         let state_arg = state.display().to_string();
-        bootstrap_three_nodes(&state_arg);
+        bootstrap_one_node(&state_arg);
 
         let listener = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
@@ -2038,7 +2058,7 @@ mod tests {
     fn daemon_data_listener_executes_durable_sql_requests_over_tcp() {
         let state = test_path("daemon_data_listener_executes_durable_sql_requests_over_tcp");
         let state_arg = state.display().to_string();
-        bootstrap_three_nodes(&state_arg);
+        bootstrap_one_node(&state_arg);
 
         let listener = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
@@ -2162,7 +2182,7 @@ mod tests {
     fn daemon_data_listener_executes_durable_blob_requests_over_tcp() {
         let state = test_path("daemon_data_listener_executes_durable_blob_requests_over_tcp");
         let state_arg = state.display().to_string();
-        bootstrap_three_nodes(&state_arg);
+        bootstrap_one_node(&state_arg);
 
         let listener = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
@@ -2231,7 +2251,7 @@ mod tests {
     fn daemon_data_listener_executes_durable_object_requests_over_tcp() {
         let state = test_path("daemon_data_listener_executes_durable_object_requests_over_tcp");
         let state_arg = state.display().to_string();
-        bootstrap_three_nodes(&state_arg);
+        bootstrap_one_node(&state_arg);
 
         let listener = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
@@ -2550,6 +2570,12 @@ mod tests {
     }
 
     pub(crate) fn bootstrap_three_nodes(state: &str) {
+        bootstrap_nodes(state, 3);
+    }
+    pub(crate) fn bootstrap_one_node(state: &str) {
+        bootstrap_nodes(state, 1);
+    }
+    fn bootstrap_nodes(state: &str, count: usize) {
         run_cli(&[
             "init".to_string(),
             "--state".to_string(),
@@ -2573,7 +2599,10 @@ mod tests {
         for (key, nonce, zone) in [
             ("node-public-key-second", "node-nonce-second", "iad-b"),
             ("node-public-key-third", "node-nonce-third", "iad-c"),
-        ] {
+        ]
+        .into_iter()
+        .take(count - 1)
+        {
             run_cli(&join_args(state, key, nonce, zone)).expect("join node");
         }
         crate::test_support::provision(std::path::Path::new(state));

@@ -81,7 +81,7 @@ pub struct DurableKvEngine {
     epoch: Epoch,
     next_indexes: BTreeMap<PlacementGroupId, u64>,
     journal: journal::Journal,
-    _writer_lock: std::fs::File,
+    _writer_lock: rsf_storage::ExclusiveFileLock,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

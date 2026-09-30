@@ -181,6 +181,39 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         })
     }
 
+    /// Confirm the configured primary against a current quorum before serving
+    /// local application reads. The caller must serialize the read with writes.
+    pub fn confirm_read_quorum(&mut self) -> RsfResult<()> {
+        self.reconcile_application_commands()?;
+        for (pg, cell) in &mut self.cells {
+            if cell.primary() != self.primary {
+                return Err(invalid("local node is not the current read primary"));
+            }
+            let tail = cell.committed_tail();
+            if tail.0 != 0 {
+                cell.replicate_with_transport(self.primary, tail, &mut self.transport)?;
+                continue;
+            }
+            let mut acknowledgements = 1;
+            for replica in cell.replicas() {
+                if replica == self.primary {
+                    continue;
+                }
+                match self.transport.committed_tail(replica, *pg) {
+                    Ok(remote) if remote.0 == 0 => acknowledgements += 1,
+                    Ok(_) => {
+                        return Err(corrupt("read primary is missing remote committed history"));
+                    }
+                    Err(_) => {}
+                }
+            }
+            if acknowledgements < cell.quorum() {
+                return Err(invalid("read requires an available primary quorum"));
+            }
+        }
+        Ok(())
+    }
+
     /// The ordered, locally certified commands available to an application
     /// materializer. Reconcile first to include an interrupted commit.
     pub fn committed_application_commands(&self) -> Vec<ReplicatedFabricCommand> {

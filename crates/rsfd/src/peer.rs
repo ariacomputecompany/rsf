@@ -42,7 +42,8 @@ struct CellConfig {
 struct PeerService {
     listener: TcpListener,
     server: PeerReplicaServer,
-    _lock: File,
+    _lock: rsf_storage::ExclusiveFileLock,
+    application_state: PathBuf,
 }
 
 pub fn run_cli(args: &[String]) -> Result<(), String> {
@@ -64,7 +65,11 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
             Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(err) => return Err(format!("peer accept failed: {err}")),
         };
-        match service.server.serve_connection(socket) {
+        let root = &service.application_state;
+        match service
+            .server
+            .serve_connection_with_apply(socket, &mut |entry| apply_entry(root, entry))
+        {
             Ok(()) => println!(
                 "{}",
                 serde_json::json!({"event":"peer.rpc","outcome":"accepted","remote":address.to_string()})
@@ -148,7 +153,7 @@ impl PeerService {
             .write(true)
             .open(state.join(".peer.lock"))
             .map_err(|err| err.to_string())?;
-        lock.try_lock()
+        let lock = rsf_storage::ExclusiveFileLock::acquire(lock)
             .map_err(|err| format!("peer state already has an owner: {err}"))?;
         bind_state(&state, &cluster, NodeId(config.node))?;
         let mut cells = BTreeMap::new();
@@ -174,17 +179,77 @@ impl PeerService {
             cells,
             timeout,
         )?;
+        let application_state = state.join("application");
+        let mut recovered = Vec::new();
+        for entry in server.committed_entries()? {
+            if let Some(command) = decode_application_entry(&entry)? {
+                recovered.push(command);
+            }
+        }
+        recovered.sort_by_key(|command| command.commit.version);
+        for command in recovered {
+            apply_command(&application_state, &command)?;
+        }
         let listener = TcpListener::bind(config.listen)
             .map_err(|err| format!("cannot bind peer listener: {err}"))?;
         Ok(Self {
             listener,
             server,
             _lock: lock,
+            application_state,
         })
     }
 }
 
-fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
+fn decode_application_entry(
+    entry: &rsf_vsr::VsrCommittedEntry,
+) -> Result<Option<rsf_protocol::ReplicatedFabricCommand>, String> {
+    let rsf_vsr::VsrOperation::ReplicatedCommand {
+        operation_id,
+        payload,
+    } = &entry.prepare.operation
+    else {
+        return Ok(None);
+    };
+    // Raw pre-RSFC1 replication entries have no surface decoding contract.
+    if !payload.starts_with(b"RSFC1") {
+        return Ok(None);
+    }
+    let command =
+        rsf_protocol::ReplicatedFabricCommand::decode(payload).map_err(|err| err.message)?;
+    if command.commit.pg != entry.prepare.pg
+        || command.commit.index != entry.prepare.index
+        || command.commit.operation_id != *operation_id
+    {
+        return Err("application command does not match committed VSR entry".into());
+    }
+    Ok(Some(command))
+}
+fn apply_entry(root: &Path, entry: &rsf_vsr::VsrCommittedEntry) -> Result<(), String> {
+    if let Some(command) = decode_application_entry(entry)? {
+        apply_command(root, &command)?;
+    }
+    Ok(())
+}
+fn apply_command(
+    root: &Path,
+    command: &rsf_protocol::ReplicatedFabricCommand,
+) -> Result<(), String> {
+    if command.application.surface != rsf_protocol::ApplicationSurface::Kv {
+        return Err("peer application materializer does not support this surface yet".into());
+    }
+    let mut kv = rsf_kv::DurableKvEngine::open_replicated(
+        crate::security::namespace_root(root, &command.application.namespace).join("kv"),
+        Epoch(1),
+        &command.application.namespace,
+    )
+    .map_err(|err| err.message)?;
+    kv.apply_application_command(command)
+        .map_err(|err| err.message)?;
+    Ok(())
+}
+
+pub(crate) fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
     if value.len() != 64 || !value.is_ascii() {
         return Err("peer fingerprint must contain 64 hexadecimal digits".into());
     }
@@ -196,7 +261,7 @@ fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
     Ok(result)
 }
 
-fn bind_state(root: &Path, cluster: &ClusterId, node: NodeId) -> Result<(), String> {
+pub(crate) fn bind_state(root: &Path, cluster: &ClusterId, node: NodeId) -> Result<(), String> {
     let identity = serde_json::json!({"version":1,"cluster":cluster.as_str(),"node":node.0});
     let path = root.join("IDENTITY.json");
     match std::fs::read(&path) {

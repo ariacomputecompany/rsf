@@ -1,6 +1,8 @@
 use super::*;
 use std::fs::OpenOptions;
 
+const NAMESPACE: &[u8; 7] = b"RSFKNS1";
+
 const INTENT: &[u8; 6] = b"RSFKI1";
 const RECEIPT: &[u8; 6] = b"RSFKR1";
 const INTERNAL_CLIENT: &str = "rsf-kv-internal:";
@@ -18,6 +20,7 @@ struct Applied {
 }
 #[derive(Debug, Default)]
 pub(super) struct Journal {
+    namespace: Option<String>,
     pending: BTreeMap<ClientRequestId, Intent>,
     receipts: BTreeMap<ClientRequestId, (PlacementGroupId, LogIndex)>,
     highest_version: u64,
@@ -50,7 +53,7 @@ impl DurableKvEngine {
             .write(true)
             .open(path.join(".kv-writer.lock"))
             .map_err(|err| corrupt(format!("cannot open KV ownership lock: {err}")))?;
-        lock.try_lock()
+        let lock = rsf_storage::ExclusiveFileLock::acquire(lock)
             .map_err(|err| invalid(format!("KV store already has a writer: {err}")))?;
         let store = SegmentStore::open(path)?;
         let scan = store.scan(SegmentScanFilter { pg: None })?;
@@ -64,6 +67,12 @@ impl DurableKvEngine {
         };
         for record in scan.wal_records {
             match record.kind {
+                WalRecordKind::KvMutation if record.payload.starts_with(NAMESPACE) => {
+                    let namespace = std::str::from_utf8(&record.payload[NAMESPACE.len()..])
+                        .map_err(|_| corrupt("KV namespace is not UTF-8"))?;
+                    durable.validate_namespace_binding(namespace)?;
+                    durable.journal.namespace = Some(namespace.to_owned());
+                }
                 WalRecordKind::KvMutation if record.payload.starts_with(INTENT) => {
                     let intent = decode_intent(record.pg, &record.payload)?;
                     if !durable.journal.pending.is_empty()
@@ -131,9 +140,7 @@ impl DurableKvEngine {
         }
         let pending = self.journal.pending.values().cloned().collect::<Vec<_>>();
         for intent in &pending {
-            let operation = operation(&intent.mutations);
-            let result =
-                router.commit_request(intent.pg, intent.request.clone(), operation.clone())?;
+            let result = self.submit_intent(router, intent)?;
             validate_certificate(&result.certificate, intent.pg, &intent.mutations)?;
             self.persist_receipt(
                 intent.request.clone(),
@@ -171,12 +178,14 @@ impl DurableKvEngine {
                 }
             }
             if let Some(applied) = self.receipt(request) {
+                self.verify_replicated_retry(router, request, pg, &batch.mutations, applied)?;
                 return receipt_result(applied, pg, &batch.mutations, true);
             }
         }
         self.reconcile(router)?;
         if let Some(request) = &batch.client_request {
             if let Some(applied) = self.receipt(request) {
+                self.verify_replicated_retry(router, request, pg, &batch.mutations, applied)?;
                 return receipt_result(applied, pg, &batch.mutations, true);
             }
             // Upgrade legacy durable writes only when this store can prove the
@@ -226,9 +235,18 @@ impl DurableKvEngine {
             pg,
             mutations: batch.mutations.clone(),
         };
+        if let Some(application) = self.application_payload(&intent)? {
+            router.validate_application_request(
+                pg,
+                &request,
+                ConsistencyMode::Strict,
+                &operation,
+                &application,
+            )?;
+        }
         self.append_journal(pg, &encode_intent(&intent)?)?;
-        self.journal.pending.insert(request.clone(), intent);
-        let result = router.commit_request(pg, request.clone(), operation)?;
+        self.journal.pending.insert(request.clone(), intent.clone());
+        let result = self.submit_intent(router, &intent)?;
         validate_certificate(&result.certificate, pg, &batch.mutations)?;
         let applied = Applied {
             evidence: commit_evidence(result.certificate),
@@ -255,11 +273,6 @@ impl DurableKvEngine {
             }
             return receipt_result(applied, evidence.placement_group, &mutations, true);
         }
-        if !self.journal.pending.is_empty() {
-            return Err(invalid(
-                "resolve the existing KV intent before applying a replicated batch",
-            ));
-        }
         let applied = Applied {
             evidence,
             mutations,
@@ -270,6 +283,144 @@ impl DurableKvEngine {
             applied.evidence.placement_group,
             &applied.mutations,
             false,
+        )
+    }
+
+    /// Open an empty or already namespace-bound store for complete command replication.
+    /// Legacy nonempty stores require explicit migration before this mode is enabled.
+    pub fn open_replicated(
+        path: impl AsRef<Path>,
+        epoch: Epoch,
+        namespace: &str,
+    ) -> RsfResult<Self> {
+        let mut store = Self::open(path, epoch)?;
+        match store.journal.namespace.as_deref() {
+            Some(existing) if existing == namespace => return Ok(store),
+            Some(_) => return Err(invalid("KV store belongs to a different namespace")),
+            None => {}
+        }
+        store.validate_namespace_binding(namespace)?;
+        let mut payload = NAMESPACE.to_vec();
+        payload.extend_from_slice(namespace.as_bytes());
+        store.append_journal(PlacementGroupId(0), &payload)?;
+        store.journal.namespace = Some(namespace.to_owned());
+        Ok(store)
+    }
+    fn validate_namespace_binding(&self, namespace: &str) -> RsfResult<()> {
+        if namespace.is_empty() || namespace.len() > 4096 || namespace.chars().any(char::is_control)
+        {
+            return Err(invalid("invalid KV replication namespace"));
+        }
+        if self.journal.namespace.is_some()
+            || !self.journal.applied.is_empty()
+            || !self.journal.pending.is_empty()
+            || self.journal.highest_version != 0
+        {
+            return Err(invalid(
+                "nonempty or already bound KV store requires explicit namespace migration",
+            ));
+        }
+        Ok(())
+    }
+    fn application_payload(
+        &self,
+        intent: &Intent,
+    ) -> RsfResult<Option<rsf_protocol::ApplicationPayload>> {
+        self.journal
+            .namespace
+            .as_ref()
+            .map(|namespace| {
+                Ok(rsf_protocol::ApplicationPayload {
+                    namespace: namespace.clone(),
+                    surface: rsf_protocol::ApplicationSurface::Kv,
+                    bytes: encode_intent(intent)?,
+                })
+            })
+            .transpose()
+    }
+    fn submit_intent(
+        &self,
+        router: &mut impl FabricRouterPort,
+        intent: &Intent,
+    ) -> RsfResult<rsf_protocol::RequestCommitEvidence> {
+        let operation = operation(&intent.mutations);
+        match self.application_payload(intent)? {
+            Some(application) => router.commit_application_request(
+                intent.pg,
+                intent.request.clone(),
+                ConsistencyMode::Strict,
+                operation,
+                application,
+            ),
+            None => router.commit_request(intent.pg, intent.request.clone(), operation),
+        }
+    }
+    fn verify_replicated_retry(
+        &self,
+        router: &mut impl FabricRouterPort,
+        request: &ClientRequestId,
+        pg: PlacementGroupId,
+        mutations: &[KvMutation],
+        applied: &Applied,
+    ) -> RsfResult<()> {
+        receipt_result(applied, pg, mutations, true)?;
+        if self.journal.namespace.is_some() {
+            if router.latest_version().0 < self.journal.highest_version
+                || router
+                    .request_certificate(request)
+                    .map(commit_evidence)
+                    .as_ref()
+                    != Some(&applied.evidence)
+            {
+                return Err(corrupt(
+                    "replicated KV retry requires the matching recovered protocol history",
+                ));
+            }
+            let receipt = self.submit_intent(
+                router,
+                &Intent {
+                    request: request.clone(),
+                    pg,
+                    mutations: mutations.to_vec(),
+                },
+            )?;
+            if commit_evidence(receipt.certificate) != applied.evidence {
+                return Err(corrupt("KV retry returned different protocol evidence"));
+            }
+        }
+        Ok(())
+    }
+    /// Apply a complete command from an authenticated, quorum-validated VSR entry.
+    /// Namespace and surface bindings are checked before any local mutation.
+    pub fn apply_application_command(
+        &mut self,
+        command: &rsf_protocol::ReplicatedFabricCommand,
+    ) -> RsfResult<KvCommitResult> {
+        if self.journal.namespace.as_deref() != Some(command.application.namespace.as_str())
+            || command.application.surface != rsf_protocol::ApplicationSurface::Kv
+        {
+            return Err(invalid(
+                "replicated KV command targets a different namespace or surface",
+            ));
+        }
+        command.encode()?;
+        if !command.application.bytes.starts_with(INTENT) {
+            return Err(corrupt("unsupported replicated KV command format"));
+        }
+        let intent = decode_intent(command.commit.pg, &command.application.bytes)?;
+        if intent.request != command.request
+            || operation(&intent.mutations) != command.commit.operation
+        {
+            return Err(corrupt(
+                "KV command body differs from its protocol operation or request",
+            ));
+        }
+        let certificate = command.certificate();
+        validate_certificate(&certificate, intent.pg, &intent.mutations)?;
+        self.apply_committed_batch(
+            intent.request,
+            commit_evidence(certificate),
+            intent.mutations,
         )
     }
 

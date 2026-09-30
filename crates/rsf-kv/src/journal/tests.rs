@@ -39,6 +39,22 @@ struct InterruptAfterCommit {
     kill_boundary: bool,
     fail_path: Option<PathBuf>,
 }
+impl InterruptAfterCommit {
+    fn after_commit(&mut self) {
+        if self.kill_boundary {
+            use std::io::Write;
+            println!("KV_PROTOCOL_DURABLE");
+            std::io::stdout().flush().unwrap();
+            loop {
+                std::thread::park_timeout(std::time::Duration::from_secs(1));
+            }
+        }
+        if let Some(path) = self.fail_path.take() {
+            std::fs::rename(&path, path.with_extension("displaced")).unwrap();
+            std::fs::write(path, b"not a directory").unwrap();
+        }
+    }
+}
 impl FabricRouterPort for InterruptAfterCommit {
     fn route_operation(&self, operation: &FabricOperation) -> Option<PlacementGroupId> {
         self.inner.route_operation(operation)
@@ -80,18 +96,32 @@ impl FabricRouterPort for InterruptAfterCommit {
             mode,
             operation,
         )?;
-        if self.kill_boundary {
-            use std::io::Write;
-            println!("KV_PROTOCOL_DURABLE");
-            std::io::stdout().flush().unwrap();
-            loop {
-                std::thread::park_timeout(std::time::Duration::from_secs(1));
-            }
-        }
-        if let Some(path) = self.fail_path.take() {
-            std::fs::rename(&path, path.with_extension("displaced")).unwrap();
-            std::fs::write(path, b"not a directory").unwrap();
-        }
+        self.after_commit();
+        Ok(result)
+    }
+    fn validate_application_request(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+        application: &rsf_protocol::ApplicationPayload,
+    ) -> RsfResult<()> {
+        self.inner
+            .validate_application_request(pg, request, mode, operation, application)
+    }
+    fn commit_application_request(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        mode: ConsistencyMode,
+        operation: FabricOperation,
+        application: rsf_protocol::ApplicationPayload,
+    ) -> RsfResult<RequestCommitEvidence> {
+        let result =
+            self.inner
+                .commit_application_request(pg, request, mode, operation, application)?;
+        self.after_commit();
         Ok(result)
     }
     fn request_certificate(&self, request: &ClientRequestId) -> Option<CommitCertificate> {
@@ -113,7 +143,11 @@ fn interrupted_writer_process() {
         kill_boundary: true,
         fail_path: None,
     };
-    let mut kv = DurableKvEngine::open(root.join("kv"), Epoch(1)).unwrap();
+    let mut kv = if std::env::var("RSF_KV_SCOPED").as_deref() == Ok("1") {
+        DurableKvEngine::open_replicated(root.join("kv"), Epoch(1), "tenant").unwrap()
+    } else {
+        DurableKvEngine::open(root.join("kv"), Epoch(1)).unwrap()
+    };
     let snapshot = kv.snapshot(&router);
     kv.commit_batch(
         &mut router,
@@ -125,6 +159,11 @@ fn interrupted_writer_process() {
 
 #[test]
 fn process_kill_between_protocol_commit_and_values_recovers_original_batch() {
+    for scoped in [false, true] {
+        killed_batch(scoped);
+    }
+}
+fn killed_batch(scoped: bool) {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
     let root = root("kill");
@@ -135,6 +174,7 @@ fn process_kill_between_protocol_commit_and_values_recovers_original_batch() {
             "--nocapture",
         ])
         .env("RSF_KV_JOURNAL_ROOT", &root)
+        .env("RSF_KV_SCOPED", if scoped { "1" } else { "0" })
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
@@ -157,6 +197,10 @@ fn process_kill_between_protocol_commit_and_values_recovers_original_batch() {
     let mut router = router(&root);
     let mut kv = DurableKvEngine::open(root.join("kv"), Epoch(1)).unwrap();
     assert_eq!(kv.pending_request_count(), 1);
+    assert_eq!(
+        router.committed_application_commands().len(),
+        usize::from(scoped)
+    );
     assert_eq!(router.latest_version(), CommitVersion(1));
     assert_eq!(kv.reconcile(&mut router).unwrap(), 1);
     assert_eq!(kv.get(b"key").unwrap().value, b"full durable payload");
@@ -403,4 +447,155 @@ fn stale_router_cannot_create_an_intent_over_materialized_state() {
     drop(kv);
     drop(stale);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn bound_kv_replication_materializes_values_clears_and_receipts() {
+    let root = root("replicated-kv");
+    let mut router = router(&root);
+    let mut leader =
+        DurableKvEngine::open_replicated(root.join("leader"), Epoch(1), "tenant-a").unwrap();
+    let snapshot = leader.snapshot(&router);
+    leader
+        .commit_batch(
+            &mut router,
+            PlacementGroupId(1),
+            batch(1, snapshot, b"first"),
+        )
+        .unwrap();
+    let snapshot = leader.snapshot(&router);
+    leader
+        .commit_batch(
+            &mut router,
+            PlacementGroupId(1),
+            batch(2, snapshot, b"second"),
+        )
+        .unwrap();
+    let snapshot = leader.snapshot(&router);
+    leader
+        .commit_batch(
+            &mut router,
+            PlacementGroupId(1),
+            KvBatch {
+                client_request: Some(ClientRequestId::new("app", 3)),
+                snapshot,
+                mutations: vec![KvMutation::Clear {
+                    key: b"key".to_vec(),
+                }],
+            },
+        )
+        .unwrap();
+    let commands = router.committed_application_commands();
+    assert_eq!(commands.len(), 3);
+    let mut follower =
+        DurableKvEngine::open_replicated(root.join("follower"), Epoch(1), "tenant-a").unwrap();
+    for command in &commands {
+        follower.apply_application_command(command).unwrap();
+    }
+    assert!(follower.get(b"key").is_none());
+    assert_eq!(
+        follower
+            .get_at(
+                b"key",
+                ReadSnapshot {
+                    version: CommitVersion(2)
+                }
+            )
+            .unwrap()
+            .value,
+        b"second"
+    );
+    assert_eq!(follower.changes_since(CommitVersion(0)).len(), 3);
+    drop(follower);
+    assert!(DurableKvEngine::open_replicated(root.join("follower"), Epoch(1), "tenant-b").is_err());
+    let mut follower =
+        DurableKvEngine::open_replicated(root.join("follower"), Epoch(1), "tenant-a").unwrap();
+    assert!(
+        follower
+            .apply_application_command(&commands[0])
+            .unwrap()
+            .replayed
+    );
+    assert!(follower.get(b"key").is_none());
+    let mut wrong = commands[0].clone();
+    wrong.application.namespace = "tenant-b".into();
+    assert!(follower.apply_application_command(&wrong).is_err());
+    let snapshot = leader.snapshot(&router);
+    assert!(
+        leader
+            .commit_batch(
+                &mut router,
+                PlacementGroupId(1),
+                batch(1, snapshot, b"first")
+            )
+            .unwrap()
+            .replayed
+    );
+    assert_eq!(router.latest_version(), CommitVersion(3));
+}
+
+#[test]
+fn invalid_replicated_command_cannot_strand_a_local_intent() {
+    let root = root("replicated-bounds");
+    let mut router = router(&root);
+    let mut kv = DurableKvEngine::open_replicated(root.join("kv"), Epoch(1), "tenant").unwrap();
+    let snapshot = kv.snapshot(&router);
+    let large = vec![0; 1024 * 1024];
+    assert!(
+        kv.commit_batch(&mut router, PlacementGroupId(1), batch(1, snapshot, &large))
+            .is_err()
+    );
+    assert_eq!(kv.pending_request_count(), 0);
+    assert!(
+        kv.commit_batch(
+            &mut router,
+            PlacementGroupId(1),
+            batch(2, snapshot, b"valid")
+        )
+        .is_ok()
+    );
+    assert_eq!(router.latest_version(), CommitVersion(1));
+}
+
+#[test]
+fn legacy_nonempty_kv_requires_explicit_migration_to_replication() {
+    let root = root("legacy-binding");
+    let mut router = router(&root);
+    let mut kv = DurableKvEngine::open(root.join("kv"), Epoch(1)).unwrap();
+    let snapshot = kv.snapshot(&router);
+    kv.commit_batch(
+        &mut router,
+        PlacementGroupId(1),
+        batch(1, snapshot, b"legacy"),
+    )
+    .unwrap();
+    drop(kv);
+    assert!(DurableKvEngine::open_replicated(root.join("kv"), Epoch(1), "tenant").is_err());
+    let kv = DurableKvEngine::open(root.join("kv"), Epoch(1)).unwrap();
+    assert_eq!(kv.get(b"key").unwrap().value, b"legacy");
+}
+
+#[test]
+fn replicated_retry_cannot_create_a_command_on_a_rolled_back_router() {
+    let root = root("mismatched-router");
+    let mut original = router(&root);
+    let mut kv = DurableKvEngine::open_replicated(root.join("kv"), Epoch(1), "tenant").unwrap();
+    let snapshot = kv.snapshot(&original);
+    kv.commit_batch(
+        &mut original,
+        PlacementGroupId(1),
+        batch(1, snapshot, b"original"),
+    )
+    .unwrap();
+    let mut empty = router(&root.join("empty"));
+    assert!(
+        kv.commit_batch(
+            &mut empty,
+            PlacementGroupId(1),
+            batch(1, snapshot, b"original")
+        )
+        .is_err()
+    );
+    assert_eq!(empty.latest_version(), CommitVersion(0));
+    assert!(empty.committed_application_commands().is_empty());
 }

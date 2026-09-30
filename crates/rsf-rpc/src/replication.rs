@@ -232,10 +232,33 @@ impl PeerReplicaServer {
     /// Serve one bounded RPC. Caller owns listener scheduling and records errors.
     /// No cell is created from untrusted message contents.
     pub fn serve_connection(&mut self, socket: TcpStream) -> Result<(), String> {
-        self.serve_io(socket).map_err(|err| err.to_string())
+        self.serve_connection_with_apply(socket, &mut |_| Ok(()))
     }
 
-    fn serve_io(&mut self, socket: TcpStream) -> io::Result<()> {
+    /// Run a trusted materializer after durable commit and before acknowledging
+    /// it. Retries invoke the materializer again, so it must be idempotent.
+    pub fn serve_connection_with_apply(
+        &mut self,
+        socket: TcpStream,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.serve_io(socket, apply).map_err(|err| err.to_string())
+    }
+
+    /// Recovery input for a materializer before the peer starts accepting traffic.
+    pub fn committed_entries(&self) -> Result<Vec<VsrCommittedEntry>, String> {
+        let mut entries = Vec::new();
+        for cell in self.cells.values() {
+            entries.extend(cell.committed_prefix().map_err(|err| err.message)?);
+        }
+        Ok(entries)
+    }
+
+    fn serve_io(
+        &mut self,
+        socket: TcpStream,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+    ) -> io::Result<()> {
         let mut stream = StreamOwned::new(
             ServerConnection::new(Arc::clone(&self.identity.server))
                 .map_err(|err| invalid(err.to_string()))?,
@@ -255,7 +278,7 @@ impl PeerReplicaServer {
             .ok_or_else(|| invalid("client certificate is not bound to a peer node"))?;
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
-        match self.dispatch(sender, kind, payload) {
+        match self.dispatch(sender, kind, payload, apply) {
             Ok(index) => write_frame(
                 &mut stream,
                 &frame(
@@ -290,7 +313,13 @@ impl PeerReplicaServer {
         Ok(cell)
     }
 
-    fn dispatch(&mut self, sender: NodeId, kind: u8, payload: &[u8]) -> io::Result<LogIndex> {
+    fn dispatch(
+        &mut self,
+        sender: NodeId,
+        kind: u8,
+        payload: &[u8],
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+    ) -> io::Result<LogIndex> {
         let local = self.local;
         let rsf = |err: rsf_core::RsfError| invalid(err.message);
         match kind {
@@ -305,9 +334,14 @@ impl PeerReplicaServer {
             COMMIT => {
                 let commit = VsrCommit::decode(payload).map_err(rsf)?;
                 let index = commit.index;
-                self.cell(sender, commit.pg)?
-                    .receive_commit(local, sender, commit)
+                let cell = self.cell(sender, commit.pg)?;
+                cell.receive_commit(local, sender, commit.clone())
                     .map_err(rsf)?;
+                let prepare = cell
+                    .prepared(index)
+                    .cloned()
+                    .ok_or_else(|| invalid("committed command has no prepare"))?;
+                apply(&VsrCommittedEntry { prepare, commit }).map_err(invalid)?;
                 Ok(index)
             }
             TAIL if payload.len() == 8 => Ok(self
@@ -333,9 +367,11 @@ impl PeerReplicaServer {
                 )
                 .map_err(rsf)?;
                 let index = prepare.index;
-                self.cell(sender, prepare.pg)?
-                    .catch_up_from(&[VsrCommittedEntry { prepare, commit }])
+                let entry = VsrCommittedEntry { prepare, commit };
+                self.cell(sender, entry.prepare.pg)?
+                    .catch_up_from(std::slice::from_ref(&entry))
                     .map_err(rsf)?;
+                apply(&entry).map_err(invalid)?;
                 Ok(index)
             }
             _ => Err(invalid("unsupported peer request or invalid payload size")),

@@ -1442,6 +1442,39 @@ impl<T: VsrTransport> FabricRouterPort for VsrBackedFabricRouter<T> {
         })
     }
 
+    fn validate_application_request(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+        application: &ApplicationPayload,
+    ) -> RsfResult<()> {
+        self.policy.validate_commit(mode, operation)?;
+        ReplicatedFabricCommand {
+            commit: self.router.next_commit(pg, mode, operation.clone())?,
+            request: request.clone(),
+            application: application.clone(),
+        }
+        .encode()?;
+        Ok(())
+    }
+
+    fn commit_application_request(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        mode: ConsistencyMode,
+        operation: FabricOperation,
+        application: ApplicationPayload,
+    ) -> RsfResult<RequestCommitEvidence> {
+        let result = self.commit_application(pg, request, mode, operation, application)?;
+        Ok(RequestCommitEvidence {
+            certificate: result.certificate,
+            replayed: result.replayed,
+        })
+    }
+
     fn request_certificate(&self, request: &ClientRequestId) -> Option<CommitCertificate> {
         self.router.request_certificate(request)
     }

@@ -322,6 +322,35 @@ pub trait FabricRouterPort {
         operation: FabricOperation,
     ) -> RsfResult<RequestCommitEvidence>;
 
+    /// Validate a complete command before the caller persists its local intent.
+    fn validate_application_request(
+        &self,
+        _pg: PlacementGroupId,
+        _request: &ClientRequestId,
+        _mode: ConsistencyMode,
+        _operation: &FabricOperation,
+        _application: &ApplicationPayload,
+    ) -> RsfResult<()> {
+        Err(RsfError::new(
+            ErrorCode::InvalidInput,
+            "router does not support complete application commands",
+        ))
+    }
+
+    fn commit_application_request(
+        &mut self,
+        _pg: PlacementGroupId,
+        _request: ClientRequestId,
+        _mode: ConsistencyMode,
+        _operation: FabricOperation,
+        _application: ApplicationPayload,
+    ) -> RsfResult<RequestCommitEvidence> {
+        Err(RsfError::new(
+            ErrorCode::InvalidInput,
+            "router does not support complete application commands",
+        ))
+    }
+
     fn request_certificate(&self, request: &ClientRequestId) -> Option<CommitCertificate>;
 
     fn latest_version(&self) -> CommitVersion;

@@ -136,7 +136,7 @@ pub struct DurableChunkStore {
     chunks: BTreeMap<ContentId, DurableChunkMeta>,
     quarantines: Vec<QuarantineEntry>,
     failure: Option<String>,
-    _writer_lock: File,
+    _writer_lock: rsf_storage::ExclusiveFileLock,
 }
 
 impl ChunkStore {
@@ -323,7 +323,7 @@ impl DurableChunkStore {
             .write(true)
             .open(root.join(".chunk-writer.lock"))
             .map_err(io_error)?;
-        writer_lock.try_lock().map_err(|err| {
+        let writer_lock = rsf_storage::ExclusiveFileLock::acquire(writer_lock).map_err(|err| {
             RsfError::new(
                 ErrorCode::InvalidInput,
                 format!("chunk store already has a writer: {err}"),

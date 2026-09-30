@@ -50,7 +50,7 @@ pub struct DurableObjectStore {
     heads: BTreeMap<(String, String), DurableObjectHead>,
     versions: BTreeMap<(String, String), Vec<DurableObjectHead>>,
     journal: journal::Journal,
-    _writer_lock: File,
+    _writer_lock: rsf_storage::ExclusiveFileLock,
 }
 
 impl DurableObjectStore {
@@ -76,7 +76,7 @@ impl DurableObjectStore {
                     format!("cannot open object writer lock: {err}"),
                 )
             })?;
-        writer_lock.try_lock().map_err(|err| {
+        let writer_lock = rsf_storage::ExclusiveFileLock::acquire(writer_lock).map_err(|err| {
             RsfError::new(
                 ErrorCode::InvalidInput,
                 format!("object store already has a writer: {err}"),

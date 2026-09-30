@@ -1,3 +1,6 @@
+mod transport;
+type DataRouter = VsrBackedFabricRouter<transport::DataTransport>;
+
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -195,6 +198,10 @@ impl DataPlaneExecutor {
                 .as_deref()
                 .ok_or_else(|| invalid("namespace is required"))?,
         )?;
+        if matches!(&command, KvCommand::Get { .. }) && runtime.router.transport_mut().is_network()
+        {
+            runtime.router.confirm_read_quorum()?;
+        }
         match command {
             KvCommand::Get { key } => {
                 let value = runtime.kv.get(key.as_bytes());
@@ -408,16 +415,29 @@ impl DataPlaneExecutor {
 
     fn open_kv_runtime(&self, namespace: &str) -> RsfResult<KvRuntime> {
         let (mut router, epoch) = self.open_router()?;
-        let mut kv = DurableKvEngine::open(
+        let mut kv = DurableKvEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("kv"),
             epoch,
+            namespace,
         )?;
+        for command in router.committed_application_commands() {
+            if command.application.surface == rsf_protocol::ApplicationSurface::Kv
+                && command.application.namespace == namespace
+            {
+                kv.apply_application_command(&command)?;
+            }
+        }
         kv.reconcile(&mut router)?;
         Ok(KvRuntime { router, kv })
     }
 
     fn open_sql_runtime(&self, namespace: &str) -> RsfResult<SqlRuntime> {
-        let (router, _) = self.open_router()?;
+        let (mut router, _) = self.open_router()?;
+        if router.transport_mut().is_network() {
+            return Err(invalid(
+                "network application execution currently requires the KV surface; this surface needs its complete replay codec",
+            ));
+        }
         let sql = DurableSqlEngine::open(
             crate::security::namespace_root(&self.state, namespace).join("sql"),
         )?;
@@ -425,7 +445,12 @@ impl DataPlaneExecutor {
     }
 
     fn open_blob_runtime(&self, namespace: &str) -> RsfResult<BlobRuntime> {
-        let (router, _) = self.open_router()?;
+        let (mut router, _) = self.open_router()?;
+        if router.transport_mut().is_network() {
+            return Err(invalid(
+                "network application execution currently requires the KV surface; this surface needs its complete replay codec",
+            ));
+        }
         let blobs = DurableBlobEngine::open(
             crate::security::namespace_root(&self.state, namespace).join("blob"),
         )?;
@@ -434,6 +459,11 @@ impl DataPlaneExecutor {
 
     fn open_object_runtime(&self, namespace: &str) -> RsfResult<ObjectRuntime> {
         let (mut router, _) = self.open_router()?;
+        if router.transport_mut().is_network() {
+            return Err(invalid(
+                "network application execution currently requires the KV surface; this surface needs its complete replay codec",
+            ));
+        }
         let mut objects = DurableObjectStore::open(
             crate::security::namespace_root(&self.state, namespace).join("object"),
         )?;
@@ -441,7 +471,7 @@ impl DataPlaneExecutor {
         Ok(ObjectRuntime { router, objects })
     }
 
-    fn open_router(&self) -> RsfResult<(VsrBackedFabricRouter, Epoch)> {
+    fn open_router(&self) -> RsfResult<(DataRouter, Epoch)> {
         let admin = AdminPlane::recover(self.state.join("admin"))?;
         let membership = admin.membership_view().ok_or_else(|| {
             RsfError::new(
@@ -457,12 +487,15 @@ impl DataPlaneExecutor {
             )
         })?;
         let epoch = Epoch(admin.cluster_map().epoch.0.max(1));
-        let router = VsrBackedFabricRouter::open(
+        let transport =
+            transport::DataTransport::load(&self.state, &admin, primary).map_err(invalid)?;
+        let mut router = VsrBackedFabricRouter::open_with_transport(
             self.state.join("protocol"),
             [PlacementGroupId(1)],
             epoch,
             primary,
             voters.clone(),
+            transport,
         )?;
         if !crate::protocol_membership_matches(&router, &voters) {
             return Err(RsfError::new(
@@ -470,27 +503,35 @@ impl DataPlaneExecutor {
                 "protocol membership differs from the admin map; resume the pending join",
             ));
         }
+        for pg in &router.placement_map().groups {
+            if router.membership(*pg)?.1 != primary {
+                return Err(invalid(
+                    "local data node is not the current placement-group primary",
+                ));
+            }
+        }
+        router.reconcile_application_commands()?;
         Ok((router, epoch))
     }
 }
 
 struct KvRuntime {
-    router: VsrBackedFabricRouter,
+    router: DataRouter,
     kv: DurableKvEngine,
 }
 
 struct SqlRuntime {
-    router: VsrBackedFabricRouter,
+    router: DataRouter,
     sql: DurableSqlEngine,
 }
 
 struct BlobRuntime {
-    router: VsrBackedFabricRouter,
+    router: DataRouter,
     blobs: DurableBlobEngine,
 }
 
 struct ObjectRuntime {
-    router: VsrBackedFabricRouter,
+    router: DataRouter,
     objects: DurableObjectStore,
 }
 

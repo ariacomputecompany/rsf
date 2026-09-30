@@ -448,6 +448,7 @@ name = "rsf-chunkstore"
 version = "0.1.0"
 dependencies = [
  "rsf-core",
+ "rsf-storage",
 ]
 
 [[package]]
@@ -1167,6 +1168,7 @@ dependencies = [
  "rsf-protocol",
  "rsf-rpc",
  "rsf-sql",
+ "rsf-storage",
  "rsf-tenancy",
  "rsf-upgrade",
  "rsf-vsr",

@@ -10,7 +10,7 @@ use crate::{data::DataPlaneListener, test_support, tests};
 
 fn setup(name: &str) -> (PathBuf, DataPlaneListener) {
     let state = tests::test_path(name);
-    tests::bootstrap_three_nodes(state.to_str().unwrap());
+    tests::bootstrap_one_node(state.to_str().unwrap());
     let listener = DataPlaneListener::bind("127.0.0.1:0".parse().unwrap(), &state).unwrap();
     (state, listener)
 }

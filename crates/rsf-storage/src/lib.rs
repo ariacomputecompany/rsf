@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod exclusive_lock;
+pub use exclusive_lock::ExclusiveFileLock;
+
 mod catalog;
 mod store;
 

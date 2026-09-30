@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rsf-storage = { path = "../rsf-storage" }
 rsf-core = { path = "../rsf-core" }
 
 [lints]

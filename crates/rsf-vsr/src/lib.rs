@@ -293,7 +293,7 @@ pub struct DurableVsrCell {
     cell: VsrCell,
     store: SegmentStore,
     durability_failure: Option<String>,
-    _writer_lock: std::fs::File,
+    _writer_lock: rsf_storage::ExclusiveFileLock,
 }
 
 impl VsrCell {
@@ -605,7 +605,7 @@ impl DurableVsrCell {
             .write(true)
             .open(path.join(".vsr-writer.lock"))
             .map_err(|err| invalid_input(format!("cannot open VSR writer lock: {err}")))?;
-        writer_lock.try_lock().map_err(|err| {
+        let writer_lock = rsf_storage::ExclusiveFileLock::acquire(writer_lock).map_err(|err| {
             RsfError::new(
                 ErrorCode::QuorumUnavailable,
                 format!("VSR store already has a writer: {err}"),

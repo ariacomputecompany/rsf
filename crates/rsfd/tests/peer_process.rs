@@ -65,9 +65,11 @@ impl Drop for Process {
     }
 }
 fn root() -> PathBuf {
+    static NEXT_ROOT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     std::env::temp_dir().join(format!(
-        "rsfd-network-{}-{}",
+        "rsfd-network-{}-{}-{}",
         std::process::id(),
+        NEXT_ROOT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -185,4 +187,219 @@ fn daemon_peer_cli_replicates_commands_and_recovers_after_forced_termination() {
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("different cluster or node"));
     drop(leader);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[allow(dead_code)]
+#[path = "../src/test_support.rs"]
+mod test_support;
+#[allow(dead_code)]
+#[path = "../src/tls.rs"]
+mod tls;
+
+fn cli(args: &[String]) {
+    let output = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+fn initialize_network_state(root: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>) -> PathBuf {
+    let state = root.join("primary");
+    for node in 0..3 {
+        let fingerprint = peers[&NodeId(node)]
+            .fingerprint
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        cli(&[
+            if node == 0 { "init" } else { "join" }.to_string(),
+            "--state".into(),
+            state.display().to_string(),
+            "--token".into(),
+            "token".into(),
+            "--node-key".into(),
+            format!("peer-node-public-key-{node}"),
+            "--node-nonce".into(),
+            format!("peer-node-nonce-{node}"),
+            "--mtls-trust-domain".into(),
+            "cli-cluster".into(),
+            "--tls-cert-sha256".into(),
+            fingerprint,
+            "--region".into(),
+            "iad".into(),
+            "--zone".into(),
+            format!("zone-{node}"),
+        ]);
+    }
+    test_support::provision(&state);
+    let router = rsf_protocol::VsrBackedFabricRouter::open(
+        state.join("protocol"),
+        [PlacementGroupId(1)],
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+    )
+    .unwrap();
+    let (view, _, _) = router.membership(PlacementGroupId(1)).unwrap();
+    drop(router);
+    for node in 1..3 {
+        let path = root.join(format!("peer-{node}.json"));
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config["cells"][0]["view"] = view.0.into();
+        std::fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+    }
+    state
+}
+fn configure_primary(root: &Path, state: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>) {
+    let peers=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
+    let config = serde_json::json!({"cluster":"cli-cluster","node":0,"tls":root.join("tls-0"),"timeout_ms":500,"peers":peers});
+    std::fs::write(
+        state.join("replication.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+}
+impl Process {
+    fn primary(state: &Path) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+            .args(["serve", "--state"])
+            .arg(state)
+            .args(["--data-listen", "127.0.0.1:0", "--tick-ms", "10"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stdout).lines() {
+                let Ok(line) = line else {
+                    return;
+                };
+                if let Some(rest) = line.strip_prefix("daemon data_listener addr=") {
+                    let addr = rest
+                        .split_whitespace()
+                        .next()
+                        .unwrap()
+                        .parse::<SocketAddr>()
+                        .unwrap();
+                    let _ = send.send(addr);
+                }
+            }
+        });
+        let address = receive.recv_timeout(Duration::from_secs(15));
+        if address.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        Self {
+            child,
+            address: address.expect("primary startup"),
+        }
+    }
+}
+fn kv_request(address: SocketAddr, operation: &str, request: &str, value: &[u8]) -> String {
+    let frame = rsf_wire::RawFrame::with_body(
+        rsf_wire::WireProtocol::Kv,
+        "app-client",
+        Some("app".into()),
+        operation,
+        Some(request.into()),
+        value.to_vec(),
+    );
+    test_support::send(
+        address,
+        &rsf_wire::WireCodec.encode(&frame).unwrap(),
+        test_support::pki().client.clone(),
+    )
+    .unwrap()
+}
+fn follower_kv(root: &Path, node: u64) -> rsf_kv::DurableKvEngine {
+    use sha2::{Digest, Sha256};
+    let namespace = Sha256::digest(b"app")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    rsf_kv::DurableKvEngine::open_replicated(
+        root.join(format!(
+            "store-{node}/application/namespaces/{namespace}/kv"
+        )),
+        Epoch(1),
+        "app",
+    )
+    .unwrap()
+}
+
+#[test]
+fn native_kv_ingress_replicates_and_materializes_on_real_daemon_peers() {
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    // A three-voter daemon must not silently substitute local acknowledgements.
+    let primary = Process::primary(&state);
+    let rejected = kv_request(primary.address, "SET user/1", "set-1", b"first");
+    assert!(rejected.contains("replication.json"), "{rejected}");
+    drop(primary);
+    let first = Process::start(&root.join("peer-1.json"));
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let config_path = state.join("replication.json");
+    let original_config = std::fs::read(&config_path).unwrap();
+    let mut wrong: serde_json::Value = serde_json::from_slice(&original_config).unwrap();
+    wrong["peers"][1]["fingerprint"] = "00".repeat(32).into();
+    std::fs::write(&config_path, serde_json::to_vec(&wrong).unwrap()).unwrap();
+    let rejected = kv_request(primary.address, "SET user/1", "set-1", b"first");
+    assert!(
+        rejected.contains("not the admitted node identity"),
+        "{rejected}"
+    );
+    std::fs::write(&config_path, original_config).unwrap();
+    let empty = kv_request(primary.address, "GET user/1", "empty-read", b"");
+    assert!(empty.contains("RSF/1 executed"), "{empty}");
+    let first_result = kv_request(primary.address, "SET user/1", "set-1", b"first");
+    assert!(first_result.contains("RSF/1 executed"), "{first_result}");
+    drop(second);
+    let second_result = kv_request(primary.address, "SET user/1", "set-2", b"second");
+    assert!(second_result.contains("RSF/1 executed"), "{second_result}");
+    // Simultaneously lose the primary and its only live follower after success.
+    drop(primary);
+    drop(first);
+    {
+        let follower = follower_kv(&root, 1);
+        assert_eq!(follower.get(b"user/1").unwrap().value, b"second");
+        assert_eq!(follower.changes_since(rsf_core::CommitVersion(0)).len(), 2);
+    }
+    {
+        let follower = follower_kv(&root, 2);
+        assert_eq!(follower.get(b"user/1").unwrap().value, b"first");
+    }
+    // Restart the lagging peer; retry repairs its missing prefix and applies it
+    // before success, without duplicating the primary's or follower's history.
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let retry = kv_request(primary.address, "SET user/1", "set-2", b"second");
+    assert!(retry.contains("RSF/1 executed"), "{retry}");
+    let changed = kv_request(primary.address, "SET user/1", "set-2", b"different");
+    assert!(changed.contains("RSF/1 rejected"), "{changed}");
+    let read = kv_request(primary.address, "GET user/1", "read", b"");
+    assert!(read.contains("RSF/1 executed"), "{read}");
+    drop(second);
+    let read = kv_request(primary.address, "GET user/1", "read", b"");
+    assert!(read.contains("RSF/1 rejected"), "{read}");
+    let no_quorum = kv_request(primary.address, "SET user/1", "set-2", b"second");
+    assert!(no_quorum.contains("RSF/1 rejected"), "{no_quorum}");
+    drop(primary);
+    let follower = follower_kv(&root, 2);
+    assert_eq!(follower.get(b"user/1").unwrap().value, b"second");
+    assert_eq!(follower.changes_since(rsf_core::CommitVersion(0)).len(), 2);
 }
