@@ -406,11 +406,12 @@ impl DataPlaneExecutor {
     }
 
     fn open_kv_runtime(&self, namespace: &str) -> RsfResult<KvRuntime> {
-        let (router, epoch) = self.open_router()?;
-        let kv = DurableKvEngine::open(
+        let (mut router, epoch) = self.open_router()?;
+        let mut kv = DurableKvEngine::open(
             crate::security::namespace_root(&self.state, namespace).join("kv"),
             epoch,
         )?;
+        kv.reconcile(&mut router)?;
         Ok(KvRuntime { router, kv })
     }
 

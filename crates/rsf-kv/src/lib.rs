@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod journal;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -78,6 +80,8 @@ pub struct DurableKvEngine {
     store: SegmentStore,
     epoch: Epoch,
     next_indexes: BTreeMap<PlacementGroupId, u64>,
+    journal: journal::Journal,
+    _writer_lock: std::fs::File,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -472,47 +476,10 @@ impl KvEngine {
 }
 
 impl DurableKvEngine {
+    /// Recover locally applied values and unresolved intents. Call `reconcile`
+    /// with the authoritative router before serving application reads.
     pub fn open(path: impl AsRef<Path>, epoch: Epoch) -> RsfResult<Self> {
-        let store = SegmentStore::open(path)?;
-        let scan = store.scan(SegmentScanFilter { pg: None })?;
-        let mut engine = KvEngine::default();
-        let mut next_indexes = BTreeMap::new();
-
-        for record in scan.wal_records.iter().filter(|record| {
-            matches!(
-                record.kind,
-                WalRecordKind::KvMutation | WalRecordKind::Snapshot
-            )
-        }) {
-            match record.kind {
-                WalRecordKind::KvMutation => {
-                    let batch = decode_kv_wal_payload(&record.payload)?;
-                    if batch.protocol_log_index.0 == 0 {
-                        return Err(RsfError::new(
-                            ErrorCode::CorruptionDetected,
-                            "kv wal record must reference a committed protocol log index",
-                        ));
-                    }
-                    engine.apply_batch_at(batch.version, batch.mutations);
-                }
-                WalRecordKind::Snapshot => {
-                    let snapshot = decode_kv_snapshot_payload(&record.payload)?;
-                    engine.replace_data(snapshot);
-                }
-                _ => unreachable!("filtered kv wal kinds"),
-            }
-            let next = next_indexes
-                .entry(record.pg)
-                .or_insert(record.index.0.saturating_add(1));
-            *next = (*next).max(record.index.0.saturating_add(1));
-        }
-
-        Ok(Self {
-            engine,
-            store,
-            epoch,
-            next_indexes,
-        })
+        Self::open_journal(path.as_ref(), epoch)
     }
 
     pub fn snapshot(&self, router: &impl FabricRouterPort) -> ReadSnapshot {
@@ -525,12 +492,7 @@ impl DurableKvEngine {
         pg: PlacementGroupId,
         batch: KvBatch,
     ) -> RsfResult<KvCommitResult> {
-        let mutations = batch.mutations.clone();
-        let commit = self.engine.commit_batch_with_evidence(router, pg, batch)?;
-        if !commit.replayed {
-            self.append_batch(commit.evidence.clone(), mutations)?;
-        }
-        Ok(commit)
+        self.commit_durable(router, pg, batch)
     }
 
     pub fn commit_batch_routed(
@@ -538,12 +500,14 @@ impl DurableKvEngine {
         router: &mut impl FabricRouterPort,
         batch: KvBatch,
     ) -> RsfResult<KvCommitResult> {
-        let mutations = batch.mutations.clone();
-        let commit = self.engine.commit_batch_routed(router, batch)?;
-        if !commit.replayed {
-            self.append_batch(commit.evidence.clone(), mutations)?;
-        }
-        Ok(commit)
+        let operation = journal::operation(&batch.mutations);
+        let pg = router.route_operation(&operation).ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                "router does not expose placement routing for kv batch",
+            )
+        })?;
+        self.commit_durable(router, pg, batch)
     }
 
     pub fn get(&self, key: &[u8]) -> Option<&KvVersionedValue> {
@@ -584,61 +548,19 @@ impl DurableKvEngine {
         gc_before: CommitVersion,
         active_snapshots: &[ReadSnapshot],
     ) -> RsfResult<KvCompactionOutput> {
-        let mut output = self.engine.compact(gc_before, active_snapshots);
-        let snapshot_log_index = self.append_snapshot(pg)?;
-        output.snapshot_log_index = snapshot_log_index;
+        self.ensure_healthy()?;
+        if self.pending_request_count() != 0 {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "resolve pending KV intents before compaction",
+            ));
+        }
+        let mut candidate = self.engine.clone();
+        let mut output = candidate.compact(gc_before, active_snapshots);
+        let payload = encode_kv_snapshot_payload(&candidate)?;
+        output.snapshot_log_index = self.append_record(pg, WalRecordKind::Snapshot, &payload)?;
+        self.engine = candidate;
         Ok(output)
-    }
-
-    fn append_batch(
-        &mut self,
-        evidence: CommitEvidence,
-        mutations: Vec<KvMutation>,
-    ) -> RsfResult<()> {
-        let next_index = *self
-            .next_indexes
-            .entry(evidence.placement_group)
-            .or_insert(1);
-        let payload = encode_kv_wal_payload(evidence.version, evidence.log_index, &mutations)?;
-        let previous_hash = self
-            .store
-            .recover_current()?
-            .recovery
-            .pg_tail(evidence.placement_group)
-            .map_or([0; 32], |tail| tail.record_hash);
-        let (_, _, record) = self.store.append_wal(WalAppend {
-            pg: evidence.placement_group,
-            epoch: self.epoch,
-            index: LogIndex(next_index),
-            kind: WalRecordKind::KvMutation,
-            previous_hash,
-            payload: &payload,
-        })?;
-        self.next_indexes
-            .insert(evidence.placement_group, record.index.0.saturating_add(1));
-        Ok(())
-    }
-
-    fn append_snapshot(&mut self, pg: PlacementGroupId) -> RsfResult<LogIndex> {
-        let next_index = *self.next_indexes.entry(pg).or_insert(1);
-        let payload = encode_kv_snapshot_payload(&self.engine)?;
-        let previous_hash = self
-            .store
-            .recover_current()?
-            .recovery
-            .pg_tail(pg)
-            .map_or([0; 32], |tail| tail.record_hash);
-        let (_, _, record) = self.store.append_wal(WalAppend {
-            pg,
-            epoch: self.epoch,
-            index: LogIndex(next_index),
-            kind: WalRecordKind::Snapshot,
-            previous_hash,
-            payload: &payload,
-        })?;
-        self.next_indexes
-            .insert(pg, record.index.0.saturating_add(1));
-        Ok(record.index)
     }
 }
 
@@ -694,6 +616,12 @@ fn decode_kv_wal_payload(bytes: &[u8]) -> RsfResult<RecoveredKvBatch> {
     let version = CommitVersion(read_u64(bytes, &mut offset)?);
     let protocol_log_index = LogIndex(read_u64(bytes, &mut offset)?);
     let mutation_count = read_u32(bytes, &mut offset)? as usize;
+    if mutation_count > bytes.len().saturating_sub(offset) / 9 {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            "kv mutation count exceeds payload bounds",
+        ));
+    }
     let mut mutations = Vec::with_capacity(mutation_count);
     for _ in 0..mutation_count {
         let tag = read_u8(bytes, &mut offset)?;
@@ -787,6 +715,12 @@ fn decode_kv_snapshot_payload(bytes: &[u8]) -> RsfResult<RecoveredKvSnapshot> {
             return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
                 "kv snapshot key must carry at least one version",
+            ));
+        }
+        if version_count > bytes.len().saturating_sub(offset) / 13 {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "kv snapshot version count exceeds payload bounds",
             ));
         }
         let mut versions = Vec::with_capacity(version_count);
@@ -1285,7 +1219,7 @@ mod tests {
             assert_eq!(output.retained_versions, 3);
             assert_eq!(output.dropped_versions, 1);
             assert_eq!(output.retained_tombstones, 1);
-            assert_eq!(output.snapshot_log_index, LogIndex(5));
+            assert_eq!(output.snapshot_log_index, LogIndex(9));
 
             let after_compaction = kv.snapshot(&router);
             kv.commit_batch(

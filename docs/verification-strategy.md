@@ -91,6 +91,11 @@ Independent peer-process and actual daemon peer-command tests are described in
 [peer-replication.md](peer-replication.md). They include real TLS traffic, forced
 process termination, quorum loss, prefix repair, and lost commit replies.
 
+KV apply-boundary crash tests and receipt semantics are documented in
+[kv-durable-apply.md](kv-durable-apply.md). The forced-kill test stops after a
+protocol commit but before the value/receipt append, then recovers the original
+mutation through the durable intent.
+
 ## Required Verification Layers
 
 ### Deterministic Simulation
