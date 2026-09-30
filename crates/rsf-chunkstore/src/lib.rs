@@ -135,6 +135,8 @@ pub struct DurableChunkStore {
     root: PathBuf,
     chunks: BTreeMap<ContentId, DurableChunkMeta>,
     quarantines: Vec<QuarantineEntry>,
+    failure: Option<String>,
+    _writer_lock: File,
 }
 
 impl ChunkStore {
@@ -315,10 +317,24 @@ impl DurableChunkStore {
                 format!("could not create chunk quarantine directory: {err}"),
             )
         })?;
+        let writer_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join(".chunk-writer.lock"))
+            .map_err(io_error)?;
+        writer_lock.try_lock().map_err(|err| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("chunk store already has a writer: {err}"),
+            )
+        })?;
         let mut store = Self {
             root,
             chunks: BTreeMap::new(),
             quarantines: Vec::new(),
+            failure: None,
+            _writer_lock: writer_lock,
         };
         store.load_quarantines()?;
         store.recover()?;
@@ -330,6 +346,7 @@ impl DurableChunkStore {
     }
 
     pub fn put(&mut self, write: ChunkWrite) -> RsfResult<ChunkDecision> {
+        self.ensure_healthy()?;
         if write.namespace.trim().is_empty() {
             return Ok(reject("chunk namespace must not be empty"));
         }
@@ -393,7 +410,53 @@ impl DurableChunkStore {
         })
     }
 
+    /// Ensure one content-addressed pin without incrementing reference counts
+    /// when the same immutable blob is retried.
+    pub fn ensure_pinned(&mut self, mut write: ChunkWrite) -> RsfResult<ChunkDecision> {
+        self.ensure_healthy()?;
+        let id = ContentId::for_bytes(&write.bytes);
+        if let Some(existing) = self.chunks.get(&id).cloned() {
+            if existing.class != write.class || existing.namespace != write.namespace {
+                return Err(RsfError::new(
+                    ErrorCode::InvalidInput,
+                    "content-addressed pin scope does not match stored chunk",
+                ));
+            }
+            let bytes = self.read_bytes_verified(&id)?;
+            if bytes != write.bytes {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "content-addressed pin payload mismatch",
+                ));
+            }
+            if existing.pin_count == 0 {
+                self.pin(&id)?;
+            }
+            let pins = self.chunks[&id].pin_count;
+            return Ok(ChunkDecision::Stored {
+                id,
+                class: existing.class,
+                bytes: existing.bytes,
+                deduped: true,
+                pins,
+            });
+        }
+        write.pin = true;
+        self.put(write)
+    }
+
+    fn ensure_healthy(&self) -> RsfResult<()> {
+        if let Some(failure) = &self.failure {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                format!("chunk persistence failed; reopen before further operations: {failure}"),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn read_verified(&mut self, id: &ContentId) -> RsfResult<ChunkDecision> {
+        self.ensure_healthy()?;
         let Some(meta) = self.chunks.get(id).cloned() else {
             return Ok(reject("chunk is not present"));
         };
@@ -449,6 +512,7 @@ impl DurableChunkStore {
     }
 
     pub fn pin(&mut self, id: &ContentId) -> RsfResult<ChunkDecision> {
+        self.ensure_healthy()?;
         let Some(meta) = self.chunks.get(id).cloned() else {
             return Ok(reject("chunk is not present"));
         };
@@ -470,6 +534,7 @@ impl DurableChunkStore {
     }
 
     pub fn release_pin(&mut self, id: &ContentId) -> RsfResult<ChunkDecision> {
+        self.ensure_healthy()?;
         let Some(meta) = self.chunks.get(id).cloned() else {
             return Ok(reject("chunk is not present"));
         };
@@ -573,7 +638,16 @@ impl DurableChunkStore {
         Ok(bytes)
     }
 
-    fn write_chunk_file(&self, meta: &DurableChunkMeta, bytes: &[u8]) -> RsfResult<()> {
+    fn write_chunk_file(&mut self, meta: &DurableChunkMeta, bytes: &[u8]) -> RsfResult<()> {
+        self.ensure_healthy()?;
+        let result = self.write_chunk_file_inner(meta, bytes);
+        if let Err(err) = &result {
+            self.failure = Some(err.message.clone());
+        }
+        result
+    }
+
+    fn write_chunk_file_inner(&self, meta: &DurableChunkMeta, bytes: &[u8]) -> RsfResult<()> {
         if bytes.is_empty() {
             return Err(RsfError::new(
                 ErrorCode::InvalidInput,
@@ -1396,6 +1470,47 @@ mod tests {
     }
 
     #[test]
+    fn ensure_pinned_is_idempotent_and_exclusively_owned() {
+        let root = test_root("ensure_pinned_is_idempotent_and_exclusively_owned");
+        let write = || ChunkWrite::new(ChunkClass::BlobPayload, "blob", b"payload".to_vec(), true);
+        let mut store = DurableChunkStore::open(&root).unwrap();
+        assert!(DurableChunkStore::open(&root).is_err());
+        let id = store.ensure_pinned(write()).unwrap().id().unwrap().clone();
+        for _ in 0..4 {
+            store.ensure_pinned(write()).unwrap();
+        }
+        assert_eq!(store.get(&id).unwrap().ref_count, 1);
+        assert_eq!(store.get(&id).unwrap().pin_count, 1);
+        drop(store);
+        let mut store = DurableChunkStore::open(&root).unwrap();
+        store.ensure_pinned(write()).unwrap();
+        assert_eq!(store.get(&id).unwrap().ref_count, 1);
+        assert_eq!(store.get(&id).unwrap().pin_count, 1);
+        store.release_pin(&id).unwrap();
+        store.ensure_pinned(write()).unwrap();
+        assert_eq!(store.get(&id).unwrap().pin_count, 1);
+        assert_eq!(store.get(&id).unwrap().ref_count, 1);
+    }
+
+    #[test]
+    fn failed_chunk_persistence_fences_the_writer() {
+        let root = test_root("failed_chunk_persistence_fences_the_writer");
+        let mut store = DurableChunkStore::open(&root).unwrap();
+        let directory = root.join(CHUNK_DIR);
+        let displaced = root.join("displaced");
+        fs::rename(&directory, &displaced).unwrap();
+        fs::write(&directory, b"not a directory").unwrap();
+        let write = || ChunkWrite::new(ChunkClass::BlobPayload, "blob", b"payload".to_vec(), true);
+        assert!(store.ensure_pinned(write()).is_err());
+        fs::remove_file(&directory).unwrap();
+        fs::rename(displaced, directory).unwrap();
+        assert!(store.ensure_pinned(write()).is_err());
+        drop(store);
+        let mut store = DurableChunkStore::open(&root).unwrap();
+        assert!(store.ensure_pinned(write()).is_ok());
+    }
+
+    #[test]
     fn durable_chunk_store_dedupes_after_restart() {
         let root = test_root("durable_chunk_store_dedupes_after_restart");
         let id = {
@@ -1517,7 +1632,7 @@ mod tests {
                     .and_then(|ext| ext.to_str())
                     == Some("corrupt"))
         );
-        let entries = store.quarantine_entries();
+        let entries = store.quarantine_entries().to_vec();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id.as_ref(), Some(&id));
         assert!(entries[0].reason.contains("checksum"));
@@ -1525,6 +1640,7 @@ mod tests {
         assert!(entries[0].corrupt_path.exists());
         assert!(entries[0].manifest_path.exists());
 
+        drop(store);
         let reopened = DurableChunkStore::open(&root).expect("reopen durable store");
         assert_eq!(reopened.quarantine_entries(), entries);
 
@@ -1547,7 +1663,7 @@ mod tests {
                 .is_none()
         );
         assert_eq!(store.verify_all().expect("report").chunks, 0);
-        let entries = store.quarantine_entries();
+        let entries = store.quarantine_entries().to_vec();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, None);
         assert_eq!(entries[0].source_name, "broken.chunk");
@@ -1555,6 +1671,7 @@ mod tests {
         assert!(entries[0].corrupt_path.exists());
         assert!(entries[0].manifest_path.exists());
 
+        drop(store);
         let reopened = DurableChunkStore::open(&root).expect("reopen durable store");
         assert_eq!(reopened.quarantine_entries(), entries);
 

@@ -122,10 +122,10 @@ The standard is strict:
 
 ## Remaining Release Blockers
 
-- Wire the daemon data plane to the authenticated peer service and deterministically replay complete commands into each peer's SQL/KV/object/blob stores. Its default `VsrBackedFabricRouter::open` still uses `LocalVsrTransport`. Finish replay-safe object/blob apply and receipt handling before application replay; KV and SQL now have durable intent/receipt boundaries. Add quorum-selected view reconciliation, network membership changes with historical certificate validation, primary failover, and migration of legacy VSR logs that predate persisted bootstrap membership before topology changes. Prove end-to-end quorum durability under machine failure.
+- Wire the daemon data plane to the authenticated peer service and deterministically replay complete commands into each peer's SQL/KV/object/blob stores. Its default `VsrBackedFabricRouter::open` still uses `LocalVsrTransport`. Integrate the durable SQL/KV/object intent/receipt and immutable blob apply boundaries into that peer path. Add quorum-selected view reconciliation, network membership changes with historical certificate validation, primary failover, and migration of legacy VSR logs that predate persisted bootstrap membership before topology changes. Prove end-to-end quorum durability under machine failure.
 - Implement explicit migration of legacy unscoped daemon data into an operator-selected tenant namespace while preserving request receipts. The secured daemon currently rejects shared top-level surface directories.
 - Add durable SQL sessions, incremental persistence, multiple pages per table, and bounded result streaming; current autocommit checkpoints rewrite the full state and the page adapter uses one page per table.
-- Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV intent/receipt history.
+- Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object intent/receipt history and unreachable pinned blobs.
 - Exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
 
 ## Custom Protocol Target

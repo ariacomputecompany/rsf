@@ -331,9 +331,10 @@ impl DataPlaneExecutor {
         )?;
         match command {
             ObjectCommand::CreateBucket { bucket } => {
-                let record = runtime.objects.create_bucket(
+                let record = runtime.objects.create_bucket_request(
                     &mut runtime.router,
                     PlacementGroupId(1),
+                    client_request_from_envelope_for_surface(&envelope, "object")?,
                     bucket,
                 )?;
                 Ok(DataPlaneResponse::Executed {
@@ -432,10 +433,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_object_runtime(&self, namespace: &str) -> RsfResult<ObjectRuntime> {
-        let (router, _) = self.open_router()?;
-        let objects = DurableObjectStore::open(
+        let (mut router, _) = self.open_router()?;
+        let mut objects = DurableObjectStore::open(
             crate::security::namespace_root(&self.state, namespace).join("object"),
         )?;
+        objects.reconcile(&mut router)?;
         Ok(ObjectRuntime { router, objects })
     }
 

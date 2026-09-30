@@ -1,6 +1,8 @@
+mod journal;
+
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use rsf_blob::DurableBlobEngine;
@@ -8,12 +10,9 @@ use rsf_core::{
     CommitConsistency, CommitEvidence, CommitVersion, Digest, ErrorCode, LogIndex, OperationId,
     PlacementGroupId, RsfError, RsfResult, blob::ContentId,
 };
-use rsf_protocol::{
-    ClientRequestId, CommitCertificate, FabricOperation, FabricRouterPort, RequestCommitEvidence,
-};
+use rsf_protocol::{ClientRequestId, CommitCertificate, FabricOperation, FabricRouterPort};
 
 const INDEX_FILE: &str = "objects.index";
-const TMP_FILE: &str = "objects.index.tmp";
 const FORMAT: &str = "RSF_OBJECT_INDEX_V1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,6 +49,8 @@ pub struct DurableObjectStore {
     buckets: BTreeMap<String, DurableObjectBucket>,
     heads: BTreeMap<(String, String), DurableObjectHead>,
     versions: BTreeMap<(String, String), Vec<DurableObjectHead>>,
+    journal: journal::Journal,
+    _writer_lock: File,
 }
 
 impl DurableObjectStore {
@@ -64,6 +65,24 @@ impl DurableObjectStore {
                 ),
             )
         })?;
+        let writer_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join(".object-writer.lock"))
+            .map_err(|err| {
+                RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    format!("cannot open object writer lock: {err}"),
+                )
+            })?;
+        writer_lock.try_lock().map_err(|err| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("object store already has a writer: {err}"),
+            )
+        })?;
+        let journal = journal::Journal::open(&root)?;
         let blobs = DurableBlobEngine::open(root.join("blob"))?;
         let mut store = Self {
             root,
@@ -71,8 +90,10 @@ impl DurableObjectStore {
             buckets: BTreeMap::new(),
             heads: BTreeMap::new(),
             versions: BTreeMap::new(),
+            journal,
+            _writer_lock: writer_lock,
         };
-        store.load_index()?;
+        store.recover_journal()?;
         Ok(store)
     }
 
@@ -83,26 +104,11 @@ impl DurableObjectStore {
         bucket: impl Into<String>,
     ) -> RsfResult<DurableObjectBucket> {
         let bucket = bucket.into();
-        validate_bucket(&bucket)?;
-        if let Some(existing) = self.buckets.get(&bucket) {
-            return Ok(existing.clone());
-        }
-
-        let commit = router.commit_request(
-            metadata_pg,
-            ClientRequestId::new(format!("object:bucket:{bucket}"), 0),
-            FabricOperation::ObjectBucket {
-                bucket: bucket.clone(),
-            },
-        )?;
-        let record = DurableObjectBucket {
-            name: bucket.clone(),
-            version: commit.certificate.version,
-            evidence: commit_evidence(commit.certificate),
-        };
-        self.buckets.insert(bucket, record.clone());
-        self.persist_index()?;
-        Ok(record)
+        let request = ClientRequestId::new(
+            format!("object:{}:bucket:{bucket}", self.journal.scope()),
+            0,
+        );
+        self.create_bucket_request(router, metadata_pg, request, bucket)
     }
 
     pub fn put(
@@ -115,43 +121,19 @@ impl DurableObjectStore {
         key: impl Into<String>,
         bytes: Vec<u8>,
     ) -> RsfResult<DurableObjectPut> {
-        let bucket = bucket.into();
-        let key = key.into();
-        validate_bucket(&bucket)?;
-        validate_key(&key)?;
-        self.require_bucket(&bucket)?;
-        if bytes.is_empty() {
-            return Err(RsfError::new(
-                ErrorCode::InvalidInput,
-                "object put frame body is required",
-            ));
-        }
-
-        let blob = self.blobs.put(router, blob_pg, bytes)?;
-        let manifest_digest = manifest_digest(&bucket, &key, &blob.id, blob.bytes);
-        let commit = commit_object_manifest(router, metadata_pg, request, &bucket, &key)?;
-        let head = DurableObjectHead {
-            bucket: bucket.clone(),
-            key: key.clone(),
-            version: commit.certificate.version,
-            evidence: commit_evidence(commit.certificate),
-            content: blob.id,
-            bytes: blob.bytes,
-            manifest_digest,
-        };
-        self.install_head(head.clone());
-        self.persist_index()?;
-
-        Ok(DurableObjectPut {
-            head,
-            pin_version: blob.pin_version,
-            pin_evidence: blob.pin_evidence,
-            deduped: blob.deduped,
-            pins: blob.pins,
-        })
+        self.put_durable(
+            router,
+            blob_pg,
+            metadata_pg,
+            request,
+            bucket.into(),
+            key.into(),
+            bytes,
+        )
     }
 
     pub fn read_verified(&mut self, bucket: &str, key: &str) -> RsfResult<Vec<u8>> {
+        self.journal.ensure_healthy()?;
         validate_bucket(bucket)?;
         validate_key(key)?;
         let head = self
@@ -261,74 +243,6 @@ impl DurableObjectStore {
             &mut self.versions,
         )
     }
-
-    fn persist_index(&self) -> RsfResult<()> {
-        let path = self.root.join(INDEX_FILE);
-        let tmp = self.root.join(TMP_FILE);
-        let encoded = encode_index(&self.buckets, &self.versions);
-        {
-            let mut file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&tmp)
-                .map_err(|err| {
-                    RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "failed to open durable object index temp {}: {err}",
-                            tmp.display()
-                        ),
-                    )
-                })?;
-            file.write_all(encoded.as_bytes()).map_err(|err| {
-                RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!(
-                        "failed to write durable object index temp {}: {err}",
-                        tmp.display()
-                    ),
-                )
-            })?;
-            file.sync_all().map_err(|err| {
-                RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!(
-                        "failed to sync durable object index temp {}: {err}",
-                        tmp.display()
-                    ),
-                )
-            })?;
-        }
-        fs::rename(&tmp, &path).map_err(|err| {
-            RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!(
-                    "failed to publish durable object index {} from {}: {err}",
-                    path.display(),
-                    tmp.display()
-                ),
-            )
-        })?;
-        sync_dir(&self.root)
-    }
-}
-
-fn commit_object_manifest(
-    router: &mut impl FabricRouterPort,
-    metadata_pg: PlacementGroupId,
-    request: ClientRequestId,
-    bucket: &str,
-    key: &str,
-) -> RsfResult<RequestCommitEvidence> {
-    router.commit_request(
-        metadata_pg,
-        request,
-        FabricOperation::ObjectManifest {
-            bucket: bucket.to_string(),
-            key: key.to_string(),
-        },
-    )
 }
 
 fn encode_index(
@@ -391,6 +305,13 @@ fn decode_index(
                     return Err(corrupt_line(line_number, "duplicate object bucket"));
                 }
                 let evidence = decode_evidence(evidence)?;
+                journal::validate_evidence(
+                    &evidence,
+                    &FabricOperation::ObjectBucket {
+                        bucket: name.clone(),
+                    },
+                    CommitConsistency::Strict,
+                )?;
                 buckets.insert(
                     name.clone(),
                     DurableObjectBucket {
@@ -419,6 +340,17 @@ fn decode_index(
                 let encoded_manifest_digest = Digest::blake3(hex_decode_32(manifest)?)
                     .map_err(|err| corrupt_line(line_number, err.message))?;
                 let evidence = decode_evidence(evidence)?;
+                journal::validate_evidence(
+                    &evidence,
+                    &FabricOperation::ObjectManifest {
+                        bucket: bucket.clone(),
+                        key: key.clone(),
+                    },
+                    CommitConsistency::Strict,
+                )?;
+                if bytes == 0 {
+                    return Err(corrupt_line(line_number, "object payload is empty"));
+                }
                 let expected = manifest_digest(&bucket, &key, &content, bytes);
                 if expected != encoded_manifest_digest {
                     return Err(corrupt_line(
@@ -650,20 +582,6 @@ fn hex_bytes(bytes: &[u8]) -> String {
         out.push(HEX[(byte & 0x0f) as usize] as char);
     }
     out
-}
-
-fn sync_dir(path: &Path) -> RsfResult<()> {
-    File::open(path)
-        .and_then(|dir| dir.sync_all())
-        .map_err(|err| {
-            RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!(
-                    "failed to sync durable object directory {}: {err}",
-                    path.display()
-                ),
-            )
-        })
 }
 
 #[cfg(test)]

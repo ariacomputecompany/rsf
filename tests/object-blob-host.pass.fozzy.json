@@ -12,7 +12,9 @@
         "-p",
         "rsf-objectmeta",
         "-p",
-        "rsf-blob"
+        "rsf-blob",
+        "-p",
+        "rsf-chunkstore"
       ],
       "exit_code": 0,
       "stdout": "",
@@ -29,7 +31,9 @@
         "-p",
         "rsf-objectmeta",
         "-p",
-        "rsf-blob"
+        "rsf-blob",
+        "-p",
+        "rsf-chunkstore"
       ],
       "expect_exit": 0
     }

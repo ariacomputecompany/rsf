@@ -631,6 +631,7 @@ dependencies = [
 name = "rsf-object"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "rsf-blob",
  "rsf-chunkstore",
  "rsf-core",
@@ -638,6 +639,7 @@ dependencies = [
  "rsf-protocol",
  "rsf-provider",
  "rsf-retention",
+ "rsf-storage",
 ]
 
 [[package]]

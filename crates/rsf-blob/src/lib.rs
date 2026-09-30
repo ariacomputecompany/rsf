@@ -45,6 +45,14 @@ pub struct DurableBlobRecord {
     pub pins: u32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagedBlob {
+    pub id: ContentId,
+    pub bytes: u64,
+    pub deduped: bool,
+    pub pins: u32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct BlobEngine {
     chunks: BTreeMap<ContentId, StoredBlob>,
@@ -231,9 +239,50 @@ impl DurableBlobEngine {
         pg: PlacementGroupId,
         bytes: impl Into<Bytes>,
     ) -> RsfResult<DurableBlobRecord> {
+        let staged = self.stage(bytes)?;
+        let id = staged.id;
+        let stored_bytes = staged.bytes;
+        let deduped = staged.deduped;
+        let pins = staged.pins;
+        let commit = router.commit_request_with_mode(
+            pg,
+            ClientRequestId::new(format!("blob:{}", hex_digest(id.as_bytes())), 0),
+            ConsistencyMode::AvailabilityFirst,
+            FabricOperation::BlobPin {
+                digest: *id.as_bytes(),
+            },
+        )?;
+        let certificate = &commit.certificate;
+        if certificate.pg != pg
+            || certificate.mode != ConsistencyMode::AvailabilityFirst
+            || certificate.index.0 == 0
+            || certificate.version.0 == 0
+            || certificate.operation_id
+                != (FabricOperation::BlobPin {
+                    digest: *id.as_bytes(),
+                })
+                .operation_id()
+        {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "blob certificate does not match its pin operation",
+            ));
+        }
+        Ok(DurableBlobRecord {
+            id,
+            bytes: stored_bytes,
+            pin_version: commit.certificate.version,
+            pin_evidence: commit_evidence(commit.certificate),
+            deduped,
+            pins,
+        })
+    }
+
+    /// Persist and verify immutable payload before journaling an object intent.
+    pub fn stage(&mut self, bytes: impl Into<Bytes>) -> RsfResult<StagedBlob> {
         let bytes = bytes.into();
         let id = ContentId::for_bytes(&bytes);
-        let decision = self.chunks.put(ChunkWrite::new(
+        let decision = self.chunks.ensure_pinned(ChunkWrite::new(
             ChunkClass::BlobPayload,
             format!("blob:{}", hex_digest(id.as_bytes())),
             bytes,
@@ -268,19 +317,9 @@ impl DurableBlobEngine {
                 ));
             }
         };
-        let commit = router.commit_request_with_mode(
-            pg,
-            ClientRequestId::new(format!("blob:{}", hex_digest(id.as_bytes())), 0),
-            ConsistencyMode::AvailabilityFirst,
-            FabricOperation::BlobPin {
-                digest: *id.as_bytes(),
-            },
-        )?;
-        Ok(DurableBlobRecord {
+        Ok(StagedBlob {
             id,
             bytes: stored_bytes,
-            pin_version: commit.certificate.version,
-            pin_evidence: commit_evidence(commit.certificate),
             deduped,
             pins,
         })
@@ -707,6 +746,31 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn durable_blob_retries_keep_one_pin_across_restart() {
+        let path = test_path("durable_blob_retries_keep_one_pin_across_restart");
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut blobs = DurableBlobEngine::open(&path).unwrap();
+        let first = blobs
+            .put(&mut router, PlacementGroupId(1), b"payload".to_vec())
+            .unwrap();
+        for _ in 0..4 {
+            let retry = blobs
+                .put(&mut router, PlacementGroupId(1), b"payload".to_vec())
+                .unwrap();
+            assert_eq!(retry.pin_evidence, first.pin_evidence);
+            assert_eq!(retry.pins, 1);
+        }
+        drop(blobs);
+        let mut blobs = DurableBlobEngine::open(&path).unwrap();
+        let retry = blobs
+            .put(&mut router, PlacementGroupId(1), b"payload".to_vec())
+            .unwrap();
+        assert_eq!(retry.pins, 1);
+        assert_eq!(retry.pin_evidence, first.pin_evidence);
+        assert_eq!(blobs.chunks.get(&retry.id).unwrap().ref_count, 1);
     }
 
     #[test]

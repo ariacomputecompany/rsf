@@ -7,6 +7,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+getrandom = "0.2"
+rsf-storage = { path = "../rsf-storage" }
 rsf-blob = { path = "../rsf-blob" }
 rsf-chunkstore = { path = "../rsf-chunkstore" }
 rsf-core = { path = "../rsf-core" }
