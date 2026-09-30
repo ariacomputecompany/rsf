@@ -1185,6 +1185,17 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         cell.timeout_election()
     }
 
+    /// The recovered voting configuration, which may precede an interrupted admin update.
+    pub fn membership(&self, pg: PlacementGroupId) -> RsfResult<(Epoch, NodeId, Vec<NodeId>)> {
+        let cell = self.cells.get(&pg).ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("placement group {} is not mapped", pg.0),
+            )
+        })?;
+        Ok((cell.view(), cell.primary(), cell.replicas()))
+    }
+
     pub fn reconfigure(
         &mut self,
         pg: PlacementGroupId,

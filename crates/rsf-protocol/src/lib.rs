@@ -1059,7 +1059,7 @@ mod tests {
                 .recovery
                 .wal_records
                 .len(),
-            2
+            3 // Bootstrap membership, prepare, and commit.
         );
         assert_eq!(
             router
@@ -1441,6 +1441,15 @@ mod tests {
                 PlacementGroupId(1),
                 Epoch(2),
                 NodeId(0),
+                [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            ),
+            rsf_vsr::VsrDecision::MembershipChanged { .. }
+        ));
+        assert!(matches!(
+            router.reconfigure(
+                PlacementGroupId(1),
+                Epoch(3),
+                NodeId(0),
                 [NodeId(0), NodeId(2), NodeId(3)]
             ),
             rsf_vsr::VsrDecision::MembershipChanged { .. }
@@ -1504,6 +1513,15 @@ mod tests {
             router.reconfigure(
                 PlacementGroupId(1),
                 Epoch(2),
+                NodeId(0),
+                [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            ),
+            rsf_vsr::VsrDecision::MembershipChanged { .. }
+        ));
+        assert!(matches!(
+            router.reconfigure(
+                PlacementGroupId(1),
+                Epoch(3),
                 NodeId(0),
                 [NodeId(0), NodeId(2), NodeId(3)]
             ),
@@ -1589,6 +1607,15 @@ mod tests {
             router.reconfigure(
                 PlacementGroupId(1),
                 Epoch(2),
+                NodeId(0),
+                [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            ),
+            rsf_vsr::VsrDecision::MembershipChanged { .. }
+        ));
+        assert!(matches!(
+            router.reconfigure(
+                PlacementGroupId(1),
+                Epoch(3),
                 NodeId(1),
                 [NodeId(1), NodeId(2), NodeId(3)]
             ),

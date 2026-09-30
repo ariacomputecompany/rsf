@@ -99,8 +99,8 @@ impl QuorumIntersection {
     }
 
     pub fn preserves_quorum_intersection(self) -> bool {
-        self.previous_voters >= 3
-            && self.next_voters >= 3
+        self.previous_voters >= 1
+            && self.next_voters >= 1
             && self.shared_voters >= self.previous_quorum.min(self.next_quorum)
             && self.minimum_intersection >= 1
     }
@@ -153,8 +153,8 @@ impl MembershipCell {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        if members.len() < 3 {
-            return Err("membership requires at least three initial voters".to_string());
+        if members.is_empty() {
+            return Err("membership requires at least one initial voter".to_string());
         }
         Ok(Self { epoch, members })
     }

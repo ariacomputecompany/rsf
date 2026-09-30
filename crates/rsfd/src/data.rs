@@ -411,8 +411,14 @@ impl DataPlaneExecutor {
             [PlacementGroupId(1)],
             epoch,
             primary,
-            voters,
+            voters.clone(),
         )?;
+        if !crate::protocol_membership_matches(&router, &voters) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "protocol membership differs from the admin map; resume the pending join",
+            ));
+        }
         Ok((router, epoch))
     }
 }

@@ -22,6 +22,12 @@ KV, object, and blob paths, but its default replication transport is local.
 Authenticated network replication, tenant isolation, durable SQL sessions, and
 measured production release gates remain open in [WORK.md](./WORK.md).
 
+`rsfd init` selects a standalone policy with one durable copy. That node can
+serve writes and recover them after restart, but cannot survive loss of its
+storage. A redundant policy requires at least three replicas. Voter admission
+advances one node at a time; the two-voter transition requires both votes.
+Local join/restart coverage does not establish independent replica durability.
+
 - [Protocol Architecture Research](./docs/protocol-architecture-research.md)
 - [Full Implementation Plan](./PLAN.md)
 - [Product Requirements](./docs/requirements.md)

@@ -206,8 +206,8 @@ impl VsrCell {
         replicas: impl IntoIterator<Item = NodeId>,
     ) -> Result<Self, String> {
         let replicas = replicas.into_iter().collect::<BTreeSet<_>>();
-        if replicas.len() < 3 {
-            return Err("vsr cell requires at least three replicas".to_string());
+        if replicas.is_empty() {
+            return Err("vsr cell requires at least one replica".to_string());
         }
         if !replicas.contains(&primary) {
             return Err("vsr primary must be a replica".to_string());
@@ -279,6 +279,12 @@ impl VsrCell {
                 reason: "prepare index is unknown".to_string(),
             };
         };
+        if pending.prepare.view != self.view {
+            return VsrDecision::Rejected {
+                node: replica,
+                reason: "prepare belongs to a previous view".to_string(),
+            };
+        }
         pending.acknowledgements.insert(replica);
         VsrDecision::Acknowledged {
             replica,
@@ -302,6 +308,12 @@ impl VsrCell {
                 reason: "prepare index is unknown".to_string(),
             };
         };
+        if pending.prepare.view != self.view {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "prepare belongs to a previous view".to_string(),
+            };
+        }
         if pending.acknowledgements.len() < quorum {
             return VsrDecision::Rejected {
                 node: primary,
@@ -468,11 +480,34 @@ impl DurableVsrCell {
         options: SegmentStoreOptions,
     ) -> RsfResult<Self> {
         let path = path.as_ref();
-        let mut cell =
-            VsrCell::new(pg, view, primary, replicas).map_err(|err| invalid_input(err))?;
         let recovery = SegmentStore::recover(path)?.recovery;
+        let records = recovery
+            .wal_records
+            .iter()
+            .filter(|record| record.pg == pg)
+            .collect::<Vec<_>>();
+        // Replay certificates against the membership that existed when the log
+        // began, never against a caller's newer desired configuration.
+        let mut cell = if let Some(first) = records
+            .first()
+            .filter(|record| record.payload.starts_with(VSR_BOOTSTRAP_MAGIC))
+        {
+            let bootstrap = decode_bootstrap(&first.payload)?;
+            if first.kind != WalRecordKind::Membership || bootstrap.pg != pg {
+                return Err(corrupt("invalid VSR bootstrap envelope"));
+            }
+            bootstrap
+        } else {
+            VsrCell::new(pg, view, primary, replicas).map_err(invalid_input)?
+        };
 
-        for record in recovery.wal_records.iter().filter(|record| record.pg == pg) {
+        for (position, record) in records.iter().enumerate() {
+            if record.payload.starts_with(VSR_BOOTSTRAP_MAGIC) {
+                if position != 0 {
+                    return Err(corrupt("VSR bootstrap record must be first and unique"));
+                }
+                continue;
+            }
             match record.kind {
                 WalRecordKind::Prepare => {
                     let prepare = decode_prepare(&record.payload)?;
@@ -593,10 +628,14 @@ impl DurableVsrCell {
             }
         }
 
-        Ok(Self {
+        let mut durable = Self {
             cell,
             store: SegmentStore::open_with_options(path, options)?,
-        })
+        };
+        if records.is_empty() {
+            durable.append(WalRecordKind::Membership, &encode_bootstrap(&durable.cell))?;
+        }
+        Ok(durable)
     }
 
     pub fn prepare(
@@ -914,6 +953,33 @@ const VSR_COMMIT_MAGIC: &[u8; 5] = b"VSRC1";
 const VSR_VIEW_CHANGE_MAGIC: &[u8; 5] = b"VSRV1";
 const VSR_CLIENT_REQUEST_MAGIC: &[u8; 5] = b"VSRT1";
 const VSR_MEMBERSHIP_CHANGE_MAGIC: &[u8; 5] = b"VSRM1";
+const VSR_BOOTSTRAP_MAGIC: &[u8; 5] = b"VSRB1";
+
+fn encode_bootstrap(cell: &VsrCell) -> Vec<u8> {
+    let mut out = VSR_BOOTSTRAP_MAGIC.to_vec();
+    out.extend_from_slice(&cell.pg.0.to_le_bytes());
+    out.extend_from_slice(&cell.view.0.to_le_bytes());
+    out.extend_from_slice(&cell.primary.0.to_le_bytes());
+    write_nodes(&cell.replicas, &mut out);
+    out
+}
+
+fn decode_bootstrap(bytes: &[u8]) -> RsfResult<VsrCell> {
+    if bytes.len() < 37 || !bytes.starts_with(VSR_BOOTSTRAP_MAGIC) {
+        return Err(corrupt("invalid VSR bootstrap payload"));
+    }
+    let (replicas, end) = read_nodes(bytes, 29)?;
+    if end != bytes.len() {
+        return Err(corrupt("VSR bootstrap has trailing bytes"));
+    }
+    VsrCell::new(
+        PlacementGroupId(read_u64(bytes, 5)?),
+        Epoch(read_u64(bytes, 13)?),
+        NodeId(read_u64(bytes, 21)?),
+        replicas,
+    )
+    .map_err(corrupt)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct VsrViewChange {
@@ -938,18 +1004,18 @@ fn validate_membership_change(
     new_replicas: &BTreeSet<NodeId>,
     primary: NodeId,
 ) -> Result<(), String> {
-    if new_replicas.len() < 3 {
-        return Err("vsr membership requires at least three replicas".to_string());
+    if new_replicas.is_empty() {
+        return Err("vsr membership requires at least one replica".to_string());
     }
     if !new_replicas.contains(&primary) {
         return Err("vsr membership primary must be in new replica set".to_string());
     }
     let old_quorum = old_replicas.len() / 2 + 1;
     let new_quorum = new_replicas.len() / 2 + 1;
-    let overlap = old_replicas.intersection(new_replicas).count();
-    if overlap < old_quorum || overlap < new_quorum {
+    let union = old_replicas.union(new_replicas).count();
+    if old_quorum + new_quorum <= union {
         return Err(format!(
-            "vsr membership change is unsafe: overlap {overlap} does not cover old quorum {old_quorum} and new quorum {new_quorum}"
+            "vsr membership change is unsafe: old quorum {old_quorum} and new quorum {new_quorum} can be disjoint across {union} voters; add or remove one voter at a time"
         ));
     }
     Ok(())
@@ -1431,18 +1497,185 @@ mod tests {
     fn reconfiguration_requires_joint_quorum_overlap() {
         let mut cell = cell();
         assert!(matches!(
-            cell.reconfigure(Epoch(2), NodeId(3), [NodeId(1), NodeId(2), NodeId(3)]),
+            cell.reconfigure(
+                Epoch(2),
+                NodeId(0),
+                [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            ),
+            VsrDecision::MembershipChanged { replicas: 4, .. }
+        ));
+        assert!(matches!(
+            cell.reconfigure(Epoch(3), NodeId(3), [NodeId(1), NodeId(2), NodeId(3)]),
             VsrDecision::MembershipChanged {
                 replicas: 3,
                 committed_tail: LogIndex(0),
                 ..
             }
         ));
-        assert_eq!(cell.view(), Epoch(2));
+        assert_eq!(cell.view(), Epoch(3));
         assert_eq!(cell.primary(), NodeId(3));
         assert_eq!(cell.replica_count(), 3);
         assert!(!cell.contains_replica(NodeId(0)));
         assert!(cell.contains_replica(NodeId(3)));
+    }
+
+    #[test]
+    fn pending_prepare_cannot_reuse_votes_after_membership_or_view_change() {
+        for membership_change in [false, true] {
+            let mut cell = cell();
+            cell.prepare(
+                NodeId(0),
+                VsrOperation::ProtocolOperation {
+                    operation_id: op_id(11),
+                },
+                1,
+            );
+            cell.acknowledge(NodeId(1), Epoch(1), LogIndex(1));
+            if membership_change {
+                cell.reconfigure(
+                    Epoch(2),
+                    NodeId(0),
+                    [NodeId(0), NodeId(1), NodeId(2), NodeId(3)],
+                );
+            } else {
+                cell.view_change(Epoch(2), NodeId(0));
+            }
+            assert!(matches!(
+                cell.acknowledge(NodeId(2), Epoch(2), LogIndex(1)),
+                VsrDecision::Rejected { .. }
+            ));
+            assert!(matches!(
+                cell.commit(NodeId(0), LogIndex(1)),
+                VsrDecision::Rejected { .. }
+            ));
+            assert_eq!(cell.committed_count(), 0);
+        }
+    }
+
+    #[test]
+    fn standalone_cell_commits_and_grows_one_voter_at_a_time() {
+        let mut cell = VsrCell::new(PlacementGroupId(1), Epoch(1), NodeId(0), [NodeId(0)]).unwrap();
+        assert_eq!(cell.quorum(), 1);
+        cell.prepare(
+            NodeId(0),
+            VsrOperation::ObjectManifest {
+                bucket: "b".into(),
+                key: "k".into(),
+            },
+            1,
+        );
+        assert!(matches!(
+            cell.commit(NodeId(0), LogIndex(1)),
+            VsrDecision::Committed(_)
+        ));
+        assert!(matches!(
+            cell.reconfigure(Epoch(2), NodeId(0), [NodeId(0), NodeId(1)]),
+            VsrDecision::MembershipChanged { .. }
+        ));
+        assert_eq!(cell.quorum(), 2);
+        assert!(matches!(
+            cell.reconfigure(Epoch(3), NodeId(0), [NodeId(0), NodeId(1), NodeId(2)]),
+            VsrDecision::MembershipChanged { .. }
+        ));
+        assert_eq!(cell.quorum(), 2);
+    }
+
+    #[test]
+    fn durable_standalone_history_recovers_after_growth_with_new_bootstrap_arguments() {
+        let path = test_path("standalone_growth");
+        let pg = PlacementGroupId(1);
+        let mut voters = vec![NodeId(0)];
+        for size in 1..=3 {
+            let mut cell =
+                DurableVsrCell::open(&path, pg, Epoch(size), NodeId(0), voters.clone()).unwrap();
+            if size > 1 {
+                assert_eq!(cell.replica_count(), size as usize - 1);
+                assert!(matches!(
+                    cell.reconfigure(Epoch(size), NodeId(0), voters.clone()),
+                    VsrDecision::MembershipChanged { .. }
+                ));
+            }
+            let prepare = cell
+                .prepare(
+                    NodeId(0),
+                    VsrOperation::ProtocolOperation {
+                        operation_id: op_id(size),
+                    },
+                    1,
+                )
+                .unwrap();
+            let VsrDecision::Prepared(prepare) = prepare else {
+                panic!("prepare");
+            };
+            if size > 1 {
+                assert!(matches!(
+                    cell.commit(NodeId(0), prepare.index).unwrap(),
+                    VsrDecision::Rejected { .. }
+                ));
+                cell.acknowledge(NodeId(1), Epoch(size), prepare.index);
+            }
+            assert!(matches!(
+                cell.commit(NodeId(0), prepare.index).unwrap(),
+                VsrDecision::Committed(_)
+            ));
+            voters.push(NodeId(size));
+        }
+        let recovered = DurableVsrCell::open(
+            &path,
+            pg,
+            Epoch(99),
+            NodeId(2),
+            [NodeId(0), NodeId(1), NodeId(2)],
+        )
+        .unwrap();
+        assert_eq!(recovered.view(), Epoch(3));
+        assert_eq!(recovered.primary(), NodeId(0));
+        assert_eq!(recovered.committed_count(), 3);
+        assert_eq!(recovered.quorum(), 2);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn membership_validation_matches_exhaustive_majority_intersection() {
+        // Exhaust all configurations and possible majorities over five voters.
+        for old in 1u32..32 {
+            for new in 1u32..32 {
+                let nodes = |mask: u32| {
+                    (0..5)
+                        .filter(move |i| mask & (1 << i) != 0)
+                        .map(NodeId)
+                        .collect::<BTreeSet<_>>()
+                };
+                let old_nodes = nodes(old);
+                let new_nodes = nodes(new);
+                let q_old = old.count_ones() / 2 + 1;
+                let q_new = new.count_ones() / 2 + 1;
+                let disjoint = (1u32..32)
+                    .filter(|a| a & old == *a && a.count_ones() >= q_old)
+                    .any(|a| {
+                        (1u32..32).any(|b| b & new == b && b.count_ones() >= q_new && a & b == 0)
+                    });
+                assert_eq!(
+                    validate_membership_change(&old_nodes, &new_nodes, *new_nodes.first().unwrap())
+                        .is_ok(),
+                    !disjoint,
+                    "old={old:b} new={new:b}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn membership_rejects_overlapping_sets_with_disjoint_possible_majorities() {
+        let old = [NodeId(0), NodeId(1), NodeId(2)].into_iter().collect();
+        for next in [
+            vec![NodeId(1), NodeId(2), NodeId(3)],
+            vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3), NodeId(4)],
+        ] {
+            assert!(
+                validate_membership_change(&old, &next.into_iter().collect(), NodeId(1)).is_err()
+            );
+        }
     }
 
     #[test]
@@ -1804,7 +2037,15 @@ mod tests {
             VsrDecision::Committed(_)
         ));
         assert!(matches!(
-            cell.reconfigure(Epoch(2), NodeId(3), [NodeId(1), NodeId(2), NodeId(3)]),
+            cell.reconfigure(
+                Epoch(2),
+                NodeId(0),
+                [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            ),
+            VsrDecision::MembershipChanged { replicas: 4, .. }
+        ));
+        assert!(matches!(
+            cell.reconfigure(Epoch(3), NodeId(3), [NodeId(1), NodeId(2), NodeId(3)]),
             VsrDecision::MembershipChanged {
                 replicas: 3,
                 committed_tail: LogIndex(1),
@@ -1822,7 +2063,7 @@ mod tests {
             [NodeId(0), NodeId(1), NodeId(2)],
         )
         .expect("recover durable cell");
-        assert_eq!(recovered.view(), Epoch(2));
+        assert_eq!(recovered.view(), Epoch(3));
         assert_eq!(recovered.primary(), NodeId(3));
         assert!(!recovered.contains_replica(NodeId(0)));
         assert!(recovered.contains_replica(NodeId(3)));
@@ -2082,7 +2323,15 @@ mod tests {
         )
         .expect("open durable cell");
         assert!(matches!(
-            cell.reconfigure(Epoch(2), NodeId(3), [NodeId(1), NodeId(2), NodeId(3)]),
+            cell.reconfigure(
+                Epoch(2),
+                NodeId(0),
+                [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            ),
+            VsrDecision::MembershipChanged { replicas: 4, .. }
+        ));
+        assert!(matches!(
+            cell.reconfigure(Epoch(3), NodeId(3), [NodeId(1), NodeId(2), NodeId(3)]),
             VsrDecision::MembershipChanged {
                 replicas: 3,
                 committed_tail: LogIndex(0),
@@ -2100,7 +2349,7 @@ mod tests {
         )
         .expect("recover durable cell");
 
-        assert_eq!(recovered.view(), Epoch(2));
+        assert_eq!(recovered.view(), Epoch(3));
         assert_eq!(recovered.primary(), NodeId(3));
         assert_eq!(recovered.replica_count(), 3);
         assert!(!recovered.contains_replica(NodeId(0)));
@@ -2118,11 +2367,11 @@ mod tests {
             VsrDecision::Prepared(_)
         ));
         assert!(matches!(
-            recovered.acknowledge(NodeId(0), Epoch(2), LogIndex(1)),
+            recovered.acknowledge(NodeId(0), Epoch(3), LogIndex(1)),
             VsrDecision::Rejected { .. }
         ));
         assert!(matches!(
-            recovered.acknowledge(NodeId(1), Epoch(2), LogIndex(1)),
+            recovered.acknowledge(NodeId(1), Epoch(3), LogIndex(1)),
             VsrDecision::Acknowledged { .. }
         ));
         assert!(matches!(

@@ -35,8 +35,10 @@ impl DesiredClusterPolicy {
         if self.version == 0 {
             return Err(invalid("policy version must be non-zero"));
         }
-        if self.min_replicas < 3 {
-            return Err(invalid("minimum replicas must be at least three"));
+        if self.min_replicas != 1 && self.min_replicas < 3 {
+            return Err(invalid(
+                "minimum replicas must be one for standalone or at least three for redundancy",
+            ));
         }
         if self.placement_groups == 0 {
             return Err(invalid("placement group count must be non-zero"));
@@ -69,7 +71,9 @@ impl DesiredClusterPolicy {
             "regional-write"
         }
         .to_string();
-        let latency = if self.strict_global_writes {
+        let latency = if self.min_replicas == 1 {
+            "standalone writes sync one local durable copy; node or disk loss has no replica failover"
+        } else if self.strict_global_writes {
             "writes are serialized through the primary region and replicated by quorum before mutable truth is visible"
         } else {
             "writes may be owned by regional policy, reducing locality cost while preserving explicit placement ownership"
@@ -108,9 +112,9 @@ impl DesiredClusterPolicy {
         let mut checks = Vec::new();
         checks.push(policy_check(
             "replica-floor",
-            self.min_replicas >= 3,
+            self.min_replicas == 1 || self.min_replicas >= 3,
             format!(
-                "minimum replicas={} quorum-safe floor requires at least 3",
+                "minimum replicas={} supports standalone (1) or redundant (at least 3) storage",
                 self.min_replicas
             ),
         ));

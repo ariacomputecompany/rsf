@@ -18,6 +18,7 @@ rsf-policy = { path = "../rsf-policy" }
 rsf-protocol = { path = "../rsf-protocol" }
 rsf-sql = { path = "../rsf-sql" }
 rsf-upgrade = { path = "../rsf-upgrade" }
+rsf-vsr = { path = "../rsf-vsr" }
 rsf-wire = { path = "../rsf-wire" }
 
 [[bin]]

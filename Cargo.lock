@@ -885,6 +885,7 @@ dependencies = [
  "rsf-protocol",
  "rsf-sql",
  "rsf-upgrade",
+ "rsf-vsr",
  "rsf-wire",
  "serde_json",
 ]

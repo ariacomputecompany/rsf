@@ -46,6 +46,19 @@ results after update/delete, reject key conflicts, and recover from failed
 checkpoint publication. These are local durable recovery tests; independent
 network peers and machine-failure tests remain release requirements.
 
+Standalone coverage writes and reads through the TCP listener, reopens state,
+grows membership from one to two to three voters, and resumes a join interrupted
+between protocol reconfiguration and admin promotion. VSR recovery tests replay
+the original one-voter commits after growth using the persisted bootstrap
+configuration. Exhaustive five-node configuration checks reject transitions
+whose old and new majorities can be disjoint. These checks cover local state
+and quorum rules; the default transport still acknowledges peers locally.
+Pending joins make readiness degraded and reject data execution until the
+protocol and admin voter sets agree. Uncommitted prepares cannot reuse votes
+across a view change. Legacy logs without a bootstrap record still require
+their original initial configuration; an explicit migration remains required
+before upgrading such state and changing its topology.
+
 ## Required Verification Layers
 
 ### Deterministic Simulation

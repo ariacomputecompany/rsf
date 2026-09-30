@@ -624,8 +624,8 @@ impl AdminPlane {
         ));
         checks.push(check(
             "replica-count",
-            replicas >= 3,
-            format!("requested replicas: {replicas}; minimum is 3"),
+            replicas == 1 || replicas >= 3,
+            format!("requested replicas: {replicas}; choose 1 for standalone or at least 3 for redundancy"),
         ));
         checks.push(check(
             "storage-capacity",
@@ -851,7 +851,7 @@ impl AdminPlane {
             .filter(|record| record.state == AdmissionState::Promoted)
             .map(|record| record.node.id)
             .collect::<Vec<_>>();
-        if self.membership.is_none() && voters.len() >= 3 {
+        if self.membership.is_none() && !voters.is_empty() {
             self.membership = Some(
                 MembershipCell::new(self.cluster.epoch, voters)
                     .map_err(|reason| invalid(format!("membership init failed: {reason}")))?,
@@ -1058,7 +1058,7 @@ impl AdminPlane {
             .filter(|record| record.state == AdmissionState::Promoted)
             .map(|record| record.node.id)
             .collect::<Vec<_>>();
-        if voters.len() >= 3 {
+        if !voters.is_empty() {
             self.membership = Some(
                 MembershipCell::new(self.cluster.epoch, voters)
                     .map_err(|reason| invalid(format!("membership init failed: {reason}")))?,

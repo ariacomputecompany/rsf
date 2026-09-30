@@ -616,7 +616,9 @@ pub fn load_snapshot_for_profile(
             protocol_max_log_index = protocol_max_log_index.max(max_index);
         }
     }
-    let ready = promoted_voters >= requirements.voters
+    let membership_reconciled = crate::protocol_membership_matches(&router, &voters);
+    let ready = membership_reconciled
+        && promoted_voters >= requirements.voters
         && storage_nodes >= requirements.storage_nodes
         && gateway_nodes >= requirements.gateway_nodes
         && policy_regions >= requirements.policy_regions
@@ -629,7 +631,7 @@ pub fn load_snapshot_for_profile(
         )
     } else {
         format!(
-            "degraded: profile={} voters={}/{} storage={}/{} gateway={}/{} regions={}/{} protocol_groups={} policy_groups={}",
+            "degraded: profile={} voters={}/{} storage={}/{} gateway={}/{} regions={}/{} protocol_groups={} policy_groups={} membership_reconciled={}",
             profile.as_str(),
             promoted_voters,
             requirements.voters,
@@ -640,7 +642,8 @@ pub fn load_snapshot_for_profile(
             policy_regions,
             requirements.policy_regions,
             protocol_groups,
-            policy.placement_groups
+            policy.placement_groups,
+            membership_reconciled
         )
     };
 

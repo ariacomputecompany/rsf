@@ -122,9 +122,8 @@ The standard is strict:
 
 ## Remaining Release Blockers
 
-- Wire the daemon to authenticated network VSR peers with independent storage and prove quorum durability under process and machine failure. Its default `VsrBackedFabricRouter::open` uses `LocalVsrTransport`.
+- Wire the daemon to authenticated network VSR peers with independent storage and prove quorum durability under process and machine failure. Its default `VsrBackedFabricRouter::open` uses `LocalVsrTransport`. Include committed-prefix transfer, reconciliation of uncommitted prior-view prepares, and migration of legacy VSR logs that predate persisted bootstrap membership before topology changes.
 - Authenticate data-plane principals and enforce tenant/namespace isolation before opening per-surface state; a caller-supplied principal string is not authentication.
-- Make the advertised standalone bootstrap accept real writes; the VSR cell currently requires at least three replicas even after one-node initialization.
 - Add durable SQL sessions, incremental persistence, multiple pages per table, and bounded result streaming; current autocommit checkpoints rewrite the full state and the page adapter uses one page per table.
 - Exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
 

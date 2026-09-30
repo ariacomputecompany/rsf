@@ -122,6 +122,10 @@ fn run_init_cli(args: &[String]) -> Result<(), String> {
             .map_err(|err| err.message)?;
     }
 
+    catalog
+        .set_replication(1, catalog.current().placement_groups)
+        .map_err(|err| err.message)?;
+
     let record = admin
         .admit(JoinRequest {
             token: InviteToken(token.to_string()),
@@ -190,24 +194,51 @@ fn run_join_cli(args: &[String]) -> Result<(), String> {
 
     let mut admin = AdminPlane::open_durable(admin_path(state), InviteToken(token.to_string()))
         .map_err(|err| err.message)?;
-    let record = admin
-        .admit(JoinRequest {
-            token: InviteToken(token.to_string()),
-            identity: NodeIdentity::new(node_key, node_nonce, mtls_trust_domain, tls_cert_sha256)
-                .map_err(|err| err.message)?,
-            region: region.clone(),
-            zone,
-            capacity_bytes,
-            supports_storage: true,
-            supports_gateway,
-        })
-        .map_err(|err| err.message)?;
-    admin
-        .mark_learner_synced(record.node.id)
-        .map_err(|err| err.message)?;
-    let promoted = admin
-        .promote_synced_learner(record.node.id)
-        .map_err(|err| err.message)?;
+    let request = JoinRequest {
+        token: InviteToken(token.to_string()),
+        identity: NodeIdentity::new(node_key, node_nonce, mtls_trust_domain, tls_cert_sha256)
+            .map_err(|err| err.message)?,
+        region: region.clone(),
+        zone,
+        capacity_bytes,
+        supports_storage: true,
+        supports_gateway,
+    };
+    // Resume a matching admission after an interrupted membership update. The token
+    // was verified when opening the admin plane; identity reuse with changed
+    // capabilities or transport credentials must still fail closed.
+    let existing = admin
+        .records()
+        .find(|record| record.identity.public_key == node_key)
+        .cloned();
+    let mut record = if let Some(record) = existing {
+        if record.identity != request.identity
+            || record.node.region != request.region
+            || record.node.failure_domain != request.zone
+            || record.node.capacity_bytes != capacity_bytes
+            || record.supports_gateway != supports_gateway
+        {
+            return Err("existing node admission does not match join request".into());
+        }
+        record
+    } else {
+        admin.admit(request).map_err(|err| err.message)?
+    };
+    if record.state == rsf_admin::AdmissionState::Learner {
+        record = admin
+            .mark_learner_synced(record.node.id)
+            .map_err(|err| err.message)?;
+    }
+    let promoted = if record.state == rsf_admin::AdmissionState::Validated {
+        grow_protocol_membership(state, &admin, record.node.id)?;
+        admin
+            .promote_synced_learner(record.node.id)
+            .map_err(|err| err.message)?
+    } else if record.state == rsf_admin::AdmissionState::Promoted {
+        record
+    } else {
+        return Err("join cannot resume this admission state".into());
+    };
     let mut audit = DurableAuditLog::open(audit_path(state)).map_err(|err| err.message)?;
     audit_operator_event(
         &mut audit,
@@ -555,7 +586,7 @@ fn protocol_path(state: &str) -> std::path::PathBuf {
 fn open_policy_router(state: &str, admin: &AdminPlane) -> Result<VsrBackedFabricRouter, String> {
     let voters = admin
         .membership_view()
-        .ok_or_else(|| "policy apply requires at least three promoted voters".to_string())?
+        .ok_or_else(|| "policy apply requires at least one promoted voter".to_string())?
         .voter_nodes();
     let primary = *voters
         .first()
@@ -568,6 +599,59 @@ fn open_policy_router(state: &str, admin: &AdminPlane) -> Result<VsrBackedFabric
         voters,
     )
     .map_err(|err| err.message)
+}
+
+fn protocol_membership_matches(
+    router: &VsrBackedFabricRouter,
+    voters: &[rsf_core::NodeId],
+) -> bool {
+    router.placement_map().groups.iter().all(|pg| {
+        router
+            .membership(*pg)
+            .is_ok_and(|(_, _, actual)| actual == voters)
+    })
+}
+
+// Persist every protocol group before exposing the promoted voter in the admin
+// map. Each group accepts either the old set or this exact pending promotion,
+// allowing a retry to finish after interruption between the two durable logs.
+fn grow_protocol_membership(
+    state: &str,
+    admin: &AdminPlane,
+    candidate: rsf_core::NodeId,
+) -> Result<(), String> {
+    let old = admin
+        .membership_view()
+        .ok_or("join requires initialized membership")?
+        .voter_nodes();
+    let mut next = old.clone();
+    next.push(candidate);
+    next.sort_unstable();
+    let mut router = open_policy_router(state, admin)?;
+    for pg in router.placement_map().groups.clone() {
+        let (view, primary, voters) = router.membership(pg).map_err(|err| err.message)?;
+        if voters == next {
+            continue;
+        }
+        if voters != old {
+            return Err(format!(
+                "placement group {} membership conflicts with pending join",
+                pg.0
+            ));
+        }
+        let view = Epoch(
+            view.0
+                .max(admin.cluster_map().epoch.0)
+                .checked_add(1)
+                .ok_or("membership epoch exhausted")?,
+        );
+        match router.reconfigure(pg, view, primary, next.iter().copied()) {
+            rsf_vsr::VsrDecision::MembershipChanged { .. } => {}
+            rsf_vsr::VsrDecision::Rejected { reason, .. } => return Err(reason),
+            _ => return Err("unexpected membership decision during join".into()),
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -631,7 +715,11 @@ fn build_operator_status(
         protocol_max_log_index,
     ) = match open_policy_router(state, admin) {
         Ok(router)
-            if promoted_voters >= 3
+            if promoted_voters >= usize::from(policy.min_replicas)
+                && preview.is_ok()
+                && admin.membership_view().is_some_and(|view| {
+                    protocol_membership_matches(&router, &view.voter_nodes())
+                })
                 && storage_nodes >= usize::from(policy.min_replicas)
                 && router.placement_map().groups.len() as u64 >= policy.placement_groups
                 && router.policy().min_placement_groups <= policy.placement_groups =>
@@ -1010,6 +1098,128 @@ mod tests {
         assert_eq!(audit[0].event.service, "rsfd");
         assert_eq!(audit[0].event.action, "cluster.init");
         assert_eq!(audit[0].event.node, Some(admin.cluster_map().nodes[0].id));
+
+        assert_eq!(catalog.current().min_replicas, 1);
+        let snapshot = daemon::load_snapshot(&state).expect("standalone runtime opens after init");
+        assert!(snapshot.ready);
+        let listener =
+            data::DataPlaneListener::bind("127.0.0.1:0".parse().unwrap(), &state).unwrap();
+        let addr = listener.local_addr();
+        let frame = encode_data_frame(RawFrame::with_body(
+            WireProtocol::Kv,
+            "client",
+            Some("app".into()),
+            "SET first",
+            Some("first-write".into()),
+            b"durable".to_vec(),
+        ));
+        let client = std::thread::spawn(move || send_data_frame(addr, frame));
+        wait_for_data_request(&listener, &mut Vec::new(), "standalone write");
+        assert!(client.join().unwrap().contains("RSF/1 executed"));
+        drop(listener);
+        let listener =
+            data::DataPlaneListener::bind("127.0.0.1:0".parse().unwrap(), &state).unwrap();
+        let addr = listener.local_addr();
+        let frame = encode_data_frame(RawFrame::new(
+            WireProtocol::Kv,
+            "client",
+            Some("app".into()),
+            "GET first",
+            None,
+            0,
+        ));
+        let client = std::thread::spawn(move || send_data_frame(addr, frame));
+        wait_for_data_request(&listener, &mut Vec::new(), "standalone read");
+        assert_eq!(response_payload(&client.join().unwrap()), b"durable");
+        drop(listener);
+
+        for (key, zone, count) in [
+            ("node-second-growth", "iad-b", 2),
+            ("node-third-growth", "iad-c", 3),
+        ] {
+            if count == 2 {
+                // Crash boundary: the protocol log advances but the admin
+                // promotion has not yet been appended. The CLI must resume.
+                let mut admin = AdminPlane::open_durable(
+                    state.join("admin"),
+                    InviteToken("cluster-token".into()),
+                )
+                .unwrap();
+                let candidate = admin
+                    .admit(JoinRequest {
+                        token: InviteToken("cluster-token".into()),
+                        identity: NodeIdentity::new(
+                            key,
+                            key,
+                            "cluster.example",
+                            parse_sha256_fingerprint(&fingerprint_hex(key)).unwrap(),
+                        )
+                        .unwrap(),
+                        region: RegionId::new("iad").unwrap(),
+                        zone: FailureDomainId::new(zone).unwrap(),
+                        capacity_bytes: 1 << 30,
+                        supports_storage: true,
+                        supports_gateway: true,
+                    })
+                    .unwrap();
+                admin.mark_learner_synced(candidate.node.id).unwrap();
+                grow_protocol_membership(&state_arg, &admin, candidate.node.id).unwrap();
+                assert_eq!(admin.membership_view().unwrap().voters(), 1);
+                let snapshot = daemon::load_snapshot(&state).unwrap();
+                assert!(!snapshot.ready);
+                assert!(snapshot.readiness.contains("membership_reconciled=false"));
+                let listener =
+                    data::DataPlaneListener::bind("127.0.0.1:0".parse().unwrap(), &state).unwrap();
+                let addr = listener.local_addr();
+                let frame = encode_data_frame(RawFrame::new(
+                    WireProtocol::Kv,
+                    "client",
+                    Some("app".into()),
+                    "GET first",
+                    None,
+                    0,
+                ));
+                let client = std::thread::spawn(move || send_data_frame(addr, frame));
+                wait_for_data_request(&listener, &mut Vec::new(), "incomplete membership gate");
+                assert!(client.join().unwrap().contains("resume the pending join"));
+            }
+            let args = join_args(&state_arg, key, key, zone);
+            run_cli(&args).expect("resume or complete join");
+            run_cli(&args).expect("join retry is idempotent");
+            let admin = AdminPlane::recover(state.join("admin")).unwrap();
+            assert_eq!(admin.membership_view().unwrap().voters(), count);
+            let router = open_policy_router(&state_arg, &admin).unwrap();
+            assert_eq!(
+                router.membership(PlacementGroupId(1)).unwrap().2.len(),
+                count
+            );
+            drop(router);
+            let listener =
+                data::DataPlaneListener::bind("127.0.0.1:0".parse().unwrap(), &state).unwrap();
+            let addr = listener.local_addr();
+            let frame = encode_data_frame(RawFrame::new(
+                WireProtocol::Kv,
+                "client",
+                Some("app".into()),
+                "GET first",
+                None,
+                0,
+            ));
+            let client = std::thread::spawn(move || send_data_frame(addr, frame));
+            wait_for_data_request(&listener, &mut Vec::new(), "read after growth");
+            assert_eq!(response_payload(&client.join().unwrap()), b"durable");
+            let frame = encode_data_frame(RawFrame::with_body(
+                WireProtocol::Kv,
+                "client",
+                Some("app".into()),
+                "SET grown",
+                Some(format!("write-{count}")),
+                vec![count as u8],
+            ));
+            let client = std::thread::spawn(move || send_data_frame(addr, frame));
+            wait_for_data_request(&listener, &mut Vec::new(), "write after growth");
+            assert!(client.join().unwrap().contains("RSF/1 executed"));
+        }
 
         let _ = std::fs::remove_dir_all(state);
     }
@@ -1397,8 +1607,8 @@ mod tests {
     }
 
     #[test]
-    fn operator_status_summarizes_degraded_bootstrap_cluster() {
-        let state = test_path("operator_status_summarizes_degraded_bootstrap_cluster");
+    fn operator_status_summarizes_ready_standalone_cluster() {
+        let state = test_path("operator_status_summarizes_ready_standalone_cluster");
         let state_arg = state.display().to_string();
 
         run_cli(&[
@@ -1426,7 +1636,7 @@ mod tests {
             "--state".to_string(),
             state_arg.clone(),
         ])
-        .expect("status prints degraded summary");
+        .expect("status prints standalone summary");
 
         let admin = AdminPlane::recover(state.join("admin")).expect("recover admin");
         let catalog = PolicyCatalog::open(state.join("policy")).expect("recover policy");
@@ -1435,12 +1645,8 @@ mod tests {
 
         assert_eq!(summary.storage_nodes, 1);
         assert_eq!(summary.gateway_nodes, 1);
-        assert_eq!(summary.placement_health, PlacementHealth::Degraded);
-        assert!(
-            summary
-                .placement_detail
-                .contains("protocol_router_unavailable")
-        );
+        assert_eq!(summary.placement_health, PlacementHealth::Ready);
+        assert!(summary.placement_detail.contains("replicas=1"));
 
         let _ = std::fs::remove_dir_all(state);
     }
@@ -2357,27 +2563,33 @@ mod tests {
             ("node-public-key-second", "node-nonce-second", "iad-b"),
             ("node-public-key-third", "node-nonce-third", "iad-c"),
         ] {
-            run_cli(&[
-                "join".to_string(),
-                "--state".to_string(),
-                state.to_string(),
-                "--token".to_string(),
-                "cluster-token".to_string(),
-                "--node-key".to_string(),
-                key.to_string(),
-                "--node-nonce".to_string(),
-                nonce.to_string(),
-                "--mtls-trust-domain".to_string(),
-                "cluster.example".to_string(),
-                "--tls-cert-sha256".to_string(),
-                fingerprint_hex(key),
-                "--region".to_string(),
-                "iad".to_string(),
-                "--zone".to_string(),
-                zone.to_string(),
-            ])
-            .expect("join node");
+            run_cli(&join_args(state, key, nonce, zone)).expect("join node");
         }
+    }
+
+    fn join_args(state: &str, key: &str, nonce: &str, zone: &str) -> Vec<String> {
+        [
+            "join",
+            "--state",
+            state,
+            "--token",
+            "cluster-token",
+            "--node-key",
+            key,
+            "--node-nonce",
+            nonce,
+            "--mtls-trust-domain",
+            "cluster.example",
+            "--tls-cert-sha256",
+            &fingerprint_hex(key),
+            "--region",
+            "iad",
+            "--zone",
+            zone,
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
     }
 
     fn fingerprint_hex(seed: &str) -> String {
