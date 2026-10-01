@@ -11,15 +11,21 @@ The payload must contain the values needed for deterministic application replay
 or references to independently durable immutable content. The router does not
 interpret surface payloads, authorize namespaces, or transfer referenced blobs.
 Those responsibilities belong to the authenticated ingress and application
-materializer. The daemon KV, object and blob paths call this API and peer services apply their commands durably;
+materializer. The daemon KV, SQL, object and blob paths call this API and peer services apply their commands durably;
 see [KV network replication](kv-network-replication.md) and
 [blob network replication](blob-network-replication.md), and
-[object network replication](object-network-replication.md). The SQL codec and
-peer materializer still need integration. The default router
+[object network replication](object-network-replication.md), and
+[SQL network replication](sql-network-replication.md). The default router
 constructor still selects `LocalVsrTransport`; use `open_with_transport` with the
 authenticated `NetworkVsrTransport` for actual remote disk acknowledgement.
 
 ## Ordering and recovery
+
+`preview_application_request` resolves earlier uncertain commands and returns the
+exact prospective command metadata for local planning. It does not prepare a new
+entry or supply commit evidence. Callers must serialize planning and submission,
+then verify that the actual certificate matches the preview before publishing
+planned state. SQL uses this to reject invalid physical transitions before commit.
 
 The VSR command is authoritative. The protocol WAL receipt is a derived lookup
 record published only after the VSR commit has durable quorum acknowledgement.

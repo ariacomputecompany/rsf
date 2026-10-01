@@ -964,6 +964,7 @@ dependencies = [
  "rsf-query",
  "rsf-rowcodec",
  "rsf-stats",
+ "rsf-storage",
  "rsf-tuple",
  "rsf-vacuum",
  "rsf-wal",

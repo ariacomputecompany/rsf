@@ -27,5 +27,7 @@ rsf-tuple = { path = "../rsf-tuple" }
 rsf-vacuum = { path = "../rsf-vacuum" }
 rsf-wal = { path = "../rsf-wal" }
 
+rsf-storage = { path = "../rsf-storage" }
+
 [lints]
 workspace = true

@@ -1472,6 +1472,17 @@ impl<T: VsrTransport> FabricRouterPort for VsrBackedFabricRouter<T> {
         Ok(())
     }
 
+    fn preview_application_request(
+        &mut self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+        application: &ApplicationPayload,
+    ) -> RsfResult<FabricCommit> {
+        self.preview_application(pg, request, mode, operation, application)
+    }
+
     fn validate_application_request(
         &self,
         pg: PlacementGroupId,

@@ -366,6 +366,23 @@ pub trait FabricRouterPort {
         ))
     }
 
+    /// Resolve older uncertain commands and preview the exact next command
+    /// metadata for local planning. This is not commit evidence. Callers must
+    /// serialize planning and submission and compare the resulting certificate.
+    fn preview_application_request(
+        &mut self,
+        _pg: PlacementGroupId,
+        _request: &ClientRequestId,
+        _mode: ConsistencyMode,
+        _operation: &FabricOperation,
+        _application: &ApplicationPayload,
+    ) -> RsfResult<FabricCommit> {
+        Err(RsfError::new(
+            ErrorCode::InvalidInput,
+            "router does not support application planning",
+        ))
+    }
+
     fn request_certificate(&self, request: &ClientRequestId) -> Option<CommitCertificate>;
 
     fn latest_version(&self) -> CommitVersion;

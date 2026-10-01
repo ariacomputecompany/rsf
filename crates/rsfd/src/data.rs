@@ -162,6 +162,11 @@ impl DataPlaneExecutor {
                 .as_deref()
                 .ok_or_else(|| invalid("namespace is required"))?,
         )?;
+        if envelope.operation_kind == WireOperationKind::Read
+            && runtime.router.transport_mut().is_network()
+        {
+            runtime.router.confirm_read_quorum()?;
+        }
         let execution = runtime.sql.execute(
             &mut runtime.router,
             PlacementGroupId(1),
@@ -441,14 +446,18 @@ impl DataPlaneExecutor {
 
     fn open_sql_runtime(&self, namespace: &str) -> RsfResult<SqlRuntime> {
         let (mut router, _) = self.open_router()?;
-        if router.transport_mut().is_network() {
-            return Err(invalid(
-                "network execution for this surface requires its complete replay codec; KV, object and blob are supported",
-            ));
-        }
-        let sql = DurableSqlEngine::open(
+        let mut sql = DurableSqlEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("sql"),
+            namespace,
         )?;
+        for command in router.committed_application_commands() {
+            if command.application.surface == rsf_protocol::ApplicationSurface::Sql
+                && command.application.namespace == namespace
+            {
+                sql.apply_application_command(&command)?;
+            }
+        }
+        sql.reconcile(&mut router)?;
         Ok(SqlRuntime { router, sql })
     }
 

@@ -123,6 +123,58 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         Ok(count)
     }
 
+    /// Preview metadata after resolving earlier uncertain commands. No new
+    /// prepare or acknowledgement is created by this planning operation.
+    pub(super) fn preview_application(
+        &mut self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        mode: ConsistencyMode,
+        operation: &FabricOperation,
+        application: &ApplicationPayload,
+    ) -> RsfResult<FabricCommit> {
+        self.ensure_application_healthy()?;
+        self.policy.validate_commit(mode, operation)?;
+        let original = self.application_commands.get(request).cloned();
+        let commit = if let Some(original) = &original {
+            if original.commit.pg != pg
+                || original.commit.mode != mode
+                || &original.commit.operation != operation
+                || &original.application != application
+            {
+                return Err(invalid(
+                    "application retry differs from its original complete command",
+                ));
+            }
+            original.commit.clone()
+        } else {
+            if self.router.request_certificate(request).is_some() {
+                return Err(invalid(
+                    "legacy request has no complete application command",
+                ));
+            }
+            self.router.next_commit(pg, mode, operation.clone())?
+        };
+        ReplicatedFabricCommand {
+            commit,
+            request: request.clone(),
+            application: application.clone(),
+        }
+        .encode()?;
+        self.reconcile_application_commands()?;
+        let commit = match original {
+            Some(original) => original.commit,
+            None => self.router.next_commit(pg, mode, operation.clone())?,
+        };
+        ReplicatedFabricCommand {
+            commit: commit.clone(),
+            request: request.clone(),
+            application: application.clone(),
+        }
+        .encode()?;
+        Ok(commit)
+    }
+
     /// Replicate the exact namespace, operation, values and request identity as
     /// one command. No receipt is returned until durable quorum acknowledgement.
     pub fn commit_application(

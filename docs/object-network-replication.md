@@ -3,8 +3,8 @@
 The native object data plane replicates bucket creation and object PUT as complete
 namespace-bound VSR commands. It uses the same authenticated network configuration
 as [KV](kv-network-replication.md). Peer services apply buckets, object history and
-the bytes behind each head before acknowledging the committed command. Network
-SQL remains disabled until its own application replay is implemented.
+the bytes behind each head before acknowledging the committed command. See [SQL replication](sql-network-replication.md) for the supported autocommit
+statement path.
 
 ## Command and durability boundary
 

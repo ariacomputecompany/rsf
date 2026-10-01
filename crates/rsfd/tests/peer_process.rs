@@ -630,3 +630,168 @@ fn native_object_ingress_recovers_heads_and_bytes_from_independent_peers() {
     );
     assert_eq!(objects.versions("media", "key").unwrap().len(), 2);
 }
+
+fn follower_sql(root: &Path, node: u64) -> rsf_sql::DurableSqlEngine {
+    use sha2::{Digest, Sha256};
+    let namespace = Sha256::digest(b"app")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    rsf_sql::DurableSqlEngine::open_replicated(
+        root.join(format!(
+            "store-{node}/application/namespaces/{namespace}/sql"
+        )),
+        "app",
+    )
+    .unwrap()
+}
+
+#[test]
+fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
+    use rsf_wire::WireProtocol::Sql;
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    let first = Process::start(&root.join("peer-1.json"));
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let create = surface_request(
+        primary.address,
+        Sql,
+        "CREATE TABLE users(id PRIMARY KEY, name)",
+        "create",
+        b"",
+    );
+    assert!(create.contains("RSF/1 executed"), "{create}");
+    let inserted = surface_request(
+        primary.address,
+        Sql,
+        "INSERT INTO users (id, name) VALUES (1, ada)",
+        "insert",
+        b"",
+    );
+    assert!(inserted.contains("RSF/1 executed"), "{inserted}");
+    let index = surface_request(
+        primary.address,
+        Sql,
+        "CREATE INDEX users_name ON users(name)",
+        "index",
+        b"",
+    );
+    assert!(index.contains("RSF/1 executed"), "{index}");
+    drop(second);
+    for (statement, request) in [
+        ("UPDATE users SET name=grace WHERE id=1", "update"),
+        ("INSERT INTO users (id, name) VALUES (2, alan)", "insert-2"),
+    ] {
+        let result = surface_request(primary.address, Sql, statement, request, b"");
+        assert!(result.contains("RSF/1 executed"), "{result}");
+    }
+    let deleted = surface_request(
+        primary.address,
+        Sql,
+        "DELETE FROM users WHERE id=1",
+        "delete",
+        b"",
+    );
+    assert!(deleted.contains("RSF/1 executed"), "{deleted}");
+    let changed = surface_request(
+        primary.address,
+        Sql,
+        "DELETE FROM users WHERE id=2",
+        "delete",
+        b"",
+    );
+    assert!(changed.contains("RSF/1 rejected"), "{changed}");
+    drop(primary);
+    drop(first);
+    {
+        let mut sql = follower_sql(&root, 1);
+        assert_eq!(
+            sql.read_snapshot("SELECT * FROM users WHERE name=alan")
+                .unwrap()
+                .rows,
+            1
+        );
+        assert_eq!(
+            sql.read_snapshot("SELECT * FROM users WHERE id=1")
+                .unwrap()
+                .rows,
+            0
+        );
+        assert_eq!(sql.recovery().live_rows, 1);
+        assert_eq!(sql.recovery().tombstones, 1);
+    }
+    {
+        let mut sql = follower_sql(&root, 2);
+        assert_eq!(
+            sql.read_snapshot("SELECT * FROM users WHERE name=ada")
+                .unwrap()
+                .rows,
+            1
+        );
+        assert_eq!(
+            sql.read_snapshot("SELECT * FROM users WHERE id=2")
+                .unwrap()
+                .rows,
+            0
+        );
+    }
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let retry = surface_request(
+        primary.address,
+        Sql,
+        "DELETE FROM users WHERE id=1",
+        "delete",
+        b"",
+    );
+    assert_eq!(retry, deleted.replace("replayed=false", "replayed=true"));
+    let old = surface_request(
+        primary.address,
+        Sql,
+        "INSERT INTO users (id, name) VALUES (1, ada)",
+        "insert",
+        b"",
+    );
+    assert_eq!(old, inserted.replace("replayed=false", "replayed=true"));
+    let selected = surface_request(
+        primary.address,
+        Sql,
+        "SELECT * FROM users WHERE name=alan",
+        "read",
+        b"",
+    );
+    assert!(selected.contains("RSF/1 executed"), "{selected}");
+    assert!(selected.contains("rows=1"), "{selected}");
+    drop(second);
+    let selected = surface_request(primary.address, Sql, "SELECT * FROM users", "read", b"");
+    assert!(selected.contains("RSF/1 rejected"), "{selected}");
+    let retry = surface_request(
+        primary.address,
+        Sql,
+        "DELETE FROM users WHERE id=1",
+        "delete",
+        b"",
+    );
+    assert!(retry.contains("RSF/1 rejected"), "{retry}");
+    drop(primary);
+    let mut sql = follower_sql(&root, 2);
+    assert_eq!(
+        sql.read_snapshot("SELECT * FROM users WHERE name=alan")
+            .unwrap()
+            .rows,
+        1
+    );
+    assert_eq!(
+        sql.read_snapshot("SELECT * FROM users WHERE id=1")
+            .unwrap()
+            .rows,
+        0
+    );
+}

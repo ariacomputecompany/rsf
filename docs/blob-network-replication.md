@@ -53,8 +53,8 @@ stores require explicit migration; refusal leaves their bytes intact. Existing
 unbound library callers, including internal object pinning, retain
 their original metadata-only pin API. [Object replication](object-network-replication.md)
 uses a complete Object command to carry both the pin evidence and its bytes before
-acknowledging an object head. Network SQL execution remains disabled until its
-complete command/materializer path is implemented.
+acknowledging an object head. [SQL replication](sql-network-replication.md) uses a separate deterministic
+autocommit command and atomic checkpoint boundary.
 
 Native frames remain bounded to 64 KiB and complete VSR commands to 1 MiB. Request
 validation rejects oversized commands before staging bytes. Large payload chunk

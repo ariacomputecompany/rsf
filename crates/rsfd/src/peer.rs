@@ -235,6 +235,16 @@ fn apply_command(
     root: &Path,
     command: &rsf_protocol::ReplicatedFabricCommand,
 ) -> Result<(), String> {
+    if command.application.surface == rsf_protocol::ApplicationSurface::Sql {
+        let mut sql = rsf_sql::DurableSqlEngine::open_replicated(
+            crate::security::namespace_root(root, &command.application.namespace).join("sql"),
+            &command.application.namespace,
+        )
+        .map_err(|err| err.message)?;
+        sql.apply_application_command(command)
+            .map_err(|err| err.message)?;
+        return Ok(());
+    }
     if command.application.surface == rsf_protocol::ApplicationSurface::Object {
         let mut objects = rsf_object::DurableObjectStore::open_replicated(
             crate::security::namespace_root(root, &command.application.namespace).join("object"),

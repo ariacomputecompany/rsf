@@ -1,3 +1,4 @@
+mod replicated;
 mod requests;
 
 use std::collections::BTreeMap;
@@ -21,7 +22,7 @@ use crate::{
 
 const STATE_FILE: &str = "sql.state";
 const TMP_FILE: &str = "sql.state.tmp";
-const FORMAT: &str = "RSF_SQL_STATE_V3";
+const FORMAT: &str = "RSF_SQL_STATE_V4";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableSqlExecution {
@@ -44,12 +45,14 @@ pub struct DurableSqlRecovery {
 pub struct DurableSqlEngine {
     root: PathBuf,
     // OS-owned lock is released on drop or process death; never unlink its inode.
-    _writer_lock: File,
+    _writer_lock: rsf_storage::ExclusiveFileLock,
     engine: SqlEngine,
     recovery: DurableSqlRecovery,
     persistence_failed: bool,
     pending: Option<PendingRequest>,
     receipts: BTreeMap<String, RequestReceipt>,
+    namespace: Option<String>,
+    commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
 }
 
 impl DurableSqlEngine {
@@ -96,7 +99,7 @@ impl DurableSqlEngine {
                     format!("failed to open durable sql lock: {err}"),
                 )
             })?;
-        writer_lock.try_lock().map_err(|err| {
+        let writer_lock = rsf_storage::ExclusiveFileLock::acquire(writer_lock).map_err(|err| {
             RsfError::new(
                 ErrorCode::QuorumUnavailable,
                 format!(
@@ -120,6 +123,8 @@ impl DurableSqlEngine {
                 persistence_failed: false,
                 pending,
                 receipts: BTreeMap::new(),
+                namespace: None,
+                commands: BTreeMap::new(),
                 recovery: DurableSqlRecovery {
                     tables: 0,
                     row_versions: 0,
@@ -145,6 +150,7 @@ impl DurableSqlEngine {
             }
         }
         let (engine, report) = SqlEngine::recover_from_committed_kv(kv, checkpoint.tables)?;
+        replicated::validate_recovered_operations(&engine, &checkpoint.commands)?;
         for receipt in checkpoint.receipts.values() {
             receipt.outcome(&engine)?;
         }
@@ -162,6 +168,8 @@ impl DurableSqlEngine {
             persistence_failed: false,
             pending,
             receipts: checkpoint.receipts,
+            namespace: checkpoint.namespace,
+            commands: checkpoint.commands,
         })
     }
 
@@ -177,6 +185,9 @@ impl DurableSqlEngine {
                 ErrorCode::CorruptionDetected,
                 "durable sql checkpoint failed; reopen and recover before serving requests",
             ));
+        }
+        if self.namespace.is_some() {
+            return self.execute_replicated(router, pg, statement, request_client.into());
         }
         reject_transaction_control(statement)?;
         let client = request_client.into();
@@ -297,8 +308,10 @@ impl DurableSqlEngine {
             tables: self.engine.recovered_tables_for_checkpoint(),
             kv: self.engine.committed_kv_versions_for_checkpoint(),
             receipts: self.receipts.clone(),
+            namespace: self.namespace.clone(),
+            commands: self.commands.clone(),
         };
-        let encoded = encode_checkpoint(&checkpoint);
+        let encoded = encode_checkpoint(&checkpoint)?;
         atomic_write(&self.root, STATE_FILE, TMP_FILE, &encoded)
     }
 }
@@ -359,6 +372,8 @@ struct SqlCheckpoint {
     tables: Vec<SqlRecoveredTable>,
     kv: Vec<(Vec<u8>, Vec<KvVersionedValue>)>,
     receipts: BTreeMap<String, RequestReceipt>,
+    namespace: Option<String>,
+    commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
 }
 
 fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
@@ -384,10 +399,16 @@ fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
     decode_checkpoint(&text)
 }
 
-fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> String {
+fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
     let mut out = String::new();
     out.push_str(FORMAT);
     out.push('\n');
+    if let Some(namespace) = &checkpoint.namespace {
+        out.push_str(&format!("namespace\t{}\n", hex_bytes(namespace.as_bytes())));
+    }
+    for command in checkpoint.commands.values() {
+        out.push_str(&format!("application\t{}\n", hex_bytes(&command.encode()?)));
+    }
     for table in &checkpoint.tables {
         out.push_str(&format!(
             "table\t{}\t{}\t{}\t{}\n",
@@ -435,7 +456,7 @@ fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> String {
         out.push_str(&receipt.encode());
     }
     append_checksum(&mut out);
-    out
+    Ok(out)
 }
 
 fn append_checksum(out: &mut String) {
@@ -469,17 +490,20 @@ fn verify_checksum(text: &str) -> RsfResult<&str> {
 fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     let text = verify_checksum(text)?;
     let mut lines = text.lines();
-    match lines.next() {
-        Some(FORMAT) => {}
+    let replicated_format = match lines.next() {
+        Some(FORMAT) => true,
+        Some("RSF_SQL_STATE_V3") => false,
         _ => {
             return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
                 "durable sql state has an unsupported format",
             ));
         }
-    }
+    };
 
     let mut receipts = BTreeMap::new();
+    let mut namespace = None;
+    let mut commands = BTreeMap::new();
     let mut tables = BTreeMap::<String, PendingTable>::new();
     let mut kv = BTreeMap::<Vec<u8>, Vec<KvVersionedValue>>::new();
     for (line_number, line) in lines.enumerate() {
@@ -488,6 +512,22 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
         }
         let fields = line.split('\t').collect::<Vec<_>>();
         match fields.as_slice() {
+            ["namespace", encoded] if replicated_format => {
+                let value = decode_string(encoded, "SQL namespace")?;
+                replicated::validate_namespace(&value)?;
+                if namespace.replace(value).is_some() {
+                    return Err(corrupt_line(line_number, "duplicate SQL namespace"));
+                }
+            }
+            ["application", encoded] if replicated_format => {
+                let command = rsf_protocol::ReplicatedFabricCommand::decode(&hex_decode(encoded)?)?;
+                if commands.insert(command.request.clone(), command).is_some() {
+                    return Err(corrupt_line(
+                        line_number,
+                        "duplicate SQL application command",
+                    ));
+                }
+            }
             ["request", fields @ ..] => {
                 let receipt = RequestReceipt::decode(fields)?;
                 if receipts
@@ -596,7 +636,10 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
         }
     }
 
+    replicated::validate_checkpoint_commands(namespace.as_deref(), &commands, &receipts)?;
     Ok(SqlCheckpoint {
+        namespace,
+        commands,
         tables: tables
             .into_values()
             .map(|pending| SqlRecoveredTable {
@@ -1257,7 +1300,10 @@ mod tests {
             tables: Vec::new(),
             kv: Vec::new(),
             receipts: BTreeMap::new(),
-        });
+            namespace: None,
+            commands: BTreeMap::new(),
+        })
+        .unwrap();
         for end in 0..checkpoint.len() {
             assert!(
                 decode_checkpoint(&checkpoint[..end]).is_err(),
