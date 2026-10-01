@@ -1,5 +1,5 @@
-mod transport;
-type DataRouter = VsrBackedFabricRouter<transport::DataTransport>;
+use crate::replication::ReplicationTransport;
+type DataRouter = VsrBackedFabricRouter<ReplicationTransport>;
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -511,7 +511,7 @@ impl DataPlaneExecutor {
         })?;
         let epoch = Epoch(admin.cluster_map().epoch.0.max(1));
         let transport =
-            transport::DataTransport::load(&self.state, &admin, primary).map_err(invalid)?;
+            ReplicationTransport::load(&self.state, &admin, primary).map_err(invalid)?;
         let mut router = VsrBackedFabricRouter::open_with_transport(
             self.state.join("protocol"),
             [PlacementGroupId(1)],

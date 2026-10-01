@@ -1,7 +1,7 @@
 # Authenticated VSR peer replication
 
 `rsf-rpc::replication::NetworkVsrTransport` sends complete prepares, commit
-certificates, committed-tail queries, and committed-prefix entries over TLS
+certificates, committed-tail queries, current-primary probes, and committed-prefix entries over TLS
 1.3. Each voter owns a separate `DurableVsrCell` store. The peer process is:
 
 ```sh
@@ -85,6 +85,9 @@ Peers must already have the necessary view and
 membership installed. This implementation assumes non-Byzantine cluster
 members; signer sets are quorum evidence maintained by the authenticated
 primary, not independent cryptographic signatures from each voter.
+
+See [network readiness](network-readiness.md) for the current-view probe and
+operator health contract.
 
 ## Verification
 

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Debug)]
-pub(super) struct DataTransport(Option<NetworkVsrTransport>);
+pub(crate) struct ReplicationTransport(Option<NetworkVsrTransport>);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -27,8 +27,8 @@ struct Peer {
     server_name: String,
     fingerprint: String,
 }
-impl DataTransport {
-    pub(super) fn load(state: &Path, admin: &AdminPlane, primary: NodeId) -> Result<Self, String> {
+impl ReplicationTransport {
+    pub(crate) fn load(state: &Path, admin: &AdminPlane, primary: NodeId) -> Result<Self, String> {
         let path = state.join("replication.json");
         let raw = match std::fs::read(&path) {
             Ok(raw) => raw,
@@ -119,7 +119,12 @@ impl DataTransport {
         crate::peer::bind_state(&binding, &cluster, primary)?;
         Ok(Self(Some(transport)))
     }
-    pub(super) fn is_network(&self) -> bool {
+    /// For inventory recovery only when configuration is invalid. This transport
+    /// rejects every remote operation; callers must retain the configuration error.
+    pub(crate) fn unavailable() -> Self {
+        Self(None)
+    }
+    pub(crate) fn is_network(&self) -> bool {
         self.0.is_some()
     }
     fn network(&mut self, replica: NodeId) -> Result<&mut NetworkVsrTransport, VsrTransportError> {
@@ -129,7 +134,15 @@ impl DataTransport {
         })
     }
 }
-impl VsrTransport for DataTransport {
+impl VsrTransport for ReplicationTransport {
+    fn confirm_primary(
+        &mut self,
+        replica: NodeId,
+        probe: &rsf_vsr::VsrPrimaryProbe,
+    ) -> Result<(), VsrTransportError> {
+        self.network(replica)?.confirm_primary(replica, probe)
+    }
+
     fn acknowledge_prepare(
         &mut self,
         message: VsrPrepareMessage,
@@ -157,4 +170,65 @@ impl VsrTransport for DataTransport {
     ) -> Result<(), VsrTransportError> {
         self.network(replica)?.transfer_committed(replica, entry)
     }
+}
+
+/// A failed probe is readiness data, not a reason to stop the health listener.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ReplicationStatus {
+    pub mode: &'static str,
+    pub quorum_available: bool,
+    pub detail: String,
+}
+
+pub(crate) fn observe(
+    state: &Path,
+    admin: &AdminPlane,
+) -> Result<
+    (
+        rsf_protocol::VsrBackedFabricRouter<ReplicationTransport>,
+        ReplicationStatus,
+    ),
+    String,
+> {
+    let voters = admin
+        .membership_view()
+        .ok_or("missing membership")?
+        .voter_nodes();
+    let primary = *voters.first().ok_or("missing promoted voter")?;
+    let (transport, configuration_error) = match ReplicationTransport::load(state, admin, primary) {
+        Ok(transport) => (transport, None),
+        Err(error) => (ReplicationTransport::unavailable(), Some(error)),
+    };
+    let mode = if configuration_error.is_some() {
+        "unavailable"
+    } else if transport.is_network() {
+        "network"
+    } else {
+        "standalone"
+    };
+    let mut router = rsf_protocol::VsrBackedFabricRouter::open_with_transport(
+        state.join("protocol"),
+        [PlacementGroupId(1)],
+        rsf_core::Epoch(admin.cluster_map().epoch.0.max(1)),
+        primary,
+        voters.clone(),
+        transport,
+    )
+    .map_err(|err| err.message)?;
+    let result = if let Some(error) = configuration_error {
+        Err(error)
+    } else if !crate::protocol_membership_matches(&router, &voters) {
+        Err("protocol membership differs from the admin map; resume the pending join".into())
+    } else {
+        router.confirm_primary_quorum().map_err(|err| err.message)
+    };
+    let status = ReplicationStatus {
+        mode,
+        quorum_available: result.is_ok(),
+        detail: match result {
+            Ok(()) => "current primary, membership and committed tip confirmed by quorum".into(),
+            Err(error) => error,
+        },
+    };
+    Ok((router, status))
 }

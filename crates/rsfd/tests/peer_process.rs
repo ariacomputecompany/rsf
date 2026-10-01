@@ -16,6 +16,7 @@ use rsf_vsr::{DurableVsrCell, VsrDecision, VsrOperation};
 struct Process {
     child: Child,
     address: SocketAddr,
+    health: Option<SocketAddr>,
 }
 impl Process {
     fn start(config: &Path) -> Self {
@@ -55,6 +56,7 @@ impl Process {
         Self {
             child,
             address: address.expect("daemon peer readiness"),
+            health: None,
         }
     }
 }
@@ -269,7 +271,14 @@ impl Process {
         let mut child = Command::new(env!("CARGO_BIN_EXE_rsfd"))
             .args(["serve", "--state"])
             .arg(state)
-            .args(["--data-listen", "127.0.0.1:0", "--tick-ms", "10"])
+            .args([
+                "--data-listen",
+                "127.0.0.1:0",
+                "--listen",
+                "127.0.0.1:0",
+                "--tick-ms",
+                "10",
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -281,25 +290,43 @@ impl Process {
                 let Ok(line) = line else {
                     return;
                 };
-                if let Some(rest) = line.strip_prefix("daemon data_listener addr=") {
-                    let addr = rest
-                        .split_whitespace()
-                        .next()
-                        .unwrap()
-                        .parse::<SocketAddr>()
-                        .unwrap();
-                    let _ = send.send(addr);
+                for (prefix, health) in [
+                    ("daemon listener addr=", true),
+                    ("daemon data_listener addr=", false),
+                ] {
+                    if let Some(rest) = line.strip_prefix(prefix) {
+                        let addr = rest
+                            .split_whitespace()
+                            .next()
+                            .unwrap()
+                            .parse::<SocketAddr>()
+                            .unwrap();
+                        let _ = send.send((health, addr));
+                    }
                 }
             }
         });
-        let address = receive.recv_timeout(Duration::from_secs(15));
+        let addresses = (|| {
+            let first = receive.recv_timeout(Duration::from_secs(15))?;
+            let second = receive.recv_timeout(Duration::from_secs(15))?;
+            Ok::<_, std::sync::mpsc::RecvTimeoutError>((first, second))
+        })();
+        let address = addresses.map(|(first, second)| {
+            if first.0 {
+                (second.1, first.1)
+            } else {
+                (first.1, second.1)
+            }
+        });
         if address.is_err() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let (address, health) = address.expect("primary startup");
         Self {
             child,
-            address: address.expect("primary startup"),
+            address,
+            health: Some(health),
         }
     }
 }
@@ -793,5 +820,118 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
             .unwrap()
             .rows,
         0
+    );
+}
+
+fn health_request(primary: &Process, endpoint: &str) -> String {
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(primary.health.unwrap()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    write!(stream, "GET {endpoint} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
+}
+fn await_quorum(primary: &mut Process, expected: bool) -> String {
+    let until = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        assert!(
+            primary.child.try_wait().unwrap().is_none(),
+            "daemon stopped on quorum loss"
+        );
+        let response = health_request(primary, "/healthz");
+        let expected_field = format!("\"quorum_available\":{expected}");
+        if response.contains(&expected_field) {
+            assert!(
+                response.contains(&format!("\"ready\":{expected}")),
+                "{response}"
+            );
+            assert!(
+                response.starts_with(if expected {
+                    "HTTP/1.1 200"
+                } else {
+                    "HTTP/1.1 503"
+                }),
+                "{response}"
+            );
+            return response;
+        }
+        assert!(std::time::Instant::now() < until, "{response}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+#[test]
+fn readiness_tracks_authenticated_quorum_loss_recovery_and_configuration_errors() {
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    let first = Process::start(&root.join("peer-1.json"));
+    let second = Process::start(&root.join("peer-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    configure_primary(&root, &state, &peers);
+    let mut primary = Process::primary(&state);
+    assert!(await_quorum(&mut primary, true).contains("\"replication\":\"network\""));
+    // A committed command must be probed without creating another command.
+    assert!(
+        kv_request(primary.address, "SET readiness", "write", b"durable")
+            .contains("RSF/1 executed")
+    );
+    let ready = await_quorum(&mut primary, true);
+    assert!(
+        ready.contains("\"protocol_certificate_count\":1"),
+        "{ready}"
+    );
+    drop(second);
+    await_quorum(&mut primary, true);
+    drop(first);
+    await_quorum(&mut primary, false);
+    assert!(health_request(&primary, "/livez").starts_with("HTTP/1.1 200"));
+    assert!(health_request(&primary, "/metrics").contains("rsf_daemon_quorum_available 0\n"));
+    assert!(kv_request(primary.address, "GET readiness", "read", b"").contains("RSF/1 rejected"));
+    let first = Process::start(&root.join("peer-1.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    configure_primary(&root, &state, &peers);
+    let recovered = await_quorum(&mut primary, true);
+    assert!(
+        recovered.contains("\"protocol_certificate_count\":1"),
+        "{recovered}"
+    );
+    let path = state.join("replication.json");
+    std::fs::write(&path, b"invalid configuration").unwrap();
+    let degraded = await_quorum(&mut primary, false);
+    assert!(degraded.contains("\"replication\":\"unavailable\""));
+    assert!(health_request(&primary, "/livez").starts_with("HTTP/1.1 200"));
+    configure_primary(&root, &state, &peers);
+    await_quorum(&mut primary, true);
+    std::fs::remove_file(path).unwrap();
+    assert!(await_quorum(&mut primary, false).contains("requires authenticated replication.json"));
+    configure_primary(&root, &state, &peers);
+    await_quorum(&mut primary, true);
+    drop(primary);
+    let status = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+        .args(["status", "--state"])
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert!(
+        String::from_utf8_lossy(&status.stdout).contains("placement-health: ready"),
+        "{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+    drop(first);
+    let status = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+        .args(["status", "--state"])
+        .arg(&state)
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert!(
+        String::from_utf8_lossy(&status.stdout).contains("placement-health: degraded"),
+        "{}",
+        String::from_utf8_lossy(&status.stdout)
     );
 }

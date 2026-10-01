@@ -136,6 +136,19 @@ impl NetworkVsrTransport {
 }
 
 impl VsrTransport for NetworkVsrTransport {
+    fn confirm_primary(
+        &mut self,
+        replica: NodeId,
+        probe: &rsf_vsr::VsrPrimaryProbe,
+    ) -> Result<(), VsrTransportError> {
+        let bytes = probe.encode().map_err(|err| VsrTransportError {
+            replica,
+            reason: err.message,
+        })?;
+        self.expect_index(replica, PRIMARY_PROBE, &bytes, probe.committed_tail)
+            .map(|_| ())
+    }
+
     fn acknowledge_prepare(
         &mut self,
         message: VsrPrepareMessage,
@@ -323,6 +336,18 @@ impl PeerReplicaServer {
         let local = self.local;
         let rsf = |err: rsf_core::RsfError| invalid(err.message);
         match kind {
+            PRIMARY_PROBE => {
+                // Comparison with the complete canonical encoding rejects wrong
+                // views, membership, tips, malformed fields and trailing bytes.
+                let pg = PlacementGroupId(u64_at(payload, 5)?);
+                let probe = self.cell(sender, pg)?.primary_probe().map_err(rsf)?;
+                if payload != probe.encode().map_err(rsf)? {
+                    return Err(invalid(
+                        "primary probe differs from current view, membership or committed tip",
+                    ));
+                }
+                Ok(probe.committed_tail)
+            }
             PREPARE => {
                 let prepare = VsrPrepare::decode(payload).map_err(rsf)?;
                 let index = prepare.index;

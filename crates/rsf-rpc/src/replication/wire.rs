@@ -11,6 +11,7 @@ pub(super) const PREPARE: u8 = 1;
 pub(super) const COMMIT: u8 = 2;
 pub(super) const TAIL: u8 = 3;
 pub(super) const TRANSFER: u8 = 4;
+pub(super) const PRIMARY_PROBE: u8 = 5;
 
 pub(super) fn cluster_digest(cluster: &ClusterId) -> [u8; 32] {
     Sha256::digest(cluster.as_str().as_bytes()).into()

@@ -1,4 +1,6 @@
+mod probe;
 mod replica;
+pub use probe::VsrPrimaryProbe;
 
 pub const MAX_REPLICATED_COMMAND_BYTES: usize = 1024 * 1024;
 
@@ -117,6 +119,19 @@ pub struct VsrTransportError {
 }
 
 pub trait VsrTransport {
+    /// Authenticate current leadership and the committed tip without mutating
+    /// remote state. Transports without this contract must fail closed.
+    fn confirm_primary(
+        &mut self,
+        replica: NodeId,
+        _probe: &VsrPrimaryProbe,
+    ) -> Result<(), VsrTransportError> {
+        Err(VsrTransportError {
+            replica,
+            reason: "transport does not support primary probes".into(),
+        })
+    }
+
     fn acknowledge_prepare(
         &mut self,
         message: VsrPrepareMessage,

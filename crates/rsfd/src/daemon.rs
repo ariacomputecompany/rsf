@@ -6,11 +6,10 @@ use std::time::Duration;
 
 use crate::data::DataPlaneListener;
 use rsf_admin::{AdminPlane, AdmissionState};
+use rsf_core::LogIndex;
 use rsf_core::cluster::NodeRole;
-use rsf_core::{Epoch, LogIndex, PlacementGroupId};
 use rsf_observability::ObservabilityRegistry;
 use rsf_policy::PolicyCatalog;
-use rsf_protocol::VsrBackedFabricRouter;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DaemonConfig {
@@ -103,6 +102,7 @@ pub struct DaemonSnapshot {
     pub protocol_latest_version: u64,
     pub protocol_certificate_count: usize,
     pub protocol_max_log_index: u64,
+    pub replication: crate::replication::ReplicationStatus,
     pub ready: bool,
     pub readiness: String,
 }
@@ -452,7 +452,7 @@ pub fn render_endpoint(
             status: if snapshot.ready { 200 } else { 503 },
             content_type: "application/json",
             body: format!(
-                "{{\"profile\":\"{}\",\"ready\":{},\"required_voters\":{},\"required_storage_nodes\":{},\"required_gateway_nodes\":{},\"required_policy_regions\":{},\"cluster_epoch\":{},\"nodes\":{},\"promoted_voters\":{},\"storage_nodes\":{},\"gateway_nodes\":{},\"policy_regions\":{},\"policy_version\":{},\"policy_min_replicas\":{},\"policy_placement_groups\":{},\"protocol_placement_version\":{},\"protocol_placement_groups\":{},\"protocol_group_ids\":{},\"protocol_latest_version\":{},\"protocol_certificate_count\":{},\"protocol_max_log_index\":{},\"readiness\":\"{}\"}}\n",
+                "{{\"profile\":\"{}\",\"ready\":{},\"required_voters\":{},\"required_storage_nodes\":{},\"required_gateway_nodes\":{},\"required_policy_regions\":{},\"cluster_epoch\":{},\"nodes\":{},\"promoted_voters\":{},\"storage_nodes\":{},\"gateway_nodes\":{},\"policy_regions\":{},\"policy_version\":{},\"policy_min_replicas\":{},\"policy_placement_groups\":{},\"protocol_placement_version\":{},\"protocol_placement_groups\":{},\"protocol_group_ids\":{},\"protocol_latest_version\":{},\"protocol_certificate_count\":{},\"protocol_max_log_index\":{},\"replication\":\"{}\",\"quorum_available\":{},\"replication_detail\":\"{}\",\"readiness\":\"{}\"}}\n",
                 snapshot.profile.as_str(),
                 snapshot.ready,
                 snapshot.required_voters,
@@ -474,6 +474,9 @@ pub fn render_endpoint(
                 snapshot.protocol_latest_version,
                 snapshot.protocol_certificate_count,
                 snapshot.protocol_max_log_index,
+                snapshot.replication.mode,
+                snapshot.replication.quorum_available,
+                json_escape(&snapshot.replication.detail),
                 json_escape(&snapshot.readiness),
             ),
         },
@@ -491,6 +494,22 @@ pub fn render_endpoint(
 pub fn build_metrics(snapshot: &DaemonSnapshot) -> Result<ObservabilityRegistry, String> {
     let mut registry = ObservabilityRegistry::default();
     gauge(&mut registry, "rsf_daemon_ready", i64::from(snapshot.ready))?;
+    gauge(
+        &mut registry,
+        "rsf_daemon_quorum_available",
+        i64::from(snapshot.replication.quorum_available),
+    )?;
+    for (mode, metric) in [
+        ("standalone", "rsf_daemon_replication_standalone"),
+        ("network", "rsf_daemon_replication_network"),
+        ("unavailable", "rsf_daemon_replication_unavailable"),
+    ] {
+        gauge(
+            &mut registry,
+            metric,
+            i64::from(snapshot.replication.mode == mode),
+        )?;
+    }
     gauge(
         &mut registry,
         "rsf_daemon_profile_standalone",
@@ -617,17 +636,7 @@ pub fn load_snapshot_for_profile(
         .membership_view()
         .ok_or_else(|| "daemon requires at least one promoted voter".to_string())?;
     let voters = membership.voter_nodes();
-    let primary = *voters
-        .first()
-        .ok_or_else(|| "daemon requires at least one promoted voter".to_string())?;
-    let router = VsrBackedFabricRouter::open(
-        state.join("protocol"),
-        [PlacementGroupId(1)],
-        Epoch(admin.cluster_map().epoch.0.max(1)),
-        primary,
-        voters.clone(),
-    )
-    .map_err(|err| err.message)?;
+    let (router, replication) = crate::replication::observe(state, &admin)?;
 
     let storage_nodes = admin
         .cluster_map()
@@ -673,21 +682,24 @@ pub fn load_snapshot_for_profile(
         }
     }
     let membership_reconciled = crate::protocol_membership_matches(&router, &voters);
-    let ready = membership_reconciled
+    let ready = replication.quorum_available
+        && membership_reconciled
         && promoted_voters >= requirements.voters
         && storage_nodes >= requirements.storage_nodes
         && gateway_nodes >= requirements.gateway_nodes
         && policy_regions >= requirements.policy_regions
-        && protocol_groups >= 1
+        && promoted_voters >= usize::from(policy.min_replicas)
+        && storage_nodes >= usize::from(policy.min_replicas)
+        && protocol_groups as u64 >= policy.placement_groups
         && router.policy().min_placement_groups <= policy.placement_groups;
     let readiness = if ready {
         format!(
-            "ready: profile={} durable admin, policy, protocol router, storage, and gateway roles satisfy operator requirements",
+            "ready: profile={} durable admin, policy, protocol router, storage, gateway roles and live primary quorum satisfy operator requirements",
             profile.as_str()
         )
     } else {
         format!(
-            "degraded: profile={} voters={}/{} storage={}/{} gateway={}/{} regions={}/{} protocol_groups={} policy_groups={} membership_reconciled={}",
+            "degraded: profile={} voters={}/{} storage={}/{} gateway={}/{} regions={}/{} protocol_groups={} policy_groups={} membership_reconciled={} replication={} quorum_available={} min_replicas={} reason={}",
             profile.as_str(),
             promoted_voters,
             requirements.voters,
@@ -699,7 +711,11 @@ pub fn load_snapshot_for_profile(
             requirements.policy_regions,
             protocol_groups,
             policy.placement_groups,
-            membership_reconciled
+            membership_reconciled,
+            replication.mode,
+            replication.quorum_available,
+            policy.min_replicas,
+            replication.detail
         )
     };
 
@@ -724,6 +740,7 @@ pub fn load_snapshot_for_profile(
         protocol_latest_version: router.latest_version().0,
         protocol_certificate_count,
         protocol_max_log_index: protocol_max_log_index.0,
+        replication,
         ready,
         readiness,
     })
@@ -1090,6 +1107,11 @@ mod tests {
             protocol_latest_version: 1,
             protocol_certificate_count: 1,
             protocol_max_log_index: 1,
+            replication: crate::replication::ReplicationStatus {
+                mode: "standalone",
+                quorum_available: true,
+                detail: "test quorum".into(),
+            },
             ready: true,
             readiness: "ready: test snapshot".to_string(),
         }

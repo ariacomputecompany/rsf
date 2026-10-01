@@ -620,3 +620,56 @@ fn protocol_application_commands_survive_independent_peer_processes() {
     assert_eq!(retry.certificate, result.certificate);
     assert_eq!(router.committed_application_commands().len(), 1);
 }
+
+#[test]
+fn authenticated_primary_probe_binds_view_voters_and_tip_without_writes() {
+    let root = root("primary-probe");
+    provision(&root);
+    let peer = PeerProcess::spawn(&root, 1);
+    let mut peers = endpoints(&root);
+    peers.get_mut(&NodeId(1)).unwrap().address = peer.address;
+    let mut network = transport(&root, peers.clone());
+    let mut leader = cell(&root, 0);
+    let empty = leader.primary_probe().unwrap();
+    network.confirm_primary(NodeId(1), &empty).unwrap();
+    let mut changed = empty.clone();
+    changed.view = Epoch(2);
+    assert!(network.confirm_primary(NodeId(1), &changed).is_err());
+    changed = empty.clone();
+    changed.voters.pop();
+    assert!(network.confirm_primary(NodeId(1), &changed).is_err());
+    changed = empty.clone();
+    changed.primary = NodeId(1);
+    assert!(network.confirm_primary(NodeId(1), &changed).is_err());
+    let prepare = prepare(&mut leader, b"probe-data");
+    leader
+        .replicate_with_transport(NodeId(0), prepare.index, &mut network)
+        .unwrap();
+    assert!(network.confirm_primary(NodeId(1), &empty).is_err());
+    let current = leader.primary_probe().unwrap();
+    network.confirm_primary(NodeId(1), &current).unwrap();
+    changed = current.clone();
+    changed.committed_tip = rsf_core::Digest::blake3_bytes(b"other data at same height");
+    assert!(network.confirm_primary(NodeId(1), &changed).is_err());
+    let bytes = current.encode().unwrap();
+    for payload in [&bytes[..12], &[bytes.clone(), vec![0]].concat()] {
+        assert!(network.request(NodeId(1), PRIMARY_PROBE, payload).is_err());
+    }
+    drop(peer);
+    {
+        let mut follower = cell(&root, 1);
+        assert_eq!(follower.primary_probe().unwrap(), current);
+        assert_eq!(follower.committed_count(), 1);
+        assert_eq!(follower.next_index(), LogIndex(2));
+        assert!(matches!(
+            follower.view_change(Epoch(2), NodeId(0)),
+            VsrDecision::ViewChanged { .. }
+        ));
+    }
+    let peer = PeerProcess::spawn(&root, 1);
+    peers.get_mut(&NodeId(1)).unwrap().address = peer.address;
+    let mut network = transport(&root, peers);
+    // The same primary and committed height cannot mask a newer remote view.
+    assert!(network.confirm_primary(NodeId(1), &current).is_err());
+    drop(peer);
+}

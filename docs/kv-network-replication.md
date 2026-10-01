@@ -84,10 +84,10 @@ command bounds before persisting an intent, so invalid input cannot strand it.
 
 Cross-group application scheduling, incremental replay/checkpoint cursors,
 bounded request-history retention, migrations, automated membership/failover,
-and network-aware operator readiness are still release work. Existing health
-snapshots report the admin/policy inventory and do not establish live network
-quorum availability. Do not use those snapshots alone as a production-readiness
-proof.
+and network admin/policy integration are still release work.
+[Operator readiness](network-readiness.md) now requires authenticated current-view
+quorum evidence in addition to admin/policy inventory. It is not proof that all
+production requirements are complete.
 
 ## Verification
 

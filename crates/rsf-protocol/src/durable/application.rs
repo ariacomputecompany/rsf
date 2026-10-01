@@ -237,30 +237,53 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     /// local application reads. The caller must serialize the read with writes.
     pub fn confirm_read_quorum(&mut self) -> RsfResult<()> {
         self.reconcile_application_commands()?;
-        for (pg, cell) in &mut self.cells {
+        for cell in self.cells.values_mut() {
             if cell.primary() != self.primary {
                 return Err(invalid("local node is not the current read primary"));
             }
             let tail = cell.committed_tail();
             if tail.0 != 0 {
                 cell.replicate_with_transport(self.primary, tail, &mut self.transport)?;
-                continue;
+            }
+        }
+        self.confirm_primary_quorum()
+    }
+
+    /// Observe a quorum in every group at the current view, membership and
+    /// committed tip. Unlike read reconciliation, this does not repair or append.
+    pub fn confirm_primary_quorum(&mut self) -> RsfResult<()> {
+        self.ensure_application_healthy()?;
+        for cell in self.cells.values() {
+            let probe = cell.primary_probe()?;
+            if probe.primary != self.primary {
+                return Err(invalid(
+                    "local node is not the current placement-group primary",
+                ));
             }
             let mut acknowledgements = 1;
-            for replica in cell.replicas() {
-                if replica == self.primary {
-                    continue;
-                }
-                match self.transport.committed_tail(replica, *pg) {
-                    Ok(remote) if remote.0 == 0 => acknowledgements += 1,
-                    Ok(_) => {
-                        return Err(corrupt("read primary is missing remote committed history"));
-                    }
-                    Err(_) => {}
+            let mut failures = Vec::new();
+            for replica in probe
+                .voters
+                .iter()
+                .copied()
+                .filter(|node| *node != self.primary)
+            {
+                match self.transport.confirm_primary(replica, &probe) {
+                    Ok(()) => acknowledgements += 1,
+                    Err(err) => failures.push(format!("node {}: {}", replica.0, err.reason)),
                 }
             }
             if acknowledgements < cell.quorum() {
-                return Err(invalid("read requires an available primary quorum"));
+                return Err(RsfError::new(
+                    ErrorCode::QuorumUnavailable,
+                    format!(
+                        "placement group {} primary quorum unavailable: {}/{}; {}",
+                        probe.pg.0,
+                        acknowledgements,
+                        cell.quorum(),
+                        failures.join("; ")
+                    ),
+                ));
             }
         }
         Ok(())

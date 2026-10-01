@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod peer;
+mod replication;
 
 mod config;
 mod daemon;
@@ -725,9 +726,10 @@ fn build_operator_status(
         protocol_latest_version,
         protocol_certificate_count,
         protocol_max_log_index,
-    ) = match open_policy_router(state, admin) {
-        Ok(router)
-            if promoted_voters >= usize::from(policy.min_replicas)
+    ) = match replication::observe(std::path::Path::new(state), admin) {
+        Ok((router, connectivity))
+            if connectivity.quorum_available
+                && promoted_voters >= usize::from(policy.min_replicas)
                 && preview.is_ok()
                 && admin.membership_view().is_some_and(|view| {
                     protocol_membership_matches(&router, &view.voter_nodes())
@@ -757,19 +759,22 @@ fn build_operator_status(
                 runtime.max_log_index,
             )
         }
-        Ok(router) => {
+        Ok((router, connectivity)) => {
             let runtime = protocol_runtime_status(&router)?;
             (
                 PlacementHealth::Degraded,
                 format!(
-                    "degraded: voters={} storage={} protocol_groups={} policy_groups={} min_replicas={} protocol_latest_version={} protocol_certificates={}",
+                    "degraded: voters={} storage={} protocol_groups={} policy_groups={} min_replicas={} protocol_latest_version={} protocol_certificates={} replication={} quorum_available={} reason={}",
                     promoted_voters,
                     storage_nodes,
                     router.placement_map().groups.len(),
                     policy.placement_groups,
                     policy.min_replicas,
                     runtime.latest_version,
-                    runtime.certificate_count
+                    runtime.certificate_count,
+                    connectivity.mode,
+                    connectivity.quorum_available,
+                    connectivity.detail
                 ),
                 runtime.group_ids,
                 runtime.latest_version,
@@ -819,8 +824,8 @@ struct ProtocolRuntimeStatus {
     max_log_index: u64,
 }
 
-fn protocol_runtime_status(
-    router: &VsrBackedFabricRouter,
+fn protocol_runtime_status<T: rsf_vsr::VsrTransport>(
+    router: &VsrBackedFabricRouter<T>,
 ) -> Result<ProtocolRuntimeStatus, String> {
     let mut certificate_count = 0_usize;
     let mut max_log_index = 0_u64;
@@ -1686,7 +1691,7 @@ mod tests {
     }
 
     #[test]
-    fn operator_status_reports_ready_roles_and_placement_after_policy_apply() {
+    fn operator_status_requires_network_even_after_local_policy_apply() {
         let state =
             test_path("operator_status_reports_ready_roles_and_placement_after_policy_apply");
         let state_arg = state.display().to_string();
@@ -1747,7 +1752,7 @@ mod tests {
         assert_eq!(summary.gateway_nodes, 3);
         assert_eq!(summary.metadata_nodes, 3);
         assert_eq!(summary.repair_nodes, 3);
-        assert_eq!(summary.placement_health, PlacementHealth::Ready);
+        assert_eq!(summary.placement_health, PlacementHealth::Degraded);
         assert!(summary.placement_detail.contains("protocol_groups=3"));
         assert_eq!(summary.protocol_group_ids, vec![1, 2, 3]);
         assert_eq!(summary.protocol_latest_version, 1);
@@ -1862,7 +1867,9 @@ mod tests {
         .expect("serve once");
         let snapshot = daemon::load_snapshot(&state).expect("daemon snapshot");
 
-        assert!(snapshot.ready);
+        assert!(!snapshot.ready);
+        assert!(!snapshot.replication.quorum_available);
+        assert_eq!(snapshot.replication.mode, "unavailable");
         assert_eq!(snapshot.nodes, 3);
         assert_eq!(snapshot.promoted_voters, 3);
         assert_eq!(snapshot.storage_nodes, 3);
@@ -1916,7 +1923,9 @@ mod tests {
         .expect("serve from config");
 
         let snapshot = daemon::load_snapshot(&state).expect("daemon snapshot");
-        assert!(snapshot.ready);
+        assert!(!snapshot.ready);
+        assert!(!snapshot.replication.quorum_available);
+        assert_eq!(snapshot.replication.mode, "unavailable");
 
         let _ = std::fs::remove_file(config_path);
         let _ = std::fs::remove_dir_all(state);
@@ -1944,10 +1953,10 @@ mod tests {
         wait_for_listener_request(&listener, &snapshot, "health");
         let health_response = client.join().expect("client thread");
 
-        assert!(health_response.starts_with("HTTP/1.1 200 OK"));
+        assert!(health_response.starts_with("HTTP/1.1 503 Service Unavailable"));
         assert!(health_response.contains("content-type: application/json"));
         assert!(health_response.contains("\"profile\":\"standalone\""));
-        assert!(health_response.contains("\"ready\":true"));
+        assert!(health_response.contains("\"ready\":false"));
         assert!(health_response.contains("\"protocol_group_ids\":[1]"));
 
         let metrics_client = std::thread::spawn(move || {
@@ -1962,9 +1971,9 @@ mod tests {
         wait_for_listener_request(&listener, &snapshot, "metrics");
         let metrics_response = metrics_client.join().expect("metrics client thread");
 
-        assert!(metrics_response.starts_with("HTTP/1.1 200 OK"));
+        assert!(metrics_response.starts_with("HTTP/1.1 503 Service Unavailable"));
         assert!(metrics_response.contains("content-type: text/plain; version=0.0.4"));
-        assert!(metrics_response.contains("rsf_daemon_ready 1\n"));
+        assert!(metrics_response.contains("rsf_daemon_ready 0\n"));
         assert!(metrics_response.contains("rsf_daemon_profile_standalone 1\n"));
 
         let _ = std::fs::remove_dir_all(state);
@@ -2433,7 +2442,7 @@ mod tests {
         let output = String::from_utf8(out).expect("stdout is utf8");
 
         assert!(output.contains("daemon tick=0"));
-        assert!(output.contains("readiness=ready"));
+        assert!(output.contains("readiness=degraded"));
         assert!(output.contains("daemon data_listener addr=127.0.0.1:"));
         assert!(output.contains("protocol=rsf-wire"));
         assert!(output.contains("daemon profile=standalone"));
@@ -2441,9 +2450,9 @@ mod tests {
         assert!(output.contains("daemon policy"));
         assert!(output.contains("daemon protocol"));
         assert!(output.contains("daemon endpoint path=/livez status=200"));
-        assert!(output.contains("daemon endpoint path=/readyz status=200"));
-        assert!(output.contains("daemon endpoint path=/healthz status=200"));
-        assert!(output.contains("daemon endpoint path=/metrics status=200"));
+        assert!(output.contains("daemon endpoint path=/readyz status=503"));
+        assert!(output.contains("daemon endpoint path=/healthz status=503"));
+        assert!(output.contains("daemon endpoint path=/metrics status=503"));
 
         let _ = std::fs::remove_dir_all(state);
     }
@@ -2466,18 +2475,22 @@ mod tests {
 
         assert_eq!(live.status, 200);
         assert_eq!(live.body, "alive\n");
-        assert_eq!(ready.status, 200);
-        assert!(ready.body.contains("ready:"));
-        assert_eq!(health.status, 200);
+        assert_eq!(ready.status, 503);
+        assert!(
+            ready
+                .body
+                .contains("requires authenticated replication.json")
+        );
+        assert_eq!(health.status, 503);
         assert_eq!(health.content_type, "application/json");
         assert!(health.body.contains("\"profile\":\"standalone\""));
-        assert!(health.body.contains("\"ready\":true"));
+        assert!(health.body.contains("\"ready\":false"));
         assert!(health.body.contains("\"promoted_voters\":3"));
-        assert_eq!(metrics.status, 200);
+        assert_eq!(metrics.status, 503);
         assert_eq!(metrics.content_type, "text/plain; version=0.0.4");
         assert!(metrics.body.contains("# TYPE rsf_daemon_nodes gauge"));
         assert!(metrics.body.contains("rsf_daemon_nodes 3\n"));
-        assert!(metrics.body.contains("rsf_daemon_ready 1\n"));
+        assert!(metrics.body.contains("rsf_daemon_ready 0\n"));
         assert!(metrics.body.contains("rsf_daemon_profile_standalone 1\n"));
 
         snapshot.ready = false;
@@ -2500,7 +2513,7 @@ mod tests {
     }
 
     #[test]
-    fn daemon_operator_profiles_apply_distinct_readiness_gates() {
+    fn daemon_operator_profiles_require_network_in_addition_to_inventory() {
         let state = test_path("daemon_operator_profiles_apply_distinct_readiness_gates");
         let state_arg = state.display().to_string();
         bootstrap_three_nodes(&state_arg);
@@ -2512,8 +2525,8 @@ mod tests {
         let multi_region = daemon::load_snapshot_for_profile(&state, OperatorProfile::MultiRegion)
             .expect("multi-region snapshot");
 
-        assert!(standalone.ready);
-        assert!(regional.ready);
+        assert!(!standalone.ready);
+        assert!(!regional.ready);
         assert!(!multi_region.ready);
         assert_eq!(multi_region.required_voters, 5);
         assert_eq!(multi_region.required_policy_regions, 2);
@@ -2567,6 +2580,31 @@ mod tests {
             .expect("clock")
             .as_nanos();
         std::env::temp_dir().join(format!("rsfd-{name}-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn live_single_node_quorum_does_not_override_unfulfilled_policy() {
+        let state = test_path("quorum-policy-gates");
+        bootstrap_one_node(&state.display().to_string());
+        let initial = daemon::load_snapshot(&state).unwrap();
+        assert!(initial.ready);
+        {
+            let mut catalog = PolicyCatalog::open(state.join("policy")).unwrap();
+            catalog.set_replication(3, 1).unwrap();
+        }
+        let snapshot = daemon::load_snapshot(&state).unwrap();
+        assert!(snapshot.replication.quorum_available);
+        assert!(!snapshot.ready);
+        assert!(snapshot.readiness.contains("min_replicas=3"));
+        {
+            let mut catalog = PolicyCatalog::open(state.join("policy")).unwrap();
+            catalog.set_replication(1, 2).unwrap();
+        }
+        let snapshot = daemon::load_snapshot(&state).unwrap();
+        assert!(snapshot.replication.quorum_available);
+        assert!(!snapshot.ready);
+        assert_eq!(snapshot.protocol_placement_groups, 1);
+        assert_eq!(snapshot.policy_placement_groups, 2);
     }
 
     pub(crate) fn bootstrap_three_nodes(state: &str) {
