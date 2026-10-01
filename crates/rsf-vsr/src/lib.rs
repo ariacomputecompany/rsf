@@ -1,4 +1,5 @@
 mod history;
+mod migration;
 mod probe;
 mod replica;
 pub use probe::VsrPrimaryProbe;
@@ -309,6 +310,7 @@ pub struct DurableVsrCell {
     cell: VsrCell,
     history: history::ConfigurationHistory,
     bootstrap_persisted: bool,
+    initial_bootstrap: Vec<u8>,
     store: SegmentStore,
     durability_failure: Option<String>,
     _writer_lock: rsf_storage::ExclusiveFileLock,
@@ -629,12 +631,26 @@ impl DurableVsrCell {
                 format!("VSR store already has a writer: {err}"),
             )
         })?;
+        Self::open_locked(path, pg, view, primary, replicas, options, writer_lock)
+    }
+
+    fn open_locked(
+        path: &Path,
+        pg: PlacementGroupId,
+        view: Epoch,
+        primary: NodeId,
+        replicas: impl IntoIterator<Item = NodeId>,
+        options: SegmentStoreOptions,
+        writer_lock: rsf_storage::ExclusiveFileLock,
+    ) -> RsfResult<Self> {
         let recovery = SegmentStore::recover(path)?.recovery;
         let records = recovery
             .wal_records
             .iter()
             .filter(|record| record.pg == pg)
             .collect::<Vec<_>>();
+        let migrated_bootstrap = migration::recover_bootstrap(&records, pg)?;
+        let has_migration = migrated_bootstrap.is_some();
         // Replay certificates against the membership that existed when the log
         // began, never against a caller's newer desired configuration.
         let mut cell = if let Some(first) = records
@@ -646,16 +662,28 @@ impl DurableVsrCell {
                 return Err(corrupt("invalid VSR bootstrap envelope"));
             }
             bootstrap
+        } else if let Some(bootstrap) = migrated_bootstrap {
+            bootstrap
         } else {
             VsrCell::new(pg, view, primary, replicas).map_err(invalid_input)?
         };
 
-        let bootstrap_persisted = records.is_empty()
+        let initial_bootstrap = encode_bootstrap(&cell);
+        let bootstrap_persisted = has_migration
+            || records.is_empty()
             || records
                 .first()
                 .is_some_and(|record| record.payload.starts_with(VSR_BOOTSTRAP_MAGIC));
         let mut history = history::ConfigurationHistory::new(&cell);
         for (position, record) in records.iter().enumerate() {
+            if migration::is_record(&record.payload) {
+                if record.epoch != cell.view {
+                    return Err(corrupt(
+                        "VSR bootstrap migration epoch differs from replayed view",
+                    ));
+                }
+                continue;
+            }
             if record.payload.starts_with(VSR_BOOTSTRAP_MAGIC) {
                 if position != 0 {
                     return Err(corrupt("VSR bootstrap record must be first and unique"));
@@ -822,6 +850,7 @@ impl DurableVsrCell {
             cell,
             history,
             bootstrap_persisted,
+            initial_bootstrap,
             store: SegmentStore::open_with_options(path, options)?,
             durability_failure: None,
             _writer_lock: writer_lock,

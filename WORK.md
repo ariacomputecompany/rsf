@@ -122,7 +122,7 @@ The standard is strict:
 
 ## Remaining Release Blockers
 
-- Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and incremental replay/checkpoint cursors. Add quorum-selected view reconciliation, network membership changes with authenticated configuration-history transfer, primary failover, and migration of legacy VSR logs that predate persisted bootstrap membership before topology changes. Prove end-to-end quorum durability under machine failure.
+- Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and incremental replay/checkpoint cursors. Add quorum-selected view reconciliation, network membership changes with authenticated configuration-history transfer, and primary failover. Prove end-to-end quorum durability under machine failure.
 - Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. The secured daemon currently rejects shared top-level surface directories.
 - Add durable SQL sessions, incremental persistence, multiple pages per table, and bounded result streaming; current autocommit checkpoints rewrite the full state and the page adapter uses one page per table.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.

@@ -43,11 +43,11 @@ configuration cannot invent the older configurations needed to validate an old
 prefix. Authenticated configuration-history transfer, quorum-certified network
 installation, learner admission and automatic failover remain release work.
 Legacy logs without persisted bootstrap membership still require an explicit
-migration before topology changes. View changes, timeout elections and membership
+migration before topology changes; use the
+[bootstrap migration command](vsr-bootstrap-migration.md). View changes, timeout elections and membership
 changes reject those stores before appending anything; their existing data remains
 readable under the original configuration. Caller-supplied current voters are not
-a substitute for missing historical authority. The migration operation itself is
-still unfinished.
+a substitute for missing historical authority.
 
 ## Verification
 
