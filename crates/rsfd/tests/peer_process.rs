@@ -13,6 +13,10 @@ use rsf_core::{ClusterId, Epoch, LogIndex, NodeId, OperationId, PlacementGroupId
 use rsf_rpc::replication::{NetworkVsrTransport, PeerEndpoint, PeerIdentity};
 use rsf_vsr::{DurableVsrCell, VsrDecision, VsrOperation};
 
+// Durability tests share the host with the workspace suite. Short-deadline
+// enforcement has dedicated RPC tests; allow fsync and TLS scheduling here.
+const PEER_TIMEOUT_MS: u64 = 2_000;
+
 struct Process {
     child: Child,
     address: SocketAddr,
@@ -112,7 +116,7 @@ fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
     }
     let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
     for node in 1..3 {
-        let config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":format!("store-{node}"),"tls":format!("tls-{node}"),"listen":"127.0.0.1:0","timeout_ms":1000,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
+        let config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":format!("store-{node}"),"tls":format!("tls-{node}"),"listen":"127.0.0.1:0","timeout_ms":PEER_TIMEOUT_MS,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
         std::fs::write(
             root.join(format!("peer-{node}.json")),
             serde_json::to_vec(&config).unwrap(),
@@ -135,7 +139,7 @@ fn daemon_peer_cli_replicates_commands_and_recovers_after_forced_termination() {
         &ClusterId::new("cli-cluster").unwrap(),
         PeerIdentity::load(&root.join("tls-0")).unwrap(),
         peers,
-        Duration::from_secs(1),
+        Duration::from_millis(PEER_TIMEOUT_MS),
     )
     .unwrap();
     let mut leader = DurableVsrCell::open(
@@ -259,7 +263,7 @@ fn initialize_network_state(root: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>)
 }
 fn configure_primary(root: &Path, state: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>) {
     let peers=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
-    let config = serde_json::json!({"cluster":"cli-cluster","node":0,"tls":root.join("tls-0"),"timeout_ms":500,"peers":peers});
+    let config = serde_json::json!({"cluster":"cli-cluster","node":0,"tls":root.join("tls-0"),"timeout_ms":PEER_TIMEOUT_MS,"peers":peers});
     std::fs::write(
         state.join("replication.json"),
         serde_json::to_vec(&config).unwrap(),

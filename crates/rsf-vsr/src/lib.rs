@@ -1,3 +1,4 @@
+mod history;
 mod probe;
 mod replica;
 pub use probe::VsrPrimaryProbe;
@@ -306,6 +307,8 @@ pub struct VsrCell {
 #[derive(Debug)]
 pub struct DurableVsrCell {
     cell: VsrCell,
+    history: history::ConfigurationHistory,
+    bootstrap_persisted: bool,
     store: SegmentStore,
     durability_failure: Option<String>,
     _writer_lock: rsf_storage::ExclusiveFileLock,
@@ -647,6 +650,11 @@ impl DurableVsrCell {
             VsrCell::new(pg, view, primary, replicas).map_err(invalid_input)?
         };
 
+        let bootstrap_persisted = records.is_empty()
+            || records
+                .first()
+                .is_some_and(|record| record.payload.starts_with(VSR_BOOTSTRAP_MAGIC));
+        let mut history = history::ConfigurationHistory::new(&cell);
         for (position, record) in records.iter().enumerate() {
             if record.payload.starts_with(VSR_BOOTSTRAP_MAGIC) {
                 if position != 0 {
@@ -718,8 +726,7 @@ impl DurableVsrCell {
                             "recovered VSR commit does not extend the contiguous prefix",
                         ));
                     }
-                    let quorum = cell.quorum();
-                    validate_commit_certificate(&commit, &prepare, &cell.replicas, quorum)?;
+                    history.validate(&prepare, &commit)?;
                     let pending = cell
                         .pending
                         .get_mut(&commit.index)
@@ -733,8 +740,10 @@ impl DurableVsrCell {
                         if change.pg != pg {
                             return Err(corrupt("vsr membership payload placement group mismatch"));
                         }
-                        if change.view < cell.view {
-                            return Err(corrupt("recovered vsr membership moves view backward"));
+                        if change.view <= cell.view {
+                            return Err(corrupt(
+                                "recovered vsr membership must strictly advance view",
+                            ));
                         }
                         if change.old_replicas != cell.replicas {
                             return Err(corrupt(
@@ -755,6 +764,7 @@ impl DurableVsrCell {
                         cell.view = change.view;
                         cell.primary = change.primary;
                         cell.replicas = change.new_replicas;
+                        history.record(&cell);
                         continue;
                     }
                     if !is_vsr_view_change_payload(&record.payload) {
@@ -784,8 +794,10 @@ impl DurableVsrCell {
                     if change.pg != pg {
                         return Err(corrupt("vsr view-change payload placement group mismatch"));
                     }
-                    if change.view < cell.view {
-                        return Err(corrupt("recovered vsr view change moves view backward"));
+                    if change.view <= cell.view {
+                        return Err(corrupt(
+                            "recovered vsr view change must strictly advance view",
+                        ));
                     }
                     if !cell.replicas.contains(&change.primary) {
                         return Err(corrupt(
@@ -800,6 +812,7 @@ impl DurableVsrCell {
                     }
                     cell.view = change.view;
                     cell.primary = change.primary;
+                    history.record(&cell);
                 }
                 _ => {}
             }
@@ -807,6 +820,8 @@ impl DurableVsrCell {
 
         let mut durable = Self {
             cell,
+            history,
+            bootstrap_persisted,
             store: SegmentStore::open_with_options(path, options)?,
             durability_failure: None,
             _writer_lock: writer_lock,
@@ -857,6 +872,12 @@ impl DurableVsrCell {
     }
 
     pub fn view_change(&mut self, view: Epoch, primary: NodeId) -> VsrDecision {
+        if !self.bootstrap_persisted {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "legacy VSR bootstrap migration is required before changing views".into(),
+            };
+        }
         if view <= self.cell.view {
             return VsrDecision::Rejected {
                 node: primary,
@@ -881,7 +902,9 @@ impl DurableVsrCell {
                 reason: format!("view change durability failed: {}", err.message),
             };
         }
-        self.cell.view_change(view, primary)
+        let decision = self.cell.view_change(view, primary);
+        self.history.record(&self.cell);
+        decision
     }
 
     pub fn timeout_election(&mut self) -> VsrDecision {
@@ -907,6 +930,13 @@ impl DurableVsrCell {
         primary: NodeId,
         replicas: impl IntoIterator<Item = NodeId>,
     ) -> VsrDecision {
+        if !self.bootstrap_persisted {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "legacy VSR bootstrap migration is required before changing membership"
+                    .into(),
+            };
+        }
         let replicas = replicas.into_iter().collect::<BTreeSet<_>>();
         if view <= self.cell.view {
             return VsrDecision::Rejected {
@@ -937,7 +967,9 @@ impl DurableVsrCell {
                 reason: format!("membership change durability failed: {}", err.message),
             };
         }
-        self.cell.reconfigure(view, primary, replicas)
+        let decision = self.cell.reconfigure(view, primary, replicas);
+        self.history.record(&self.cell);
+        decision
     }
 
     pub fn view(&self) -> Epoch {
@@ -1018,12 +1050,7 @@ impl DurableVsrCell {
             if entry.prepare.index != entry.commit.index {
                 return Err(corrupt("catch-up prepare and commit index mismatch"));
             }
-            validate_commit_certificate(
-                &entry.commit,
-                &entry.prepare,
-                &self.cell.replicas,
-                self.cell.quorum(),
-            )?;
+            self.history.validate(&entry.prepare, &entry.commit)?;
             let pending = self.cell.pending.get(&entry.prepare.index);
             if pending.is_some_and(|pending| pending.committed) {
                 if pending.unwrap().prepare != entry.prepare {

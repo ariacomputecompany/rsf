@@ -673,3 +673,65 @@ fn authenticated_primary_probe_binds_view_voters_and_tip_without_writes() {
     assert!(network.confirm_primary(NodeId(1), &current).is_err());
     drop(peer);
 }
+
+#[test]
+fn prefix_repair_after_voter_removal_preserves_historical_certificate_authority() {
+    let root = root("historical-repair");
+    provision(&root);
+    let first = PeerProcess::spawn(&root, 1);
+    let second = PeerProcess::spawn(&root, 2);
+    let mut peers = endpoints(&root);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    let mut network = transport(&root, peers.clone());
+    let mut leader = cell(&root, 0);
+    let one = prepare(&mut leader, b"before membership change");
+    leader
+        .replicate_with_transport(NodeId(0), one.index, &mut network)
+        .unwrap();
+    let original = leader.committed_prefix().unwrap();
+    assert!(original[0].commit.certificate.signers.contains(&NodeId(1)));
+    drop(first);
+    drop(second);
+    // This exercises recovery after installed configurations, not a distributed
+    // membership decision. Quorum-certified network installation is separate work.
+    for node in [0, 2] {
+        if node == 0 {
+            assert!(matches!(
+                leader.reconfigure(Epoch(2), NodeId(0), [NodeId(0), NodeId(2)]),
+                VsrDecision::MembershipChanged { .. }
+            ));
+        } else {
+            let mut follower = cell(&root, node);
+            assert!(matches!(
+                follower.reconfigure(Epoch(2), NodeId(0), [NodeId(0), NodeId(2)]),
+                VsrDecision::MembershipChanged { .. }
+            ));
+        }
+    }
+    drop(leader);
+    let mut leader = cell(&root, 0);
+    let second = PeerProcess::spawn(&root, 2);
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    let mut network = transport(&root, peers);
+    // Repair validates the common tip using its original three-voter view.
+    leader
+        .replicate_with_transport(NodeId(0), one.index, &mut network)
+        .unwrap();
+    let two = prepare(&mut leader, b"after membership change");
+    leader
+        .replicate_with_transport(NodeId(0), two.index, &mut network)
+        .unwrap();
+    network
+        .confirm_primary(NodeId(2), &leader.primary_probe().unwrap())
+        .unwrap();
+    drop(second);
+    let mut recovered = cell(&root, 2);
+    assert_eq!(recovered.view(), Epoch(2));
+    assert_eq!(recovered.replicas(), [NodeId(0), NodeId(2)]);
+    assert_eq!(
+        recovered.committed_prefix().unwrap(),
+        leader.committed_prefix().unwrap()
+    );
+    assert_eq!(recovered.catch_up_from(&original).unwrap(), 0);
+}

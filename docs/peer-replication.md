@@ -82,7 +82,10 @@ Prefix repair transfers one certified entry at a time and rejects gaps or
 conflicting committed history. Matching log heights alone never satisfy a
 retry: the common committed entry and the exact retried command are checked.
 Peers must already have the necessary view and
-membership installed. This implementation assumes non-Byzantine cluster
+membership installed. [Historical certificate validation](vsr-configuration-history.md)
+uses each entry's original installed primary, voters, quorum and committed
+boundary, including after restart. Missing configuration history is rejected.
+This implementation assumes non-Byzantine cluster
 members; signer sets are quorum evidence maintained by the authenticated
 primary, not independent cryptographic signatures from each voter.
 
