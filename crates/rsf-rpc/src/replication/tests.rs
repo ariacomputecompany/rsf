@@ -1565,3 +1565,101 @@ fn heartbeat_requires_materialization_and_fenced_status_does_not_grant_old_leade
     drop(leader);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn network_router_cannot_change_authority_with_or_without_a_live_quorum() {
+    use rsf_protocol::{ClientRequestId, ConsistencyMode, FabricOperation, VsrBackedFabricRouter};
+    let root = root("network-authority-shortcuts");
+    provision(&root);
+    let mut first = Some(PeerProcess::spawn(&root, 1));
+    let mut second = Some(PeerProcess::spawn(&root, 2));
+    let mut peers = endpoints(&root);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.as_ref().unwrap().address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.as_ref().unwrap().address;
+    let path = root.join("protocol");
+    let mut router = VsrBackedFabricRouter::open_with_transport(
+        &path,
+        [PlacementGroupId(1)],
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+        transport(&root, peers.clone()),
+    )
+    .unwrap();
+    for online in [true, false] {
+        if !online {
+            drop(first.take());
+            drop(second.take());
+        }
+        let before = rsf_storage::SegmentStore::recover(path.with_extension("vsr").join("pg-1"))
+            .unwrap()
+            .recovery
+            .wal_records;
+        for decision in [
+            router.view_change(PlacementGroupId(1), Epoch(2), NodeId(1)),
+            router.timeout_election(PlacementGroupId(1)),
+            router.reconfigure(PlacementGroupId(1), Epoch(2), NodeId(0), [NodeId(0)]),
+        ] {
+            let VsrDecision::Rejected { reason, .. } = decision else {
+                panic!("network authority changed locally")
+            };
+            assert!(reason.contains("quorum-installed authority"), "{reason}");
+        }
+        assert_eq!(
+            router.membership(PlacementGroupId(1)).unwrap(),
+            (Epoch(1), NodeId(0), vec![NodeId(0), NodeId(1), NodeId(2)])
+        );
+        assert_eq!(
+            rsf_storage::SegmentStore::recover(path.with_extension("vsr").join("pg-1"))
+                .unwrap()
+                .recovery
+                .wal_records,
+            before
+        );
+        if online {
+            router
+                .commit_request(
+                    PlacementGroupId(1),
+                    ClientRequestId::new("before", 1),
+                    ConsistencyMode::Strict,
+                    FabricOperation::CatalogMutation {
+                        namespace: "app".into(),
+                        item: "schema".into(),
+                    },
+                )
+                .unwrap();
+        } else {
+            assert!(router.confirm_primary_quorum().is_err());
+        }
+    }
+    drop(router);
+    let mut first = PeerProcess::spawn(&root, 1);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    let mut router = VsrBackedFabricRouter::open_with_transport(
+        &path,
+        [PlacementGroupId(1)],
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0), NodeId(1), NodeId(2)],
+        transport(&root, peers),
+    )
+    .unwrap();
+    router.confirm_read_quorum().unwrap();
+    let committed = router
+        .commit_request(
+            PlacementGroupId(1),
+            ClientRequestId::new("after", 1),
+            ConsistencyMode::Strict,
+            FabricOperation::CatalogMutation {
+                namespace: "app".into(),
+                item: "next-schema".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(committed.certificate.index, LogIndex(2));
+    assert_eq!(router.membership(PlacementGroupId(1)).unwrap().0, Epoch(1));
+    assert!(first.child.try_wait().unwrap().is_none());
+    drop(router);
+    drop(first);
+    std::fs::remove_dir_all(root).unwrap();
+}

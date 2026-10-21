@@ -1334,6 +1334,12 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         view: Epoch,
         primary: NodeId,
     ) -> VsrDecision {
+        if !self.transport.allows_local_authority_changes() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "network coordination requires quorum-installed authority; unilateral view_change is disabled".into(),
+            };
+        }
         let Some(cell) = self.cells.get_mut(&pg) else {
             return VsrDecision::Rejected {
                 node: primary,
@@ -1344,6 +1350,12 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     }
 
     pub fn timeout_election(&mut self, pg: PlacementGroupId) -> VsrDecision {
+        if !self.transport.allows_local_authority_changes() {
+            return VsrDecision::Rejected {
+                node: self.primary,
+                reason: "network coordination requires quorum-installed authority; unilateral timeout_election is disabled".into(),
+            };
+        }
         let Some(cell) = self.cells.get_mut(&pg) else {
             return VsrDecision::Rejected {
                 node: self.primary,
@@ -1371,6 +1383,12 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         primary: NodeId,
         replicas: impl IntoIterator<Item = NodeId>,
     ) -> VsrDecision {
+        if !self.transport.allows_local_authority_changes() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "network coordination requires quorum-installed authority; unilateral reconfigure is disabled".into(),
+            };
+        }
         let Some(cell) = self.cells.get_mut(&pg) else {
             return VsrDecision::Rejected {
                 node: primary,

@@ -1049,3 +1049,135 @@ fn a_new_input_reclaims_only_owned_inactive_uploads_after_durable_selection() {
     drop(second);
     std::fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn installed_authority_rejects_local_shortcuts_across_restart_but_accepts_next_quorum_view() {
+    let path = root("authority-shortcuts");
+    let (mut first, mut second, snapshots) = fixture(&path);
+    let plan = VsrViewInstallation::select(&snapshots).unwrap();
+    first.install_view(&plan).unwrap();
+    second.install_view(&plan).unwrap();
+    for reopen in [false, true] {
+        if reopen {
+            drop(first);
+            first = DurableVsrCell::open_existing(path.join("1"), PlacementGroupId(1)).unwrap();
+        }
+        let before = SegmentStore::recover(first.store.root())
+            .unwrap()
+            .recovery
+            .wal_records;
+        for decision in [
+            first.view_change(Epoch(3), NodeId(2)),
+            first.timeout_election(),
+            first.reconfigure(Epoch(3), NodeId(2), [NodeId(1), NodeId(2)]),
+        ] {
+            let VsrDecision::Rejected { reason, .. } = decision else {
+                panic!("unilateral authority changed")
+            };
+            assert!(
+                reason.contains("quorum") || reason.contains("certified"),
+                "{reason}"
+            );
+        }
+        assert_eq!(first.view(), Epoch(2));
+        assert_eq!(first.primary(), NodeId(1));
+        assert_eq!(first.replicas(), vec![NodeId(0), NodeId(1), NodeId(2)]);
+        assert_eq!(first.committed_tail(), LogIndex(1));
+        assert_eq!(
+            SegmentStore::recover(first.store.root())
+                .unwrap()
+                .recovery
+                .wal_records,
+            before
+        );
+    }
+    let request = VsrViewChangeRequest {
+        pg: PlacementGroupId(1),
+        previous_view: Epoch(2),
+        target_view: Epoch(3),
+        candidate: NodeId(2),
+        voters: first.replicas(),
+    };
+    let reports = [
+        first
+            .begin_view_change(NodeId(1), NodeId(2), request.clone())
+            .unwrap(),
+        second
+            .begin_view_change(NodeId(2), NodeId(2), request)
+            .unwrap(),
+    ];
+    let next = VsrViewInstallation::select(&reports).unwrap();
+    first.install_view(&next).unwrap();
+    second.install_view(&next).unwrap();
+    let prepared = second.reprepare(NodeId(2), LogIndex(2)).unwrap();
+    first
+        .receive_prepare(NodeId(1), NodeId(2), prepared)
+        .unwrap();
+    second.acknowledge(NodeId(1), Epoch(3), LogIndex(2));
+    let VsrDecision::Committed(commit) = second.commit(NodeId(2), LogIndex(2)).unwrap() else {
+        panic!("new quorum cannot commit")
+    };
+    first.receive_commit(NodeId(1), NodeId(2), commit).unwrap();
+    assert_eq!(first.view(), Epoch(3));
+    assert_eq!(first.committed_tail(), LogIndex(2));
+    assert_eq!(
+        first.request_commit(&VsrClientRequestId::new("original", 1)),
+        Some(LogIndex(1))
+    );
+    drop(first);
+    drop(second);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn replay_rejects_unilateral_authority_records_after_quorum_installation() {
+    for membership in [false, true] {
+        let path = root(if membership {
+            "forged-membership"
+        } else {
+            "forged-view"
+        });
+        let (mut first, second, snapshots) = fixture(&path);
+        first
+            .install_view(&VsrViewInstallation::select(&snapshots).unwrap())
+            .unwrap();
+        let payload = if membership {
+            encode_membership_change(&VsrMembershipChange {
+                pg: PlacementGroupId(1),
+                view: Epoch(3),
+                primary: NodeId(2),
+                committed_tail: LogIndex(1),
+                old_replicas: [NodeId(0), NodeId(1), NodeId(2)].into(),
+                new_replicas: [NodeId(1), NodeId(2)].into(),
+            })
+        } else {
+            encode_view_change(&VsrViewChange {
+                pg: PlacementGroupId(1),
+                view: Epoch(3),
+                primary: NodeId(2),
+                committed_tail: LogIndex(1),
+            })
+        };
+        // Valid checksums and legacy local-change encoding must not manufacture
+        // authority after an installation, including state from older software.
+        first
+            .store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(2),
+                WalRecordKind::Membership,
+                &payload,
+            )
+            .unwrap();
+        drop(first);
+        let error = DurableVsrCell::open_existing(path.join("1"), PlacementGroupId(1)).unwrap_err();
+        assert_eq!(error.code, rsf_core::ErrorCode::CorruptionDetected);
+        assert!(
+            error.message.contains("unilateral authority change"),
+            "{}",
+            error.message
+        );
+        drop(second);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}

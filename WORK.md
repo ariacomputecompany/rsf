@@ -125,12 +125,12 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Latest verification (2026-10-21): `artifacts/verification.dtfIqB/summary.json`
+Latest verification (2026-10-21): `artifacts/verification.BcylMU/summary.json`
 passes all 18 domains with unchanged executable sources (SHA-256
-`cec044efba94e3d936640dd507e5e39f7135eba91cf3fcfb35d16e4664644f34`). Includes 84 VSR tests, 52 protocol tests,
-28 peer RPC tests, 56 storage tests, the full daemon/workspace suites, and
+`377707e970bf97cbae347a4269607517923a9ea8588a89cdbb4f43c1a97bb5af`). Includes 86 VSR tests, 52 protocol tests,
+29 peer RPC tests, 56 storage tests, the full daemon/workspace suites, and
 recorded host traces with strict verification, replay, and CI. Strict Clippy
-passes for `rsf-protocol`, `rsf-rpc`, and `rsfd` with `--all-targets --no-deps -D warnings`;
+passes for `rsf-vsr`, `rsf-protocol`, `rsf-rpc`, and `rsfd` with `--all-targets --no-deps -D warnings`;
 workspace-wide lint cleanliness remains separate work.
 
 The required automatic-client domain executes debug and optimized-release real
@@ -155,6 +155,17 @@ expanded gate exposed an ephemeral listener reservation collision in a restart
 test; fixed-endpoint fixtures now reserve below the default ephemeral ranges.
 The fresh complete gate passes. See `docs/primary-failover.md` and
 `docs/peer-replication.md` for configuration and remaining limitations.
+
+Authority hardening: installed cells and network-backed coordinators reject
+unilateral view, timeout, and membership shortcuts. Replay rejects unchecked local
+authority records following an installation marker, including checksummed legacy
+records. Tests verify unchanged WAL/state across rejection and restart, a valid
+subsequent quorum-selected view, and real TLS operation with quorum present,
+absent, and restored. All three new regressions executed in the recorded host
+traces. The full 18-domain gate passes against unchanged sources, including
+both automatic-client profiles, debug/release stress, and the complete workspace.
+This closes an authority bypass; certified voter installation and learner
+promotion remain open. Their recovery contract is in `docs/certified-membership.md`.
 
 ## Remaining Release Blockers
 

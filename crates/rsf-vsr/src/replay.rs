@@ -19,6 +19,7 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
     let mut history = history::ConfigurationHistory::new(&cell);
     let mut view_change: Option<VsrViewChangeRequest> = None;
     let mut delta_start = None;
+    let mut installed_authority = false;
     for (position, record) in records.iter().enumerate() {
         if record.kind == WalRecordKind::ViewInstallation {
             installation::replay_installation(
@@ -29,6 +30,9 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
                 position,
                 &mut delta_start,
             )?;
+            if view_change.is_none() {
+                installed_authority = true;
+            }
             continue;
         }
         if delta_start.is_some() {
@@ -144,6 +148,14 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
                 cell.committed.push(commit);
             }
             WalRecordKind::Membership => {
+                if installed_authority
+                    && (is_vsr_membership_change_payload(record.payload)
+                        || is_vsr_view_change_payload(record.payload))
+                {
+                    return Err(corrupt(
+                        "unilateral authority change follows quorum-installed VSR history",
+                    ));
+                }
                 if is_vsr_membership_change_payload(record.payload) {
                     let change = decode_membership_change(record.payload)?;
                     if change.pg != pg {

@@ -331,3 +331,14 @@ so recovery cannot forget a previously issued vote.
   their payload inside a transfer record. Decoder regressions reject insufficient
   signer quorums, payload changes, skipped indexes, uninstalled views, wrong
   primaries and altered byte counts before publishing any log mutation.
+
+## Local authority shortcuts
+
+After a quorum-selected view has been installed, local view-change, timeout-election,
+and membership-change methods reject before appending anything. Recovery also
+rejects unchecked local authority records following an installation marker.
+Network-backed coordinators reject these shortcuts even before installation;
+reachability observations do not authorize a voter-set change. Normal elections
+continue to use the durable promise and quorum installation protocol. These
+fences close a bypass; they do not implement certified voter changes. See
+[certified membership](certified-membership.md).

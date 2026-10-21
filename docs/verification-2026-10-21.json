@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "cec044efba94e3d936640dd507e5e39f7135eba91cf3fcfb35d16e4664644f34",
-  "source_sha256_after": "cec044efba94e3d936640dd507e5e39f7135eba91cf3fcfb35d16e4664644f34",
+  "source_sha256_before": "377707e970bf97cbae347a4269607517923a9ea8588a89cdbb4f43c1a97bb5af",
+  "source_sha256_after": "377707e970bf97cbae347a4269607517923a9ea8588a89cdbb4f43c1a97bb5af",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -25,21 +25,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.dtfIqB",
+  "trace_directory": "artifacts/verification.BcylMU",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 12.61125574280132,
-      "elapsed_ms": 75485,
+      "concurrent_write_ops_per_second": 10.98088970599926,
+      "elapsed_ms": 79303,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 589312,
-        "p50": 303013,
-        "p95": 407086,
-        "p99": 521613
+        "max": 987901,
+        "p50": 304742,
+        "p95": 600800,
+        "p99": 853847
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -52,14 +52,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 15.32666572817448,
-      "elapsed_ms": 118618,
+      "concurrent_write_ops_per_second": 15.48708859774193,
+      "elapsed_ms": 125201,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 1357126,
-        "p50": 197725,
-        "p95": 641998,
-        "p99": 1095132
+        "max": 1007790,
+        "p50": 209772,
+        "p95": 510595,
+        "p99": 745972
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -73,7 +73,7 @@
     "debug": {
       "acknowledged_before_crash": 4,
       "concurrent_clients": 4,
-      "elapsed_ms": 23843,
+      "elapsed_ms": 20799,
       "primary_state_deleted": true,
       "profile": "debug",
       "replacement_restarts": 1,
@@ -89,7 +89,7 @@
     "release": {
       "acknowledged_before_crash": 4,
       "concurrent_clients": 4,
-      "elapsed_ms": 20571,
+      "elapsed_ms": 20624,
       "primary_state_deleted": true,
       "profile": "release",
       "replacement_restarts": 1,

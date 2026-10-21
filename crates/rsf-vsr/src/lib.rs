@@ -130,6 +130,13 @@ pub struct VsrTransportError {
 }
 
 pub trait VsrTransport {
+    /// Only an explicit in-process simulation may use unilateral authority
+    /// changes. Network and custom transports must retain the default fence;
+    /// quorum installation is separate from local bootstrap/model operations.
+    fn allows_local_authority_changes(&self) -> bool {
+        false
+    }
+
     /// Authenticate current leadership and the committed tip without mutating
     /// remote state. Transports without this contract must fail closed.
     fn confirm_primary(
@@ -199,6 +206,10 @@ impl LocalVsrTransport {
 }
 
 impl VsrTransport for LocalVsrTransport {
+    fn allows_local_authority_changes(&self) -> bool {
+        true
+    }
+
     fn acknowledge_prepare(
         &mut self,
         message: VsrPrepareMessage,
@@ -829,6 +840,12 @@ impl DurableVsrCell {
                 reason: "legacy VSR bootstrap migration is required before changing views".into(),
             };
         }
+        if self.has_installed_view() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "installed VSR authority requires quorum view installation; local view changes are disabled".into(),
+            };
+        }
         if view <= self.cell.view {
             return VsrDecision::Rejected {
                 node: primary,
@@ -892,6 +909,12 @@ impl DurableVsrCell {
             return VsrDecision::Rejected {
                 node: primary,
                 reason: err.message,
+            };
+        }
+        if self.has_installed_view() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "installed VSR authority requires certified membership installation; local reconfiguration is disabled".into(),
             };
         }
         let replicas = replicas.into_iter().collect::<BTreeSet<_>>();

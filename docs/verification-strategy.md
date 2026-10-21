@@ -385,3 +385,11 @@ clients and 32 identity-preserving retries, replacement restart, certificate
 revocation, redirects, and quorum loss/restoration. It validates actual debug
 and release workload output; zero-test filters cannot satisfy the gate. These
 loopback process tests do not establish machine-failure or WAN capacity readiness.
+
+Authority-fence regressions distinguish simulated local changes from network
+configuration. They require unchanged cell WAL/state after rejected shortcuts,
+reopen and rejection again, rejection of validly checksummed unchecked authority
+records after installation, and a successful subsequent quorum-selected view.
+The real TLS router test exercises the same rejection with quorum present and
+absent, then restores quorum and commits in the original configuration. This
+coverage is included in the VSR/RPC host traces and full workspace suite.
