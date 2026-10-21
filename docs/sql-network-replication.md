@@ -220,6 +220,12 @@ All sixteen required session regressions ran in that full workspace trace.
 The subsequent relational key qualification adds row/constraint identity, legacy
 format fences, cold legacy peer recovery and table-scoped index rebuild checks.
 
+The [key-identity verification](sql-key-identity-verification-2026-10-21.json)
+records both original failing reproductions, all eight new required regressions,
+legacy follower reconstruction after derived SQL directory deletion, and isolated
+colliding table names through debug/release takeover. All 24 required SQL/key
+regressions ran in the current full workspace trace (1,129 passing tests).
+
 The [current full verification](verification-2026-10-21.json) passes all 18
 domains on unchanged source, including the full workspace suite, native SQL
 network integration and both automatic takeover/stress profiles. The workspace
