@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "fd2839d067e90d03317531e7c36f21b55336ec53895976c7b0250e1933f63554",
-  "source_sha256_after": "fd2839d067e90d03317531e7c36f21b55336ec53895976c7b0250e1933f63554",
+  "source_sha256_before": "af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819",
+  "source_sha256_after": "af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -25,21 +25,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.ZxXWVC",
+  "trace_directory": "artifacts/verification.f8oO8T",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 12.244899521033101,
-      "elapsed_ms": 77452,
+      "concurrent_write_ops_per_second": 13.622240237004277,
+      "elapsed_ms": 73863,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 554435,
-        "p50": 297746,
-        "p95": 451159,
-        "p99": 491025
+        "max": 645376,
+        "p50": 286796,
+        "p95": 380129,
+        "p99": 566519
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -52,14 +52,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 21.758083765562766,
-      "elapsed_ms": 97414,
+      "concurrent_write_ops_per_second": 18.277875253168208,
+      "elapsed_ms": 106923,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 313073,
-        "p50": 179027,
-        "p95": 212061,
-        "p99": 282369
+        "max": 967706,
+        "p50": 177965,
+        "p95": 349945,
+        "p99": 905139
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -77,8 +77,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 149,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 64108,
-      "history_growth_ms": 30227,
+      "elapsed_ms": 66187,
+      "history_growth_ms": 29486,
       "history_growth_writes": 128,
       "precrash_sql_read_dependency_recovered": true,
       "primary_state_deleted": true,
@@ -103,8 +103,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 149,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 60350,
-      "history_growth_ms": 28244,
+      "elapsed_ms": 52047,
+      "history_growth_ms": 24719,
       "history_growth_writes": 128,
       "precrash_sql_read_dependency_recovered": true,
       "primary_state_deleted": true,
@@ -124,6 +124,11 @@
     }
   },
   "automatic_client_evidence_valid": true,
+  "kv_atomic_batch_evidence_valid": true,
+  "kv_atomic_batch_regressions": {
+    "rejected_committed_batches_preserve_all_values_versions_and_changes": true,
+    "committed_batch_preflight_covers_order_tombstones_and_duplicate_replay": true
+  },
   "sql_session_evidence_valid": true,
   "sql_session_regressions": {
     "replicated_sql_table_and_primary_key_components_cannot_alias": true,
@@ -160,12 +165,12 @@
     "CI"
   ],
   "production_qualified": false,
-  "source_commit": "ce39bc8ba05e92554023add0781baebd7ef5ac86",
+  "source_commit": "e1f53edae87b3ee1f6dea3184d012ffbbd0b46be",
   "scope": "single-host loopback TLS with fsync; independent-machine, WAN, workload-capacity and complete production qualification remain open",
   "workspace_regression_audit": {
-    "source_sha256": "fd2839d067e90d03317531e7c36f21b55336ec53895976c7b0250e1933f63554",
+    "source_sha256": "af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819",
     "counts": {
-      "passed": 1129,
+      "passed": 1131,
       "failed": 0,
       "ignored": 1,
       "result_groups": 163
@@ -195,6 +200,10 @@
       "session_recovery_rejects_divergent_state_results_and_catalog_and_allows_schema_abort": true,
       "killed_session_commit_recovers_atomic_rows_schema_and_original_receipt": true,
       "bound_v5_checkpoint_upgrades_without_changing_autocommit_receipts": true
+    },
+    "required_kv_atomic_batch_regressions": {
+      "rejected_committed_batches_preserve_all_values_versions_and_changes": true,
+      "committed_batch_preflight_covers_order_tombstones_and_duplicate_replay": true
     },
     "verified_prior_regressions": [
       "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",

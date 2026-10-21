@@ -125,14 +125,14 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current verification (2026-10-21): `artifacts/verification.ZxXWVC/summary.json`
+Current verification (2026-10-21): `artifacts/verification.f8oO8T/summary.json`
 passes all 18 domains against unchanged executable sources (SHA-256
-`fd2839d067e90d03317531e7c36f21b55336ec53895976c7b0250e1933f63554`).
-The workspace host run passes 1,129 tests; its one opt-in stress test is exercised
+`af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819`).
+The workspace host run passes 1,131 tests; its one opt-in stress test is exercised
 separately by both required stress domains. Named regression audit confirms the
 new SQL journal crash boundaries, torn installation batches, completed-installation
 retries, real TLS acknowledgement loss, learner restart and cumulative socket
-I/O deadline checks were executed in the full workspace run. All 24 required SQL/key regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
+I/O deadline checks were executed in the full workspace run. Both required KV atomicity regressions and all 24 required SQL/key regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
 five-run doctor, strict deterministic orchestration, recorded host execution,
 strict trace verification, replay and CI checks. The recorded host processes
 supply the Rust test evidence; scripted expectations alone do not establish it.
@@ -142,7 +142,7 @@ unit tests and all regular peer-process integration tests. Strict Clippy passes
 for core, index, write, relational commit, SQL, SQL DML/transactions, protocol and daemon targets with `--all-targets --no-deps -D warnings`.
 Workspace-wide lint cleanliness remains separate work. The complete summary is
 saved in `docs/verification-2026-10-21.json`; scoped recovery evidence is in
-`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`; current key-identity and index-rebuild evidence is in `docs/sql-key-identity-verification-2026-10-21.json`. Production qualification remains
+`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`; key-identity and index-rebuild evidence is in `docs/sql-key-identity-verification-2026-10-21.json`; current shared KV atomicity evidence is in `docs/kv-atomic-batch-verification-2026-10-21.json`. Production qualification remains
 incomplete because the release blockers below remain open.
 
 Opt-in peer client coordination now retains derived inventory with its cells
@@ -255,7 +255,7 @@ Implementation ce39bc8 is pushed to remote main. Complete evidence is saved in
 This remains single-host loopback evidence; the remaining release blockers above
 are open, including explicit legacy key migration.
 
-## Shared KV atomicity milestone (qualification running)
+## Shared KV atomicity milestone (qualified locally)
 
 A baseline regression proved that a late rejection in the public committed-batch
 API left an earlier mutation in MVCC state. The API now validates all mutations
@@ -269,6 +269,12 @@ tombstones, binary keys, empty batches and exact replay.
 Targeted qualification passes 28 KV, 13 session-transaction and 90 SQL tests.
 Strict Clippy passes for those three packages with all targets and no dependencies;
 four existing KV style findings were corrected without changing their behavior.
-The full immutable-source Fozzy gate is running and now requires both atomicity
-regressions in the actual workspace host output. The prior complete report remains
-the last full qualification until this run finishes.
+The full immutable-source Fozzy gate passes all 18 domains and 1,131 workspace
+tests with zero failures. Both atomicity regressions, all 24 SQL/key regressions
+and the prior recovery audit are present in actual host output. Both automatic
+takeover profiles recover the four data surfaces after primary data deletion.
+Debug/release stress passes 198/774 acknowledgements, 18 abrupt shutdowns and
+three uncertain-write resolutions per profile. Implementation e1f53ed is pushed
+to remote main. Complete evidence is in
+`docs/kv-atomic-batch-verification-2026-10-21.json`; broad production qualification
+remains incomplete for the release blockers above.

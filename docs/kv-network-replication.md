@@ -121,3 +121,9 @@ contract are unchanged. The shared API's regression cases include failures at
 each batch position, existing values/tombstones, binary keys, clear/set conflicts,
 and repeat application. Full workspace qualification requires both named
 atomicity regressions in the recorded host output.
+
+The [atomicity qualification](kv-atomic-batch-verification-2026-10-21.json) records
+the original failing reproduction and the passing full gate: all 18 domains,
+1,131 workspace tests, debug/release takeover and stress, and unchanged source.
+This remains local process-failure evidence rather than independent-machine
+production qualification.
