@@ -692,6 +692,29 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
     let root = root();
     let mut peers = provision(&root);
     let state = initialize_network_state(&root, &peers);
+    // An actual V4 empty checkpoint selects the legacy physical key domain.
+    // New peers must learn that format from certified SQL history, not assume V2.
+    let namespace = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(b"app")
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let legacy_root = state.join("namespaces").join(&namespace).join("sql");
+    std::fs::create_dir_all(&legacy_root).unwrap();
+    let body = "RSF_SQL_STATE_V4\n";
+    let digest = rsf_core::Digest::blake3_bytes(body.as_bytes());
+    let checksum = digest
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    std::fs::write(
+        legacy_root.join("sql.state"),
+        format!("{body}checksum\tblake3\t{checksum}\n"),
+    )
+    .unwrap();
     let first = Process::start(&root.join("peer-1.json"));
     let second = Process::start(&root.join("peer-2.json"));
     peers.get_mut(&NodeId(1)).unwrap().address = first.address;
@@ -780,6 +803,11 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
             0
         );
     }
+    let lost_sql = root
+        .join("store-2/application/namespaces")
+        .join(&namespace)
+        .join("sql");
+    std::fs::remove_dir_all(&lost_sql).unwrap();
     let second = Process::start(&root.join("peer-2.json"));
     peers.get_mut(&NodeId(2)).unwrap().address = second.address;
     configure_primary(&root, &state, &peers);
@@ -833,6 +861,11 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
             .unwrap()
             .rows,
         0
+    );
+    assert!(
+        std::fs::read_to_string(lost_sql.join("sql.state"))
+            .unwrap()
+            .starts_with("RSF_SQL_STATE_V6\n")
     );
 }
 

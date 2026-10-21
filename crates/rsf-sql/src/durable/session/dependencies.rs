@@ -75,7 +75,7 @@ pub(in crate::durable) fn validate(
     for dependency in dependencies {
         match dependency {
             Dependency::Row { table, key } => {
-                checks.push(Check::Row(crate::logical_row_key(table, key)))
+                checks.push(Check::Row(sql.engine.row_key(table, key)))
             }
             Dependency::Query { statement } => {
                 let ParsedStatement::Select {
@@ -103,11 +103,9 @@ pub(in crate::durable) fn validate(
             match check {
                 Check::Row(key) if *key == change.key => return Err(conflict()),
                 Check::Query { table, plan }
-                    if change
-                        .key
-                        .starts_with(crate::table_row_prefix(table).as_bytes()) =>
+                    if change.key.starts_with(&sql.engine.row_prefix(table)) =>
                 {
-                    let key = crate::primary_key_from_logical_row_key(table, &change.key)?;
+                    let key = sql.engine.primary_key_from_row_key(table, &change.key)?;
                     if let Some(before) = sql.engine.kv.get_at(
                         &change.key,
                         rsf_kv::ReadSnapshot {

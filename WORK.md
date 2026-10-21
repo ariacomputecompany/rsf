@@ -230,3 +230,22 @@ No numeric data-size, throughput, or p99 SLO was supplied; publish measured limi
 for each profile/surface and establish acceptance targets before claiming capacity
 qualification. Existing stress evidence measures native KV on single-host loopback
 TLS with fsync; it does not qualify all surfaces or deployment profiles.
+
+## Relational key identity milestone (qualification running)
+
+Confirmed and fixed two physical isolation failures: delimited row keys could
+alias across tables, and an index rebuild could erase another table's same-named
+index entries. New stores now use framed row and constraint identities, explicit
+V7/V8 checkpoint formats, KEY2 requests and RSFSC3 commands. Legacy stores preserve
+original encodings and certificates, reject ambiguous table prefixes, and permit
+blank derived peers to inherit the format only from their first certified command.
+Mixed, unowned or downgraded row histories fail recovery without rewriting data.
+Index rebuilds validate all mutations before replacing only their table/index scope.
+
+Targeted regressions pass, including 90 SQL tests, shared core/write/transaction
+consumers, and a real TLS recovery test that deletes a legacy follower's derived
+SQL directory before catch-up. Strict Clippy passes for the nine changed production
+packages and daemon targets. Full immutable-source Fozzy qualification is running;
+its outcome will be recorded in a separate verification commit after the tested
+implementation milestone. Existing complete verification reports describe the
+earlier source until that gate succeeds.

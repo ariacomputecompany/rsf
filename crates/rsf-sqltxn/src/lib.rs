@@ -135,6 +135,10 @@ pub struct SqlTransactionScriptEngine {
 }
 
 impl SqlTransactionScriptEngine {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing borrowed execution ports explicit in the public script API"
+    )]
     pub fn execute(
         &self,
         catalog: &CatalogEngine,
@@ -804,7 +808,7 @@ fn parse_select(statement: &str) -> RsfResult<TransactionalSelect> {
 }
 
 fn row_key(table: &str, primary_key: &str) -> Bytes {
-    format!("table/{table}/pk/{primary_key}").into_bytes()
+    rsf_core::relational_key::RelationalKeyFormat::default().row_key(table, primary_key)
 }
 
 fn initial_transaction_rows(
@@ -1334,7 +1338,7 @@ mod tests {
         assert!(decisions.iter().any(|decision| matches!(
             decision,
             SqlTransactionDecision::OverlayRead { key, value: Some(_), .. }
-                if key == b"table/users/pk/21"
+                if key == &row_key("users", "21")
         )));
     }
 
@@ -1344,7 +1348,7 @@ mod tests {
         let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
         let mut kv = KvEngine::default();
         kv.apply_committed_set(
-            b"table/users/pk/22".to_vec(),
+            row_key("users", "22"),
             b"id=22,name=franklin,active=true".to_vec(),
             CommitVersion(0),
         );
@@ -1381,7 +1385,7 @@ mod tests {
                 value: Some(_),
                 version: Some(CommitVersion(0)),
                 ..
-            } if key == b"table/users/pk/22"
+            } if key == &row_key("users", "22")
         )));
     }
 
@@ -1546,12 +1550,12 @@ mod tests {
         assert_eq!(report.savepoint_absent, 1);
         assert_eq!(report.commits, 1);
         assert_eq!(kv.visible_key_count(), 2);
-        assert!(kv.get(b"table/users/pk/13").is_some());
-        assert!(kv.get(b"table/users/pk/14").is_none());
+        assert!(kv.get(&row_key("users", "13")).is_some());
+        assert!(kv.get(&row_key("users", "14")).is_none());
         assert!(decisions.iter().any(|decision| matches!(
             decision,
             SqlTransactionDecision::SavepointAbsent { key, .. }
-                if key == b"table/users/pk/14"
+                if key == &row_key("users", "14")
         )));
         assert_eq!(sessions.report().savepoints, 1);
         assert_eq!(sessions.report().savepoint_rewinds, 1);
@@ -1586,8 +1590,8 @@ mod tests {
         assert_eq!(report.deferred_transaction_references, 1);
         assert_eq!(report.deferred_commits, 1);
         assert_eq!(report.commits, 1);
-        assert!(kv.get(b"table/orders/pk/50").is_some());
-        assert!(kv.get(b"table/users/pk/42").is_some());
+        assert!(kv.get(&row_key("orders", "50")).is_some());
+        assert!(kv.get(&row_key("users", "42")).is_some());
         assert!(decisions.iter().any(|decision| matches!(
             decision,
             SqlTransactionDecision::DeferredConstraintsAccepted {
@@ -1625,7 +1629,7 @@ mod tests {
             err.message
                 .contains("deferred constraints rejected COMMIT with 1 violation")
         );
-        assert!(kv.get(b"table/orders/pk/51").is_none());
+        assert!(kv.get(&row_key("orders", "51")).is_none());
         assert_eq!(sessions.report().commits, 0);
     }
 
@@ -1660,8 +1664,8 @@ mod tests {
         assert_eq!(report.deferred_obligations, 1);
         assert_eq!(report.deferred_commits, 1);
         assert_eq!(report.commits, 1);
-        assert!(kv.get(b"table/orders/pk/52").is_none());
-        assert!(kv.get(b"table/users/pk/77").is_some());
+        assert!(kv.get(&row_key("orders", "52")).is_none());
+        assert!(kv.get(&row_key("users", "77")).is_some());
     }
 
     fn fixtures() -> (CatalogEngine, AuthEngine, AuthToken, IndexDescriptor) {

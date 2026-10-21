@@ -174,9 +174,18 @@ automatic_valid = all(
     and automatic_client_metrics[profile].get("serializable_sql_phantom_rejected") is True
     and automatic_client_metrics[profile].get("precrash_sql_read_dependency_recovered") is True
     and automatic_client_metrics[profile].get("disjoint_sql_sessions_committed") is True
+    and automatic_client_metrics[profile].get("sql_key_components_isolated") is True
     for profile in ("debug", "release")
 )
 session_regressions = [
+    "replicated_sql_table_and_primary_key_components_cannot_alias",
+    "framed_relational_components_are_injective_ordered_and_domain_separated",
+    "legacy_key_namespaces_reject_aliasing_before_submission_and_cold_followers_inherit_format",
+    "overlapping_legacy_catalog_recovery_fails_repeatedly_without_rewriting_metadata",
+    "framed_key_recovery_rejects_mixed_or_unowned_rows_and_format_downgrades",
+    "framed_command_key_format_is_bound_and_cannot_switch_a_nonempty_namespace",
+    "sql_index_rebuilds_do_not_clear_another_tables_same_named_index",
+    "rebuilds_are_scoped_by_table_and_reject_foreign_mutations_before_clearing",
     "tracked_reads_allow_disjoint_commits_and_replay_after_every_follower_restart",
     "savepoint_rewinds_retain_predicates_and_implicit_absence_reads_after_restart",
     "tracked_read_limits_fail_before_intents_and_identical_reads_reuse_certificates",

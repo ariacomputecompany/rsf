@@ -116,6 +116,30 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "client-row",
             b"",
         ),
+        (
+            Sql,
+            "CREATE TABLE collision(id PRIMARY KEY, name)",
+            "collision-table",
+            b"",
+        ),
+        (
+            Sql,
+            "CREATE TABLE collision/pk/child(id PRIMARY KEY, name)",
+            "collision-child-table",
+            b"",
+        ),
+        (
+            Sql,
+            "INSERT INTO collision (id, name) VALUES ('child/pk/tail', parentvalue)",
+            "collision-parent-row",
+            b"",
+        ),
+        (
+            Sql,
+            "INSERT INTO collision/pk/child (id, name) VALUES (tail, childvalue)",
+            "collision-child-row",
+            b"",
+        ),
         (Object, "CREATE_BUCKET media", "client-bucket", b""),
         (
             Object,
@@ -336,6 +360,23 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         .collect::<Vec<_>>();
     let (replacement, _) = await_primary(&root, &peers, &mut processes, &survivors, view + 1);
     let address = addresses[replacement as usize];
+    for (table, expected, foreign) in [
+        ("collision", "parentvalue", "childvalue"),
+        ("collision/pk/child", "childvalue", "parentvalue"),
+    ] {
+        let response = must_execute(
+            address,
+            Sql,
+            &format!("SELECT * FROM {table}"),
+            "collision-read",
+            b"",
+        );
+        assert!(
+            response.contains(&hex(expected.as_bytes()))
+                && !response.contains(&hex(foreign.as_bytes())),
+            "{response}"
+        );
+    }
     for (key, request, value, original) in &concurrent {
         let retry = must_execute(address, Kv, &format!("SET {key}"), request, value);
         if let Ok(original) = original
@@ -631,6 +672,19 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         };
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].columns["name"], "durable");
+        for (table, expected) in [
+            ("collision", "parentvalue"),
+            ("collision/pk/child", "childvalue"),
+        ] {
+            let result = sql
+                .read_snapshot(&format!("SELECT * FROM {table}"))
+                .unwrap();
+            let rsf_sql::SqlOutcome::Selected { rows } = result.outcome else {
+                panic!("collision rows");
+            };
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].columns["name"], expected);
+        }
         let result = sql.read_snapshot("SELECT * FROM parallel_rows").unwrap();
         let rsf_sql::SqlOutcome::Selected { rows } = result.outcome else {
             panic!("parallel rows");
@@ -686,6 +740,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "active_sql_session_resumed":true,"sql_session_original_results_replayed":true,
             "serializable_sql_phantom_rejected":true,
             "precrash_sql_read_dependency_recovered":true,"disjoint_sql_sessions_committed":true,
+            "sql_key_components_isolated":true,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"
         })

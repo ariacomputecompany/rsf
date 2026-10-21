@@ -7,7 +7,7 @@ pub(in crate::durable) fn operation(
     statement: &str,
 ) -> RsfResult<FabricOperation> {
     let mutation = |table: String, key: String| FabricOperation::RelationalMutation {
-        key: crate::logical_row_key(&table, &key),
+        key: engine.row_key(&table, &key),
         table,
     };
     Ok(match parse_statement(statement)? {
@@ -47,9 +47,10 @@ pub(in crate::durable) fn prepare(
     version.validate_committed()?;
     // Physical page/tombstone history is not checkpointed. Rebuild the same
     // canonical base on primary and follower so restart cannot change capacity.
-    let (mut next, _) = SqlEngine::recover_from_committed_kv(
+    let (mut next, _) = SqlEngine::recover_from_committed_kv_with_format(
         engine.kv.clone(),
         engine.recovered_tables_for_checkpoint(),
+        engine.key_format(),
     )?;
     match parse_statement(statement)? {
         ParsedStatement::CreateTable {

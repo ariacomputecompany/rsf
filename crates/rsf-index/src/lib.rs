@@ -45,6 +45,7 @@ pub struct IndexPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RebuildPlan {
+    pub table: TableName,
     pub index: String,
     pub scanned_rows: usize,
     pub mutations: Vec<IndexMutation>,
@@ -97,16 +98,13 @@ impl IndexPlanner {
         descriptor: &IndexDescriptor,
         rows: &[RowImage],
     ) -> RsfResult<RebuildPlan> {
-        if !self
-            .descriptors
-            .iter()
-            .any(|known| known.name == descriptor.name)
-        {
+        if !self.descriptors.iter().any(|known| known == descriptor) {
             return Err(invalid(format!(
                 "unknown index descriptor {} cannot be rebuilt",
                 descriptor.name
             )));
         }
+        index_scope(&descriptor.table, &descriptor.name)?;
         let mut mutations = Vec::new();
         for row in rows {
             mutations.push(IndexMutation::Put {
@@ -116,6 +114,7 @@ impl IndexPlanner {
             });
         }
         Ok(RebuildPlan {
+            table: descriptor.table.clone(),
             index: descriptor.name.clone(),
             scanned_rows: rows.len(),
             mutations,
@@ -160,11 +159,25 @@ impl IndexStore {
         }
     }
 
-    pub fn apply_rebuild(&mut self, plan: &RebuildPlan) {
-        self.entries.retain(|(index, _), _| index != &plan.index);
+    pub fn apply_rebuild(&mut self, plan: &RebuildPlan) -> RsfResult<()> {
+        let scope = index_scope(&plan.table, &plan.index)?;
+        for mutation in &plan.mutations {
+            let (index, key) = match mutation {
+                IndexMutation::Put { index, key, .. }
+                | IndexMutation::Delete { index, key, .. } => (index, key),
+            };
+            if index != &plan.index || !key.starts_with(&scope) {
+                return Err(invalid(
+                    "index rebuild contains a foreign table/index mutation",
+                ));
+            }
+        }
+        self.entries
+            .retain(|(index, key), _| index != &plan.index || !key.starts_with(&scope));
         for mutation in &plan.mutations {
             self.apply_mutation(mutation);
         }
+        Ok(())
     }
 
     pub fn lookup(&self, index: &str, key: &[u8]) -> Vec<String> {
@@ -211,9 +224,7 @@ impl IndexStore {
 }
 
 pub fn encode_index_key(descriptor: &IndexDescriptor, row: &RowImage) -> RsfResult<Bytes> {
-    let mut key = b"idx\0".to_vec();
-    push_bytes(&mut key, descriptor.table.0.as_bytes())?;
-    push_bytes(&mut key, descriptor.name.as_bytes())?;
+    let mut key = index_scope(&descriptor.table, &descriptor.name)?;
     push_u16(&mut key, descriptor.columns.len())?;
     for column in &descriptor.columns {
         let value = row.values.get(column).ok_or_else(|| {
@@ -225,6 +236,12 @@ pub fn encode_index_key(descriptor: &IndexDescriptor, row: &RowImage) -> RsfResu
         push_bytes(&mut key, value.as_bytes())?;
     }
     Ok(key)
+}
+fn index_scope(table: &TableName, index: &str) -> RsfResult<Bytes> {
+    let mut prefix = b"idx\0".to_vec();
+    push_bytes(&mut prefix, table.0.as_bytes())?;
+    push_bytes(&mut prefix, index.as_bytes())?;
+    Ok(prefix)
 }
 
 fn validate_descriptor(table: &TableDescriptor, descriptor: &IndexDescriptor) -> RsfResult<()> {
@@ -277,6 +294,39 @@ fn invalid(message: impl Into<String>) -> RsfError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rebuilds_are_scoped_by_table_and_reject_foreign_mutations_before_clearing() {
+        let left = table();
+        let mut right = left.clone();
+        right.name = TableName("orders".into());
+        let mut left_index = users_name_index();
+        left_index.name = "shared".into();
+        let mut right_index = left_index.clone();
+        right_index.table = right.name.clone();
+        let left_planner = IndexPlanner::new(&left, vec![left_index.clone()]).unwrap();
+        let right_planner = IndexPlanner::new(&right, vec![right_index.clone()]).unwrap();
+        let a = row("1", "left", true);
+        let b = row("2", "right", true);
+        let mut store = IndexStore::default();
+        store.apply(&left_planner.plan_insert(&left, &a).unwrap());
+        store.apply(&right_planner.plan_insert(&right, &b).unwrap());
+        let rebuild = left_planner
+            .plan_rebuild(&left_index, std::slice::from_ref(&a))
+            .unwrap();
+        store.apply_rebuild(&rebuild).unwrap();
+        assert_eq!(store.entry_count(), 2);
+        assert_eq!(
+            store.lookup("shared", &encode_index_key(&right_index, &b).unwrap()),
+            vec!["2"]
+        );
+        assert!(left_planner.plan_rebuild(&right_index, &[b]).is_err());
+        let before = store.entries.clone();
+        let mut foreign = rebuild;
+        foreign.table = right.name;
+        assert!(store.apply_rebuild(&foreign).is_err());
+        assert_eq!(store.entries, before);
+    }
     use rsf_core::catalog::{ColumnDescriptor, ColumnType, NamespaceName};
 
     #[test]
@@ -332,7 +382,7 @@ mod tests {
 
         let rows = [row("1", "ada", true), row("2", "grace", false)];
         let rebuild = planner.plan_rebuild(&descriptor, &rows).expect("rebuild");
-        store.apply_rebuild(&rebuild);
+        store.apply_rebuild(&rebuild).unwrap();
 
         assert_eq!(rebuild.scanned_rows, 2);
         assert_eq!(store.entry_count(), 2);

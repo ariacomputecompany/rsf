@@ -57,6 +57,7 @@ impl DurableSqlEngine {
     ) -> RsfResult<DurableSqlExecution> {
         let proposal = propose(self, request.clone(), router.latest_version(), true, true)?;
         let pending = PendingRequest {
+            key_format: self.engine.key_format(),
             client: request.client,
             statement: request.statement,
             pg,

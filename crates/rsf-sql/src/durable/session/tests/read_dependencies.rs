@@ -343,7 +343,7 @@ fn legacy_active_sessions_keep_coarse_validation_and_original_rsfsp2_receipts() 
     let root = root("coarse-compatibility");
     let path = root.join("sql");
     let mut router = router(&root);
-    let mut sql = DurableSqlEngine::open_replicated(&path, "tenant").unwrap();
+    let mut sql = crate::durable::legacy_replicated(&path, "tenant");
     setup(&mut sql, &mut router);
     let mut context = SqlSessionContext {
         name: "old".into(),

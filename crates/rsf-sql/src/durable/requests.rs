@@ -8,6 +8,7 @@ const INTENT_TMP_FILE: &str = "sql.intent.tmp";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PendingRequest {
+    pub key_format: RelationalKeyFormat,
     pub client: String,
     pub statement: String,
     pub pg: PlacementGroupId,
@@ -16,7 +17,12 @@ pub(super) struct PendingRequest {
 
 impl PendingRequest {
     pub fn persist(&self, root: &Path) -> RsfResult<()> {
-        let mut encoded = format!("RSF_SQL_INTENT_V1\n{}\n", self.encode()?);
+        let header = if self.key_format == RelationalKeyFormat::LegacyDelimitedV1 {
+            "RSF_SQL_INTENT_V1"
+        } else {
+            "RSF_SQL_INTENT_V2"
+        };
+        let mut encoded = format!("{header}\n{}\n", self.encode()?);
         append_checksum(&mut encoded);
         atomic_write(root, INTENT_FILE, INTENT_TMP_FILE, &encoded)
     }
@@ -36,8 +42,17 @@ impl PendingRequest {
         let contents = verify_checksum(&encoded)?;
         let lines = contents.lines().collect::<Vec<_>>();
         match lines.as_slice() {
-            ["RSF_SQL_INTENT_V1", request] => {
-                Self::decode(&request.split('\t').collect::<Vec<_>>()).map(Some)
+            [
+                header @ ("RSF_SQL_INTENT_V1" | "RSF_SQL_INTENT_V2"),
+                request,
+            ] => {
+                let pending = Self::decode(&request.split('\t').collect::<Vec<_>>())?;
+                if (*header == "RSF_SQL_INTENT_V1")
+                    != (pending.key_format == RelationalKeyFormat::LegacyDelimitedV1)
+                {
+                    return Err(corruption("SQL intent header differs from key format"));
+                }
+                Ok(Some(pending))
             }
             _ => Err(corruption("invalid SQL intent format")),
         }
@@ -50,6 +65,9 @@ impl PendingRequest {
             hex_bytes(self.statement.as_bytes()),
             self.pg.0
         );
+        if self.key_format == RelationalKeyFormat::LengthPrefixedV2 {
+            text.insert_str(0, "KEY2\t");
+        }
         if let Some(session) = &self.session {
             text.push('\t');
             text.push_str(&hex_bytes(&session.encode()?));
@@ -58,6 +76,11 @@ impl PendingRequest {
     }
 
     pub fn decode(fields: &[&str]) -> RsfResult<Self> {
+        let (key_format, fields) = if let ["KEY2", rest @ ..] = fields {
+            (RelationalKeyFormat::LengthPrefixedV2, rest)
+        } else {
+            (RelationalKeyFormat::LegacyDelimitedV1, fields)
+        };
         let (client, statement, pg, session) = match fields {
             [client, statement, pg] => (*client, *statement, *pg, None),
             [client, statement, pg, proposal] => (
@@ -92,6 +115,7 @@ impl PendingRequest {
             }
         }
         Ok(Self {
+            key_format,
             client,
             statement,
             pg,
@@ -150,7 +174,7 @@ impl RequestReceipt {
     }
 
     pub fn decode(fields: &[&str]) -> RsfResult<Self> {
-        if !(fields.len() == 6 || fields.len() == 7) {
+        if !(6..=8).contains(&fields.len()) {
             return Err(corruption("malformed SQL request receipt"));
         }
         let split = fields.len() - 3;
@@ -179,7 +203,7 @@ impl RequestReceipt {
             return Ok(proposal.result.outcome(&evidence));
         }
         let row_at_commit = |table: &str, primary_key: &str| {
-            let key = crate::logical_row_key(table, primary_key);
+            let key = engine.row_key(table, primary_key);
             let value = engine
                 .kv
                 .get_at(
@@ -235,7 +259,7 @@ impl RequestReceipt {
                 evidence: SqlMutationEvidence::Committed(evidence),
             }),
             ParsedStatement::Delete { table, predicate } => {
-                let key = crate::logical_row_key(&table, &predicate.value);
+                let key = engine.row_key(&table, &predicate.value);
                 let versions = engine.kv.scan_prefix_versions(&key);
                 if !versions.iter().any(|(candidate, values)| {
                     candidate == &key

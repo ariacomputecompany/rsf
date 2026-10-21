@@ -34,6 +34,87 @@ const CREATE: &str = "CREATE TABLE users(id PRIMARY KEY, name)";
 const INSERT: &str = "INSERT INTO users (id, name) VALUES (1, ada)";
 const UPDATE: &str = "UPDATE users SET name=grace WHERE id=1";
 const READ: &str = "SELECT * FROM users";
+mod key_formats;
+
+#[test]
+fn replicated_sql_table_and_primary_key_components_cannot_alias() {
+    let root = root("key-boundaries");
+    let path = root.join("sql");
+    let mut router = router(&root);
+    let mut sql = DurableSqlEngine::open_replicated(&path, "tenant").unwrap();
+    execute(
+        &mut sql,
+        &mut router,
+        "CREATE TABLE a(id PRIMARY KEY, name)",
+        "parent",
+    )
+    .unwrap();
+    execute(
+        &mut sql,
+        &mut router,
+        "CREATE TABLE a/pk/b(id PRIMARY KEY, name)",
+        "nested",
+    )
+    .unwrap();
+    let left = execute(
+        &mut sql,
+        &mut router,
+        "INSERT INTO a (id, name) VALUES ('b/pk/c', left)",
+        "left",
+    )
+    .unwrap();
+    assert_eq!(
+        sql.read_snapshot("SELECT * FROM a/pk/b").unwrap().rows,
+        0,
+        "a row in the parent-named table must not appear in the other table"
+    );
+    execute(
+        &mut sql,
+        &mut router,
+        "INSERT INTO a/pk/b (id, name) VALUES (c, right)",
+        "right",
+    )
+    .unwrap();
+    drop(sql);
+    let mut sql = DurableSqlEngine::open(&path).unwrap();
+    let SqlOutcome::Selected { rows } = sql.read_snapshot("SELECT * FROM a").unwrap().outcome
+    else {
+        panic!("left rows");
+    };
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].primary_key, "b/pk/c");
+    assert_eq!(rows[0].columns["name"], "left");
+    let SqlOutcome::Selected { rows } = sql.read_snapshot("SELECT * FROM a/pk/b").unwrap().outcome
+    else {
+        panic!("right rows");
+    };
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].primary_key, "c");
+    assert_eq!(rows[0].columns["name"], "right");
+    assert_eq!(
+        execute(
+            &mut sql,
+            &mut router,
+            "INSERT INTO a (id, name) VALUES ('b/pk/c', left)",
+            "left"
+        )
+        .unwrap()
+        .outcome,
+        left.outcome
+    );
+    let follower_path = root.join("follower");
+    let mut follower = DurableSqlEngine::open_replicated(&follower_path, "tenant").unwrap();
+    for command in router.committed_application_commands() {
+        follower.apply_application_command(&command).unwrap();
+        drop(follower);
+        follower = DurableSqlEngine::open(&follower_path).unwrap();
+    }
+    assert_eq!(follower.read_snapshot("SELECT * FROM a").unwrap().rows, 1);
+    assert_eq!(
+        follower.read_snapshot("SELECT * FROM a/pk/b").unwrap().rows,
+        1
+    );
+}
 
 #[test]
 fn sql_commands_replay_schema_rows_indexes_tombstones_and_original_results() {
@@ -160,6 +241,7 @@ fn invalid_plans_do_not_create_intents_or_committed_commands() {
         1
     );
     let mut legacy = DurableSqlEngine::open(root.join("legacy")).unwrap();
+    legacy.engine.key_format = RelationalKeyFormat::LegacyDelimitedV1;
     execute(&mut legacy, &mut router, CREATE, "legacy-create").unwrap();
     drop(legacy);
     let legacy_path = root.join("legacy").join(STATE_FILE);
@@ -242,7 +324,13 @@ impl FabricRouterPort for Interrupt {
         op: FabricOperation,
         app: ApplicationPayload,
     ) -> RsfResult<RequestCommitEvidence> {
-        let is_session_commit = app.bytes.strip_prefix(SESSION_MAGIC).is_some_and(|bytes| {
+        let body = app.bytes.strip_prefix(SESSION_MAGIC).or_else(|| {
+            app.bytes.strip_prefix(FRAMED_MAGIC).and_then(|body| {
+                let (&kind, rest) = body.split_first()?;
+                (kind == 1).then_some(rest)
+            })
+        });
+        let is_session_commit = body.is_some_and(|bytes| {
             let text = std::str::from_utf8(bytes).unwrap();
             let pending = PendingRequest::decode(&text.split('\t').collect::<Vec<_>>()).unwrap();
             matches!(

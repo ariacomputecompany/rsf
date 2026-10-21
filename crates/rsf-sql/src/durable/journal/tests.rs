@@ -171,6 +171,7 @@ fn checkpoint_failure_preserves_journal_and_fences_writer() {
 
 fn legacy_checkpoint(sql: &DurableSqlEngine) -> String {
     encode_checkpoint(&SqlCheckpoint {
+        key_format: sql.engine.key_format(),
         tables: sql.engine.recovered_tables_for_checkpoint(),
         kv: sql.engine.committed_kv_versions_for_checkpoint(),
         receipts: sql.receipts.clone(),
@@ -188,7 +189,7 @@ fn bound_v4_upgrade_resumes_header_publication_without_changing_values_or_receip
         let root = root(window);
         let path = root.join("sql");
         let mut router = router(&root);
-        let mut sql = DurableSqlEngine::open_replicated(&path, "tenant").unwrap();
+        let mut sql = crate::durable::legacy_replicated(&path, "tenant");
         execute(&mut sql, &mut router, CREATE, "create");
         let inserted = execute(&mut sql, &mut router, INSERT, "insert");
         let legacy = legacy_checkpoint(&sql);
@@ -300,6 +301,7 @@ fn journal_writer_process() {
             .find(|command| command.request == ClientRequestId::new("insert", 0))
             .unwrap();
         PendingRequest {
+            key_format: RelationalKeyFormat::default(),
             session: None,
             client: "insert".into(),
             statement: INSERT.into(),

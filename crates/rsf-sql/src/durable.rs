@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use requests::{INTENT_FILE, PendingRequest, RequestReceipt};
 use rsf_constraints::ConstraintRule;
+use rsf_core::relational_key::RelationalKeyFormat;
 use rsf_core::{
     CommitVersion, Digest, ErrorCode, PlacementGroupId, RsfError, RsfResult,
     catalog::{ColumnDescriptor, ColumnType, NamespaceName, TableDescriptor, TableName},
@@ -30,6 +31,18 @@ const TMP_FILE: &str = "sql.state.tmp";
 const FORMAT: &str = "RSF_SQL_STATE_V4";
 const JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V6";
 const LEGACY_JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V5";
+const FRAMED_FORMAT: &str = "RSF_SQL_STATE_V7";
+const FRAMED_JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V8";
+
+#[cfg(test)]
+fn legacy_replicated(root: impl AsRef<Path>, namespace: &str) -> DurableSqlEngine {
+    let mut sql = DurableSqlEngine::open(&root).unwrap();
+    assert!(sql.engine.tables.is_empty() && sql.receipts.is_empty());
+    sql.engine.key_format = RelationalKeyFormat::LegacyDelimitedV1;
+    sql.persist().unwrap();
+    drop(sql);
+    DurableSqlEngine::open_replicated(root, namespace).unwrap()
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableSqlExecution {
@@ -137,7 +150,12 @@ impl DurableSqlEngine {
             return Ok(Self {
                 root,
                 _writer_lock: writer_lock,
-                engine: SqlEngine::default(),
+                engine: SqlEngine {
+                    key_format: pending
+                        .as_ref()
+                        .map_or_else(RelationalKeyFormat::default, |pending| pending.key_format),
+                    ..SqlEngine::default()
+                },
                 persistence_failed: false,
                 pending,
                 receipts: BTreeMap::new(),
@@ -166,6 +184,12 @@ impl DurableSqlEngine {
         }
         let mut kv = KvEngine::default();
         for (key, versions) in checkpoint.kv {
+            if RelationalKeyFormat::format_of(&key) != Some(checkpoint.key_format) {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "SQL checkpoint row key differs from its declared key domain",
+                ));
+            }
             for version in versions {
                 let mutation = if version.deleted {
                     KvMutation::Clear { key: key.clone() }
@@ -178,7 +202,24 @@ impl DurableSqlEngine {
                 kv.apply_committed_batch(version.version, vec![mutation])?;
             }
         }
-        let (engine, report) = SqlEngine::recover_from_committed_kv(kv, checkpoint.tables)?;
+        if pending
+            .as_ref()
+            .is_some_and(|pending| pending.key_format != checkpoint.key_format)
+            || checkpoint
+                .receipts
+                .values()
+                .any(|receipt| receipt.request.key_format != checkpoint.key_format)
+        {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "SQL intent/receipt key format differs from checkpoint",
+            ));
+        }
+        let (engine, report) = SqlEngine::recover_from_committed_kv_with_format(
+            kv,
+            checkpoint.tables,
+            checkpoint.key_format,
+        )?;
         replicated::validate_recovered_operations(&engine, &checkpoint.commands)?;
         for receipt in checkpoint.receipts.values() {
             receipt.outcome(&engine)?;
@@ -251,6 +292,7 @@ impl DurableSqlEngine {
             return Ok(execution(outcome, false));
         }
         let pending = PendingRequest {
+            key_format: self.engine.key_format(),
             session: None,
             client,
             statement: statement.to_string(),
@@ -342,6 +384,7 @@ impl DurableSqlEngine {
 
     fn persist(&self) -> RsfResult<()> {
         let checkpoint = SqlCheckpoint {
+            key_format: self.engine.key_format(),
             tables: self.engine.recovered_tables_for_checkpoint(),
             kv: self.engine.committed_kv_versions_for_checkpoint(),
             receipts: self.receipts.clone(),
@@ -409,6 +452,7 @@ fn atomic_write(root: &Path, state_file: &str, tmp_file: &str, encoded: &str) ->
 
 #[derive(Clone, Debug)]
 struct SqlCheckpoint {
+    key_format: RelationalKeyFormat,
     tables: Vec<SqlRecoveredTable>,
     kv: Vec<(Vec<u8>, Vec<KvVersionedValue>)>,
     receipts: BTreeMap<String, RequestReceipt>,
@@ -443,11 +487,14 @@ fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
 
 fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
     let mut out = String::new();
-    out.push_str(if checkpoint.journal.is_some() {
-        JOURNALED_FORMAT
-    } else {
-        FORMAT
-    });
+    out.push_str(
+        match (checkpoint.key_format, checkpoint.journal.is_some()) {
+            (RelationalKeyFormat::LengthPrefixedV2, true) => FRAMED_JOURNALED_FORMAT,
+            (RelationalKeyFormat::LengthPrefixedV2, false) => FRAMED_FORMAT,
+            (RelationalKeyFormat::LegacyDelimitedV1, true) => JOURNALED_FORMAT,
+            (RelationalKeyFormat::LegacyDelimitedV1, false) => FORMAT,
+        },
+    );
     out.push('\n');
     if let Some(fence) = checkpoint.journal {
         out.push_str(&fence.line());
@@ -546,7 +593,15 @@ fn verify_checksum(text: &str) -> RsfResult<&str> {
 fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     let text = verify_checksum(text)?;
     let mut lines = text.lines();
-    let (replicated_format, journaled_format, session_format) = match lines.next() {
+    let format = lines.next();
+    let key_format = if matches!(format, Some(FRAMED_FORMAT | FRAMED_JOURNALED_FORMAT)) {
+        RelationalKeyFormat::LengthPrefixedV2
+    } else {
+        RelationalKeyFormat::LegacyDelimitedV1
+    };
+    let (replicated_format, journaled_format, session_format) = match format {
+        Some(FRAMED_JOURNALED_FORMAT) => (true, true, true),
+        Some(FRAMED_FORMAT) => (true, false, true),
         Some(JOURNALED_FORMAT) => (true, true, true),
         Some(LEGACY_JOURNALED_FORMAT) => (true, true, false),
         Some(FORMAT) => (true, false, false),
@@ -715,6 +770,12 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     }
 
     replicated::validate_checkpoint_commands(namespace.as_deref(), &commands, &receipts)?;
+    if namespace.is_none() && !sessions.is_empty() {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            "SQL sessions require a namespace binding",
+        ));
+    }
     if journaled_format != journal.is_some() || (journaled_format && namespace.is_none()) {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
@@ -722,6 +783,7 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
         ));
     }
     Ok(SqlCheckpoint {
+        key_format,
         journal,
         sessions,
         namespace,
@@ -1093,6 +1155,7 @@ mod tests {
             )
             .unwrap();
             let request = PendingRequest {
+                key_format: RelationalKeyFormat::default(),
                 session: None,
                 client: "insert".to_string(),
                 statement: "INSERT INTO users (id, name) VALUES (1, ada)".to_string(),
@@ -1164,6 +1227,7 @@ mod tests {
         );
         assert!(!path.join(INTENT_FILE).exists());
         let request = PendingRequest {
+            key_format: RelationalKeyFormat::default(),
             session: None,
             client: "create".to_string(),
             statement: "CREATE TABLE users(id PRIMARY KEY)".to_string(),
@@ -1388,6 +1452,7 @@ mod tests {
     #[test]
     fn checkpoint_rejects_every_truncated_prefix_and_single_byte_mutation() {
         let checkpoint = encode_checkpoint(&SqlCheckpoint {
+            key_format: RelationalKeyFormat::default(),
             tables: Vec::new(),
             kv: Vec::new(),
             receipts: BTreeMap::new(),

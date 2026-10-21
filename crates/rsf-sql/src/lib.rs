@@ -3,6 +3,7 @@
 mod durable;
 mod pages;
 
+use rsf_core::relational_key::RelationalKeyFormat;
 use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_buffer::{BufferDecision, BufferPool};
@@ -264,6 +265,7 @@ enum SqlTransactionMutation {
 
 #[derive(Clone, Debug)]
 pub struct SqlEngine {
+    key_format: RelationalKeyFormat,
     tables: BTreeMap<String, Table>,
     rows: BTreeMap<(String, String), Row>,
     primary: PrimaryIndex,
@@ -292,6 +294,7 @@ pub struct SqlEngine {
 impl Default for SqlEngine {
     fn default() -> Self {
         Self {
+            key_format: RelationalKeyFormat::default(),
             tables: BTreeMap::new(),
             rows: BTreeMap::new(),
             primary: PrimaryIndex::default(),
@@ -320,6 +323,18 @@ impl Default for SqlEngine {
 }
 
 impl SqlEngine {
+    pub fn key_format(&self) -> RelationalKeyFormat {
+        self.key_format
+    }
+    fn row_key(&self, table: &str, primary: &str) -> Vec<u8> {
+        self.key_format.row_key(table, primary)
+    }
+    fn row_prefix(&self, table: &str) -> Vec<u8> {
+        self.key_format.row_prefix(table)
+    }
+    fn primary_key_from_row_key(&self, table: &str, key: &[u8]) -> RsfResult<String> {
+        self.key_format.primary_key(table, key)
+    }
     pub fn execute(
         &mut self,
         router: &mut impl FabricRouterPort,
@@ -558,6 +573,18 @@ impl SqlEngine {
         profile: SqlLayoutProfile,
     ) -> RsfResult<()> {
         let mut table = table_from_descriptor(descriptor)?;
+        if self.key_format == RelationalKeyFormat::LegacyDelimitedV1 {
+            let prefix = self.row_prefix(&table.name);
+            for known in self.tables.keys().filter(|known| **known != table.name) {
+                let other = self.row_prefix(known);
+                if prefix.starts_with(&other) || other.starts_with(&prefix) {
+                    return Err(RsfError::new(
+                        ErrorCode::InvalidInput,
+                        "legacy SQL table key namespaces overlap; explicit key migration is required",
+                    ));
+                }
+            }
+        }
         let decision = choose_table_layout(&table, profile);
         table.layout_profile = decision.profile;
         table.layout = decision.layout;
@@ -592,18 +619,44 @@ impl SqlEngine {
         kv: KvEngine,
         tables: impl IntoIterator<Item = SqlRecoveredTable>,
     ) -> RsfResult<(Self, SqlRecoveryReport)> {
+        let versions = kv.scan_prefix_versions(b"");
+        let format = RelationalKeyFormat::detect(versions.iter().map(|(key, _)| key.as_slice()))?;
+        Self::recover_from_committed_kv_with_format(kv, tables, format)
+    }
+    pub fn recover_from_committed_kv_with_format(
+        kv: KvEngine,
+        tables: impl IntoIterator<Item = SqlRecoveredTable>,
+        key_format: RelationalKeyFormat,
+    ) -> RsfResult<(Self, SqlRecoveryReport)> {
         let mut engine = Self {
             kv,
+            key_format,
             ..Self::default()
         };
         for recovered in tables {
             engine.register_recovered_table(recovered)?;
         }
+        for (key, _) in engine.kv.scan_prefix_versions(b"") {
+            if let Some(format) = RelationalKeyFormat::format_of(&key)
+                && (format != key_format
+                    || engine
+                        .tables
+                        .keys()
+                        .filter(|table| key_format.primary_key(table, &key).is_ok())
+                        .count()
+                        != 1)
+            {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "SQL row key has a foreign format or no unique catalog owner",
+                ));
+            }
+        }
         let report = engine.rebuild_recovered_relational_state()?;
         // KV versions are the durable source for this recovery path. Rebuild
         // live page slots too, so subsequent UPDATE/DELETE redo has a base row.
         for row in engine.rows.values().cloned().collect::<Vec<_>>() {
-            let key = logical_row_key(&row.table, &row.primary_key);
+            let key = engine.row_key(&row.table, &row.primary_key);
             let payload = engine
                 .kv
                 .get(&key)
@@ -642,11 +695,8 @@ impl SqlEngine {
         let mut highest_version = CommitVersion(0);
 
         for table in self.tables.values().cloned().collect::<Vec<_>>() {
-            for (key, versions) in self
-                .kv
-                .scan_prefix_versions(table_row_prefix(&table.name).as_bytes())
-            {
-                let primary_key = primary_key_from_logical_row_key(&table.name, &key)?;
+            for (key, versions) in self.kv.scan_prefix_versions(&self.row_prefix(&table.name)) {
+                let primary_key = self.primary_key_from_row_key(&table.name, &key)?;
                 let live_row = self.replay_recovered_tuple_versions(
                     &table,
                     &primary_key,
@@ -834,7 +884,7 @@ impl SqlEngine {
             ));
         }
         self.validate_constraints_for_values(table, &primary_key, &columns)?;
-        let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
+        let logical_key = self.row_key(table, &primary_key);
         let request_payload =
             self.encode_row_payload(table, &primary_key, &columns, CommitVersion(0))?;
         self.validate_page_payload(table, &logical_key, &request_payload)?;
@@ -896,7 +946,7 @@ impl SqlEngine {
             columns.insert(column, value);
         }
         self.validate_constraints_for_update(table, primary_key, &existing, &columns)?;
-        let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
+        let logical_key = self.row_key(table, primary_key);
         let request_payload =
             self.encode_row_payload(table, primary_key, &columns, CommitVersion(0))?;
         self.validate_page_payload(table, &logical_key, &request_payload)?;
@@ -948,7 +998,7 @@ impl SqlEngine {
         if self.select_pk(table, primary_key).is_none() {
             return Err(RsfError::new(ErrorCode::InvalidInput, "row is not present"));
         }
-        let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
+        let logical_key = self.row_key(table, primary_key);
         let evidence = commit_sql_request(
             router,
             pg,
@@ -1609,7 +1659,7 @@ impl SqlEngine {
         }
         self.validate_row_columns(table, columns)?;
         self.validate_constraints_for_values(table, primary_key, columns)?;
-        let logical_key = logical_row_key(table, primary_key);
+        let logical_key = self.row_key(table, primary_key);
         let row_payload = self.encode_row_payload(table, primary_key, columns, version)?;
         self.apply_page_wal(
             table,
@@ -1650,7 +1700,7 @@ impl SqlEngine {
         self.validate_row_columns(table, columns)?;
         self.validate_constraints_for_update(table, primary_key, &existing, columns)?;
         self.deindex_row(&existing)?;
-        let logical_key = logical_row_key(table, primary_key);
+        let logical_key = self.row_key(table, primary_key);
         let row_payload = self.encode_row_payload(table, primary_key, columns, version)?;
         let previous_bytes = self
             .kv
@@ -1694,7 +1744,7 @@ impl SqlEngine {
         else {
             return Err(RsfError::new(ErrorCode::InvalidInput, "row is not present"));
         };
-        let logical_key = logical_row_key(table, primary_key);
+        let logical_key = self.row_key(table, primary_key);
         let previous_bytes = self
             .kv
             .get(&logical_key)
@@ -1966,9 +2016,9 @@ impl SqlEngine {
         primary_key: &str,
         snapshot: ReadSnapshot,
     ) -> Option<&[u8]> {
-        let key = format!("table/{table}/pk/{primary_key}");
+        let key = self.row_key(table, primary_key);
         self.kv
-            .get_at(key.as_bytes(), snapshot)
+            .get_at(&key, snapshot)
             .map(|value| value.value.as_slice())
     }
 
@@ -2030,7 +2080,7 @@ impl SqlEngine {
             let image = pages
                 .read_image(&page, CommitVersion(0))
                 .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?;
-            let prefix = format!("table/{}/pk/", page.table).into_bytes();
+            let prefix = self.row_prefix(&page.table);
             for slot in image
                 .slots()
                 .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?
@@ -2280,7 +2330,7 @@ impl SqlEngine {
             .map(|row| row_image(&row))
             .collect::<Vec<_>>();
         let rebuild = planner.plan_rebuild(descriptor, &rows)?;
-        self.indexes.apply_rebuild(&rebuild);
+        self.indexes.apply_rebuild(&rebuild)?;
         Ok(())
     }
 
@@ -2289,7 +2339,7 @@ impl SqlEngine {
             return Vec::new();
         };
         self.kv
-            .scan_prefix(table_row_prefix(table).as_bytes())
+            .scan_prefix(&self.row_prefix(table))
             .into_iter()
             .filter_map(|(key, value)| {
                 self.physical_row_from_value(table_record, &key, &value.value, value.version)
@@ -2298,10 +2348,10 @@ impl SqlEngine {
     }
 
     fn physical_row(&self, table: &Table, primary_key: &str) -> Option<Row> {
-        let value = self.kv.get(&logical_row_key(&table.name, primary_key))?;
+        let value = self.kv.get(&self.row_key(&table.name, primary_key))?;
         self.physical_row_from_value(
             table,
-            &logical_row_key(&table.name, primary_key),
+            &self.row_key(&table.name, primary_key),
             &value.value,
             value.version,
         )
@@ -2329,7 +2379,7 @@ impl SqlEngine {
         bytes: &[u8],
         version: CommitVersion,
     ) -> Option<Row> {
-        let primary_key = primary_key_from_logical_row_key(&table.name, key).ok()?;
+        let primary_key = self.primary_key_from_row_key(&table.name, key).ok()?;
         self.row_from_physical_bytes(table, &primary_key, bytes, version)
             .ok()
     }
@@ -2511,7 +2561,14 @@ impl SqlEngine {
         version: CommitVersion,
     ) -> RsfResult<()> {
         let table_record = self.table_record(table)?;
-        let row = primary_row(table_record, primary_key, columns, pg, version);
+        let row = primary_row(
+            self.key_format,
+            table_record,
+            primary_key,
+            columns,
+            pg,
+            version,
+        );
         let descriptor = table_record.primary_descriptor.clone();
         match self.primary.insert(&descriptor, row)? {
             PrimaryDecision::Inserted(_) => Ok(()),
@@ -2535,7 +2592,14 @@ impl SqlEngine {
         version: CommitVersion,
     ) -> RsfResult<()> {
         let table_record = self.table_record(table)?;
-        let row = primary_row(table_record, primary_key, columns, pg, version);
+        let row = primary_row(
+            self.key_format,
+            table_record,
+            primary_key,
+            columns,
+            pg,
+            version,
+        );
         let descriptor = table_record.primary_descriptor.clone();
         match self
             .primary
@@ -2678,7 +2742,8 @@ impl SqlEngine {
 
     fn register_recovered_table(&mut self, recovered: SqlRecoveredTable) -> RsfResult<()> {
         let table_name = recovered.descriptor.name.0.clone();
-        self.register_table_descriptor_with_profile(recovered.descriptor, recovered.profile)?;
+        self.register_table_descriptor_with_profile(recovered.descriptor, recovered.profile)
+            .map_err(|err| RsfError::new(ErrorCode::CorruptionDetected, err.message))?;
         for constraint in recovered.constraints {
             match constraint {
                 ConstraintRule::PrimaryKey { .. } => {}
@@ -3744,6 +3809,7 @@ fn concrete_constraint_key(table: &Table, row: &Row, columns: &[String]) -> Opti
 }
 
 fn primary_row(
+    key_format: RelationalKeyFormat,
     table: &Table,
     primary_key: &str,
     columns: &BTreeMap<String, String>,
@@ -3756,37 +3822,15 @@ fn primary_row(
         .or_insert_with(|| primary_key.to_string());
     PrimaryRow {
         values,
-        row_key: logical_row_key(&table.name, primary_key),
+        row_key: key_format.row_key(&table.name, primary_key),
         placement_group,
         version,
     }
 }
 
+#[cfg(test)]
 fn logical_row_key(table: &str, primary_key: &str) -> Vec<u8> {
-    format!("table/{table}/pk/{primary_key}").into_bytes()
-}
-
-fn table_row_prefix(table: &str) -> String {
-    format!("table/{table}/pk/")
-}
-
-fn primary_key_from_logical_row_key(table: &str, key: &[u8]) -> RsfResult<String> {
-    let prefix = table_row_prefix(table);
-    let key = std::str::from_utf8(key).map_err(|_| {
-        RsfError::new(
-            ErrorCode::CorruptionDetected,
-            format!("physical row key for table {table} is not utf-8"),
-        )
-    })?;
-    key.strip_prefix(&prefix)
-        .filter(|primary_key| !primary_key.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| {
-            RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!("physical row key {key} does not match table {table}"),
-            )
-        })
+    RelationalKeyFormat::default().row_key(table, primary_key)
 }
 
 fn expect_buffer_ok(decision: BufferDecision, action: &str) -> RsfResult<()> {

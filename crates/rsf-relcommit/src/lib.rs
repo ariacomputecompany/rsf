@@ -50,11 +50,17 @@ impl RelationalCommitAuditor {
             intent_mutations,
         };
 
-        let expected_row_prefix = format!("table/{}/pk/", plan.table.0);
-        if !plan.row_key.starts_with(expected_row_prefix.as_bytes()) {
+        let format = match rsf_core::relational_key::RelationalKeyFormat::detect([plan
+            .row_key
+            .as_slice()])
+        {
+            Ok(format) => format,
+            Err(err) => return reject(err.message),
+        };
+        if format.primary_key(&plan.table.0, &plan.row_key).is_err() {
             return reject(format!(
                 "row key {} does not belong to table {}",
-                String::from_utf8_lossy(&plan.row_key),
+                key_description(&plan.row_key),
                 plan.table.0
             ));
         }
@@ -72,7 +78,7 @@ impl RelationalCommitAuditor {
         if let Some(missing) = missing_index_mutation(plan) {
             return reject(format!(
                 "index mutation key {} is absent from commit intent",
-                String::from_utf8_lossy(missing)
+                key_description(missing)
             ));
         }
         if let Err(reason) = validate_mutation_keys(plan) {
@@ -99,7 +105,7 @@ fn validate_mutation_keys(plan: &WritePlan) -> Result<(), String> {
         if !expected.insert(index_key) {
             return Err(format!(
                 "commit group declares duplicate index mutation key {}",
-                String::from_utf8_lossy(index_key)
+                key_description(index_key)
             ));
         }
     }
@@ -112,7 +118,7 @@ fn validate_mutation_keys(plan: &WritePlan) -> Result<(), String> {
         if !observed.insert(key) {
             return Err(format!(
                 "commit intent contains duplicate mutation key {}",
-                String::from_utf8_lossy(key)
+                key_description(key)
             ));
         }
     }
@@ -121,11 +127,11 @@ fn validate_mutation_keys(plan: &WritePlan) -> Result<(), String> {
         let unexpected = observed
             .difference(&expected)
             .next()
-            .map(|key| String::from_utf8_lossy(key).into_owned());
+            .map(|key| key_description(key));
         let missing = expected
             .difference(&observed)
             .next()
-            .map(|key| String::from_utf8_lossy(key).into_owned());
+            .map(|key| key_description(key));
         return Err(match (unexpected, missing) {
             (Some(unexpected), Some(missing)) => {
                 format!(
@@ -149,7 +155,7 @@ fn validate_conflict_ranges(plan: &WritePlan) -> Result<(), String> {
         range_key(&primary_identity_range(plan).ok_or_else(|| {
             format!(
                 "row key {} does not encode a primary identity",
-                String::from_utf8_lossy(&plan.row_key)
+                key_description(&plan.row_key)
             )
         })?),
     ]);
@@ -166,43 +172,41 @@ fn validate_conflict_ranges(plan: &WritePlan) -> Result<(), String> {
     Ok(())
 }
 
+type ConflictSet = BTreeSet<(Vec<u8>, Vec<u8>)>;
+
 fn conflict_set(
     ranges: &[rsf_core::transaction::KeyRange],
     label: &str,
-) -> Result<BTreeSet<(Vec<u8>, Vec<u8>)>, String> {
+) -> Result<ConflictSet, String> {
     let mut set = BTreeSet::new();
     for range in ranges {
         if range.start >= range.end {
             return Err(format!(
                 "{label} conflict range {}..{} is empty or reversed",
-                String::from_utf8_lossy(&range.start),
-                String::from_utf8_lossy(&range.end)
+                key_description(&range.start),
+                key_description(&range.end)
             ));
         }
         if !set.insert(range_key(range)) {
             return Err(format!(
                 "{label} conflict ranges contain duplicate range {}..{}",
-                String::from_utf8_lossy(&range.start),
-                String::from_utf8_lossy(&range.end)
+                key_description(&range.start),
+                key_description(&range.end)
             ));
         }
     }
     Ok(set)
 }
 
-fn conflict_mismatch(
-    label: &str,
-    observed: &BTreeSet<(Vec<u8>, Vec<u8>)>,
-    expected: &BTreeSet<(Vec<u8>, Vec<u8>)>,
-) -> String {
+fn conflict_mismatch(label: &str, observed: &ConflictSet, expected: &ConflictSet) -> String {
     let unexpected = observed
         .iter()
         .find(|range| !expected.contains(*range))
-        .map(|range| String::from_utf8_lossy(&range.0).into_owned());
+        .map(|range| key_description(&range.0));
     let missing = expected
         .iter()
         .find(|range| !observed.contains(*range))
-        .map(|range| String::from_utf8_lossy(&range.0).into_owned());
+        .map(|range| key_description(&range.0));
     match (unexpected, missing) {
         (Some(unexpected), Some(missing)) => {
             format!("{label} conflict ranges include unexpected {unexpected} and miss {missing}")
@@ -241,16 +245,26 @@ fn missing_index_mutation(plan: &WritePlan) -> Option<&[u8]> {
         })
 }
 
+fn key_description(key: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(key)
+        && text.chars().all(|ch| !ch.is_control())
+    {
+        return text.to_string();
+    }
+    format!(
+        "hex:{}",
+        key.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
+}
+
 fn primary_identity_range(plan: &WritePlan) -> Option<rsf_core::transaction::KeyRange> {
-    let prefix = format!("table/{}/pk/", plan.table.0);
-    let primary_key = plan.row_key.strip_prefix(prefix.as_bytes())?;
+    let format =
+        rsf_core::relational_key::RelationalKeyFormat::detect([plan.row_key.as_slice()]).ok()?;
+    let primary = format.primary_key(&plan.table.0, &plan.row_key).ok()?;
     Some(point_range(
-        format!(
-            "unique/{}/primary/{}",
-            plan.table.0,
-            String::from_utf8_lossy(primary_key)
-        )
-        .as_bytes(),
+        &format.primary_identity(&plan.table.0, &primary),
     ))
 }
 
@@ -441,7 +455,12 @@ mod tests {
         else {
             panic!("missing identity conflict range should reject");
         };
-        assert!(reason.contains("write conflict ranges miss unique/users/primary/1"));
+        let identity =
+            rsf_core::relational_key::RelationalKeyFormat::default().primary_identity("users", "1");
+        assert!(reason.contains(&format!(
+            "write conflict ranges miss {}",
+            key_description(&identity)
+        )));
     }
 
     #[test]

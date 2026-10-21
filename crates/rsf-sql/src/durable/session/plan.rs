@@ -10,6 +10,7 @@ pub(in crate::durable) struct PreparedSession {
 
 fn schema(engine: &SqlEngine) -> RsfResult<[u8; 32]> {
     let metadata = SqlCheckpoint {
+        key_format: engine.key_format(),
         tables: engine.recovered_tables_for_checkpoint(),
         kv: vec![],
         receipts: BTreeMap::new(),
@@ -64,8 +65,11 @@ fn working(engine: &SqlEngine, state: &SessionState) -> RsfResult<Working> {
             kv.apply_committed_batch(value.version, vec![mutation])?;
         }
     }
-    let (base, _) =
-        SqlEngine::recover_from_committed_kv(kv, engine.recovered_tables_for_checkpoint())?;
+    let (base, _) = SqlEngine::recover_from_committed_kv_with_format(
+        kv,
+        engine.recovered_tables_for_checkpoint(),
+        engine.key_format(),
+    )?;
     let mut next = base.clone();
     let mut touched = BTreeSet::new();
     for (position, statement) in state.statements.iter().enumerate() {
@@ -154,7 +158,7 @@ fn effects(
     if !serializable {
         let keys = effects
             .iter()
-            .map(|effect| crate::logical_row_key(&effect.table, &effect.key))
+            .map(|effect| sql.engine.row_key(&effect.table, &effect.key))
             .collect::<BTreeSet<_>>();
         if sql
             .engine
@@ -442,7 +446,7 @@ pub(in crate::durable) fn prepare(
         let mut kv = sql.engine.kv.clone();
         let mut mutations = Vec::new();
         for effect in &proposal.effects {
-            let key = crate::logical_row_key(&effect.table, &effect.key);
+            let key = sql.engine.row_key(&effect.table, &effect.key);
             mutations.push(match &effect.columns {
                 Some(columns) => KvMutation::Set {
                     key,
@@ -459,9 +463,10 @@ pub(in crate::durable) fn prepare(
         if !mutations.is_empty() {
             kv.apply_committed_batch(version, mutations)?;
         }
-        let (mut engine, _) = SqlEngine::recover_from_committed_kv(
+        let (mut engine, _) = SqlEngine::recover_from_committed_kv_with_format(
             kv,
             work.engine.recovered_tables_for_checkpoint(),
+            sql.engine.key_format(),
         )?;
         engine.schema_version = version;
         engine
@@ -507,7 +512,10 @@ pub(in crate::durable) fn validate_recovered(sql: &DurableSqlEngine) -> RsfResul
         .as_deref()
         .ok_or_else(|| corrupt("SQL sessions have no namespace"))?;
     let mut expected = BTreeMap::new();
-    let mut catalog = SqlEngine::default();
+    let mut catalog = SqlEngine {
+        key_format: sql.engine.key_format(),
+        ..SqlEngine::default()
+    };
     let mut previous = CommitVersion::GENESIS;
     let mut commands = sql.commands.values().collect::<Vec<_>>();
     commands.sort_by_key(|command| command.commit.version);
@@ -585,7 +593,7 @@ pub(in crate::durable) fn validate_recovered(sql: &DurableSqlEngine) -> RsfResul
             }
             let mut effect_keys = BTreeSet::new();
             for effect in &proposal.effects {
-                let key = crate::logical_row_key(&effect.table, &effect.key);
+                let key = sql.engine.row_key(&effect.table, &effect.key);
                 effect_keys.insert(key.clone());
                 let value = versions
                     .get(&key)

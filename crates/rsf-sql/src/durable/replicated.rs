@@ -9,6 +9,7 @@ use rsf_protocol::{
 pub(super) mod plan;
 const MAGIC: &[u8] = b"RSFSC1";
 const SESSION_MAGIC: &[u8] = b"RSFSC2";
+const FRAMED_MAGIC: &[u8] = b"RSFSC3";
 pub(super) struct PreparedSql {
     engine: SqlEngine,
     session: Option<(String, Option<session::SessionState>)>,
@@ -50,12 +51,17 @@ pub(super) fn validate_namespace(namespace: &str) -> RsfResult<()> {
     Ok(())
 }
 fn application(namespace: &str, request: &PendingRequest) -> RsfResult<ApplicationPayload> {
-    let mut bytes = if request.session.is_some() {
+    let mut bytes = if request.key_format == RelationalKeyFormat::LengthPrefixedV2 {
+        FRAMED_MAGIC
+    } else if request.session.is_some() {
         SESSION_MAGIC
     } else {
         MAGIC
     }
     .to_vec();
+    if request.key_format == RelationalKeyFormat::LengthPrefixedV2 {
+        bytes.push(u8::from(request.session.is_some()));
+    }
     bytes.extend_from_slice(request.encode()?.as_bytes());
     Ok(ApplicationPayload {
         namespace: namespace.into(),
@@ -76,16 +82,25 @@ pub(super) fn decode_request(
             "SQL command targets a different namespace, surface or consistency mode",
         ));
     }
-    let (text, is_session) = if let Some(bytes) = command.application.bytes.strip_prefix(MAGIC) {
-        (bytes, false)
-    } else if let Some(bytes) = command.application.bytes.strip_prefix(SESSION_MAGIC) {
-        (bytes, true)
-    } else {
-        return Err(corrupt("unknown SQL command format"));
-    };
+    let (text, is_session, key_format) =
+        if let Some(bytes) = command.application.bytes.strip_prefix(FRAMED_MAGIC) {
+            let (&kind, body) = bytes
+                .split_first()
+                .ok_or_else(|| corrupt("missing framed SQL command kind"))?;
+            if kind > 1 {
+                return Err(corrupt("invalid framed SQL command kind"));
+            }
+            (body, kind == 1, RelationalKeyFormat::LengthPrefixedV2)
+        } else if let Some(bytes) = command.application.bytes.strip_prefix(MAGIC) {
+            (bytes, false, RelationalKeyFormat::LegacyDelimitedV1)
+        } else if let Some(bytes) = command.application.bytes.strip_prefix(SESSION_MAGIC) {
+            (bytes, true, RelationalKeyFormat::LegacyDelimitedV1)
+        } else {
+            return Err(corrupt("unknown SQL command format"));
+        };
     let text = std::str::from_utf8(text).map_err(|_| corrupt("SQL command is not UTF-8"))?;
     let request = PendingRequest::decode(&text.split('\t').collect::<Vec<_>>())?;
-    if is_session != request.session.is_some() {
+    if is_session != request.session.is_some() || key_format != request.key_format {
         return Err(corrupt("SQL command format differs from its session body"));
     }
     if command.request != ClientRequestId::new(request.client.clone(), 0)
@@ -137,6 +152,9 @@ pub(super) fn validate_recovered_operations(
 ) -> RsfResult<()> {
     for command in commands.values() {
         let request = decode_request(command, &command.application.namespace)?;
+        if request.key_format != engine.key_format() {
+            return Err(corrupt("SQL command key format differs from namespace"));
+        }
         if operation(engine, &request)? != command.commit.operation {
             return Err(corrupt(
                 "SQL checkpoint command differs from recovered relational operation",
@@ -252,6 +270,7 @@ impl DurableSqlEngine {
         }
         self.reconcile(router)?;
         let request = PendingRequest {
+            key_format: self.engine.key_format(),
             session: None,
             client,
             statement: statement.into(),
@@ -278,6 +297,9 @@ impl DurableSqlEngine {
         router: &mut impl FabricRouterPort,
         pending: &PendingRequest,
     ) -> RsfResult<(PreparedSql, ReplicatedFabricCommand)> {
+        if pending.key_format != self.engine.key_format() {
+            return Err(corrupt("SQL request key format differs from namespace"));
+        }
         // Certified legacy commands retain their historical semantics on replay.
         // An unresolved pre-upgrade COMMIT must not submit a fresh snapshot-only
         // decision after unrelated data changed. Reconcile committed history
@@ -403,6 +425,30 @@ impl DurableSqlEngine {
             .as_deref()
             .ok_or_else(|| invalid("SQL replay requires a bound namespace"))?;
         let request = decode_request(command, namespace)?;
+        if request.key_format != self.engine.key_format() {
+            if !self.commands.is_empty()
+                || !self.receipts.is_empty()
+                || !self.engine.tables.is_empty()
+                || self.pending.is_some()
+                || !self.sessions.is_empty()
+                || !self
+                    .engine
+                    .committed_kv_versions_for_checkpoint()
+                    .is_empty()
+            {
+                return Err(corrupt(
+                    "SQL replay key format differs from nonempty namespace",
+                ));
+            }
+            // A blank derived peer store learns its format from the first
+            // authenticated certified command, including legacy histories.
+            // Persist the decision before any command append can be acknowledged.
+            self.engine.key_format = request.key_format;
+            if let Err(error) = self.persist() {
+                self.persistence_failed = true;
+                return Err(error);
+            }
+        }
         if let Some(original) = self.commands.get(&command.request) {
             if original != command {
                 return Err(corrupt(
@@ -525,6 +571,11 @@ impl DurableSqlEngine {
         request: &PendingRequest,
         version: CommitVersion,
     ) -> RsfResult<PreparedSql> {
+        if request.key_format != self.engine.key_format() {
+            return Err(corrupt(
+                "SQL materialization key format differs from namespace",
+            ));
+        }
         if let Some(proposal) = &request.session {
             let prepared = session::prepare(self, proposal, version)?;
             Ok(PreparedSql {

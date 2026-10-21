@@ -10,7 +10,7 @@ fn bound_v5_checkpoint_upgrades_without_changing_autocommit_receipts() {
     let root = root("v5");
     let path = root.join("sql");
     let mut router = router(&root);
-    let mut sql = DurableSqlEngine::open_replicated(&path, "tenant").unwrap();
+    let mut sql = crate::durable::legacy_replicated(&path, "tenant");
     let statement = "CREATE TABLE users(id PRIMARY KEY, name)";
     let original = sql
         .execute(&mut router, PlacementGroupId(1), statement, "create")

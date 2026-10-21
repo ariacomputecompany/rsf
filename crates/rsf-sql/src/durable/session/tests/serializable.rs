@@ -242,6 +242,7 @@ pub(super) fn old_format(
     assert_eq!(SessionProposal::decode(&encoded).unwrap(), proposal);
     let operation = proposal.operation().unwrap();
     let pending = PendingRequest {
+        key_format: sql.engine.key_format(),
         client: id.into(),
         statement: statement.into(),
         pg: PlacementGroupId(1),
@@ -287,7 +288,7 @@ fn serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits
     let root = root("legacy-isolation");
     let path = root.join("sql");
     let mut router = router(&root);
-    let mut sql = DurableSqlEngine::open_replicated(&path, "tenant").unwrap();
+    let mut sql = crate::durable::legacy_replicated(&path, "tenant");
     auto(
         &mut sql,
         &mut router,
@@ -391,6 +392,7 @@ fn serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits
         pg: 1,
     };
     let pending = PendingRequest {
+        key_format: sql.engine.key_format(),
         client: request.client.clone(),
         statement: request.statement.clone(),
         pg: PlacementGroupId(1),

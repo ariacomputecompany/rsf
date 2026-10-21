@@ -4537,7 +4537,9 @@ impl Index {
         let rebuild = planner
             .plan_rebuild(&descriptor, std::slice::from_ref(&ada))
             .expect("simulated index rebuild must plan");
-        store.apply_rebuild(&rebuild);
+        store
+            .apply_rebuild(&rebuild)
+            .expect("validated index rebuild must execute");
         runtime.index_rebuilds += 1;
         runtime.index_mutations += rebuild.mutations.len();
         trace.push(

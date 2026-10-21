@@ -8,8 +8,10 @@ acknowledging the committed command.
 
 ## Command and publication boundary
 
-The versioned `RSFSC1` payload contains the exact statement, request client and
-placement group. Its enclosing `RSFC1` command binds that payload to the SQL
+New namespaces use the versioned `RSFSC3` payload, with an explicit command kind
+and `KEY2` request encoding binding the relational key format. It contains the
+exact statement, request client and placement group. Legacy namespaces retain
+`RSFSC1` autocommit and `RSFSC2` session encodings. Its enclosing `RSFC1` command binds that payload to the SQL
 surface, namespace, full relational operation, request identity, strict mode and
 commit metadata. Supported mutations use the existing narrow grammar for CREATE
 TABLE, CREATE INDEX, INSERT, UPDATE and DELETE. SELECT reads materialized state.
@@ -27,7 +29,7 @@ logical state before applying a new statement. This prevents different live
 page/tombstone histories from changing capacity decisions after restart. It is
 currently full-state work; journal persistence does not remove that planning cost.
 
-Namespace-bound stores use a checksummed `RSF_SQL_STATE_V6` checkpoint containing
+New namespace-bound stores use a checksummed `RSF_SQL_STATE_V8` checkpoint containing
 schema, committed MVCC rows, complete commands, receipts, active sessions and a journal index/hash.
 Ordinary mutations append their complete command to `sql.journal` using the
 storage hash chain and synced data, then atomically publish and sync
@@ -52,10 +54,12 @@ checkpoints remain readable through the unbound library contract. Refusing
 migration preserves the old data. Existing namespace-bound V4 stores upgrade
 under the writer lock. A journal header binds namespace and the exact V4 base
 checksum before publishing the current format; interrupted header/head publication can resume.
-V5 checkpoints remain readable and upgrade on the next checkpoint. Older readers
-reject V6 checkpoints and the new session command/operation instead of silently
-ignoring transaction state. Upgrade every voter before enabling sessions.
-Unbound V3/V4 stores retain their existing full-checkpoint contract.
+V5 checkpoints remain readable and upgrade on the next checkpoint. Existing
+V3–V6 stores retain their legacy row-key encoding; journaled legacy stores continue
+to write V6 checkpoints. New framed-key stores use V7 before journal binding and
+V8 afterward. Older readers reject unsupported checkpoint and command versions.
+Upgrade every voter before enabling new formats or sessions. Unbound legacy
+stores retain their existing full-checkpoint contract.
 
 Recovery validates checkpoint and acknowledged-head hashes against retained
 records or the compacted-prefix anchor, then replays only commands beyond the
@@ -84,6 +88,29 @@ Native SELECT confirms primary quorum before reading. The library's
 `read_snapshot` method inspects only local materialized state and provides no
 leader-freshness guarantee; it is useful for offline follower recovery inspection.
 
+## Relational key identity and legacy recovery
+
+New stores encode row identities with a versioned binary domain, a length-prefixed
+table name and the primary-key suffix. Constraint identities frame the table,
+constraint name and each value separately. Table names and primary keys containing
+slashes therefore cannot alias another table's rows or uniqueness identities.
+Primary-key byte ordering within a table is preserved. Index rebuilds clear only
+the selected table/index scope and validate all replacement mutations before
+clearing any entries; generated index names can coincide across tables safely.
+
+The checkpoint, pending intent and complete command bind one relational key
+format. Recovery rejects mixed formats, unowned row keys and format downgrades.
+An entirely blank derived peer store can learn the legacy format from its first
+certified command, persisting that choice before appending the command. A nonempty
+store cannot switch formats. Existing receipts and certificates retain their
+original bytes and results.
+
+Legacy delimited keys cannot represent every valid pair of table names without
+ambiguity. Legacy stores reject new overlapping table prefixes before submission;
+recovery rejects an already ambiguous catalog on every open without rewriting it.
+An explicit data/receipt-preserving migration remains release work. These fences
+do not migrate or reinterpret old data.
+
 ## Durable SQL sessions
 
 Native requests with an empty body retain autocommit behavior. To use a session,
@@ -97,7 +124,8 @@ SELECT requires namespace-read access. Current authorization is rechecked for
 every native request, including retries.
 
 BEGIN, staged DDL/DML, SAVEPOINT, ROLLBACK TO, COMMIT and ROLLBACK each carry a
-complete `RSFSC2` command through the strict quorum protocol. Their acknowledgements
+complete `RSFSC3` session command through the strict quorum protocol in new
+framed-key stores (`RSFSC2` in legacy stores). Their acknowledgements
 make session state durable, while staged rows and schema remain invisible outside
 the session. Session SELECT uses the BEGIN snapshot plus its own staged statements.
 SELECT durably records its bounded result and row/predicate dependencies through
@@ -188,7 +216,9 @@ adds disjoint transaction commits, dependency retention across savepoint rewind,
 bounded read/result admission, real process-kill read recovery, original RSFSP2
 receipt compatibility, and a pre-crash acknowledged read across native takeover.
 Both profiles verify the resulting disjoint writes on both surviving stores.
-All sixteen required session regressions ran in the current full workspace trace.
+All sixteen required session regressions ran in that full workspace trace.
+The subsequent relational key qualification adds row/constraint identity, legacy
+format fences, cold legacy peer recovery and table-scoped index rebuild checks.
 
 The [current full verification](verification-2026-10-21.json) passes all 18
 domains on unchanged source, including the full workspace suite, native SQL
@@ -198,7 +228,7 @@ attempts remain recorded in the scoped journal report; later transport and
 installation fixes are covered by the current full source hash. This is local
 loopback TLS/fsync evidence, not full production qualification.
 
-Bounded result streaming, concurrency with precise SQL read/predicate conflicts, bounded receipt retention,
+Bounded result streaming, bounded receipt retention,
 incremental physical planning and growing-table capacity qualification remain
 release work. Multiple pages and atomic row relocation are implemented. Native
 frames are limited to 64 KiB and complete commands to 1 MiB. Certified network
