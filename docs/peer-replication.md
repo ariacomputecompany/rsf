@@ -16,7 +16,7 @@ peer services materialize those commands durably before acknowledging them. See
 recovery behavior, and [blob network replication](blob-network-replication.md) for
 immutable payloads. [Object replication](object-network-replication.md) covers
 buckets and mutable heads, and [SQL replication](sql-network-replication.md) covers
-autocommit statements. Opt-in peer elections are implemented; automatic client takeover and certified membership changes are still unfinished. Admin/policy paths still use the in-process transport in places;
+autocommit statements. Opt-in peer elections and client takeover are implemented. Certified membership changes and deployment qualification remain unfinished. Admin/policy paths still use the in-process transport in places;
 `LocalVsrTransport` itself remains a simulation with no remote disk durability.
 
 Peer services retain up to 64 recently used namespace/surface application
@@ -51,6 +51,7 @@ resolve against the configuration file's directory.
 | `peers` | Array of node endpoint objects, including this node |
 | `cells` | Nonempty array of placement-group bootstrap configurations |
 | `elections` | Optional peer election timing object; omitted by default |
+| `client` | Optional application-client listener with provisioned admission state |
 
 Each `peers` object requires `node`, `address` (numeric IP and port),
 `server_name` (the TLS certificate's DNS name or IP), and `fingerprint` (64
@@ -83,8 +84,8 @@ three heartbeat intervals. Rank delay must lie between heartbeat and election
 timeout. Heartbeat is 1–60000 ms; election timeout is at most one hour. Each
 hosted voting group must satisfy the timing bounds before stores are opened;
 a learner-only service cannot enable elections. The controller acts only on
-voting groups. Configuration enables peer consensus and materialization; it
-does not open a replacement application-client listener. `peer.election` JSON
+voting groups. The `elections` object enables peer consensus and materialization. Add `client`
+to enable the replacement application-client listener. `peer.election` JSON
 events report changed controller observations, not a client readiness lease.
 See [primary failover](primary-failover.md) for recovery and remaining integration.
 
@@ -142,3 +143,58 @@ independent stores, and verifies persistent cluster/node binding.
 integration test through its daemon/workspace domains. These are host process
 and network tests; machine power-loss and complete application-state failover
 still need separate verification.
+
+## Automatic client service
+
+An optional `client` object serves the existing canonical RSF wire protocol for
+SQL/KV/object/blob requests from the peer's actual installed cells:
+
+```json
+"client": {
+  "state": "/srv/rsf/control",
+  "listen": "10.0.0.1:7300",
+  "endpoints": [
+    {"node": 0, "address": "10.0.0.1:7300"},
+    {"node": 1, "address": "10.0.0.2:7300"},
+    {"node": 2, "address": "10.0.0.3:7300"}
+  ]
+}
+```
+
+`state` resolves relative to the peer configuration. It must already contain
+application TLS (`tls/server.pem`, `server-key.pem`, `client-ca.pem`), the admitted
+node catalog under `admin`, and explicitly provisioned `auth` and `tenancy` data.
+The service creates no application grants. Admitted node fingerprints must match
+the authenticated peer mapping, and admitted voters must match installed
+membership. Each process needs the current admission policy; network distribution
+of those control catalogs remains separate release work.
+
+Client endpoints require unique configured node IDs, nonzero ports, coverage of
+all peer mappings, and a local endpoint equal to `listen`. Automatic elections
+must be enabled, and the process cannot host learner cells. With client service,
+the minimum election timeout also includes the two-second absolute client socket
+deadline. A three-voter example uses top-level `timeout_ms: 500` and elections
+`heartbeat_ms: 200`, `timeout_ms: 5000`, `rank_delay_ms: 1500`. Socket deadlines do
+not preempt fsync or recovery work; growing-history latency still needs qualification.
+
+Application data stays in the peer's `application/namespaces` stores. Derived
+coordination receipts live under its `client-protocol` directory. Peer control and
+one accepted client connection per tick share exclusive cell custody and the same
+resident application writers. A replacement reconciles installed complete
+commands and confirms a fresh quorum before serving. Every request rechecks
+current authorization. Existing legacy `serve` listeners do not acquire this
+behavior automatically.
+
+An authorized request sent to a follower receives:
+
+```text
+RSF/1 redirect protocol=kv-http mutation=not-attempted primary=1 address=10.0.0.2:7300
+```
+
+Clients should authenticate the destination and resend the identical request
+identity and payload. Redirects are advisory; the destination repeats authority
+and quorum checks. A fenced view or different primaries across hosted placement
+groups returns a rejection. Independently led groups require further scheduling
+and routing work. A local primary's mutation error remains `mutation=unknown`
+when durable admission may already have occurred; retrying the same identity
+resolves the outcome.

@@ -19,7 +19,7 @@ FOZZY_BIN=/path/to/fozzy FOZZY_SEED=20260930 sh scripts/verify-fozzy.sh
 Each invocation creates a fresh `artifacts/verification.*` directory containing
 host scenarios and recorded traces for storage, VSR, membership, protocol, authenticated peer RPC, KV
 transactions, SQL, authentication, tenancy, the daemon, objects/blobs, recovery, policy, the POC, and the
-complete workspace test suite.
+complete workspace test suite, plus automatic client takeover in debug and release.
 It also runs two real-process KV stress workloads:
 
 | Profile | Clients | Acknowledged logical writes | Forced process shutdowns | Uncertain writes resolved |
@@ -38,7 +38,7 @@ exactly one applied version. Client I/O timeout limits stay enabled.
 The script continues independent domains after a failure and writes
 `summary.json` with their individual results, workload counts, build profiles,
 latency/throughput measurements and source fingerprints. Overall success
-requires all 17 domains, the expected real workload evidence, and unchanged
+requires all 18 domains, the expected real workload evidence, and unchanged
 Rust/test/script inputs throughout the run. A filter accidentally running zero
 stress tests, or edits made during verification, cannot produce a successful
 release summary. Hardware/WAN capacity targets and the complete machine-failure
@@ -379,5 +379,9 @@ stale-primary rejoin preserve the acknowledged payload, minority observations
 cannot establish a new normal view, and a candidate killed after local-only
 publication resumes its retained input on daemon restart. Authenticated status
 queries do not refresh failure timers; failed materialization blocks heartbeat
-success. These tests do not exercise automatic client listener takeover, which
-remains a release blocker.
+success. A separate required automatic-client domain now exercises actual replacement
+listeners, all four application surfaces, primary state deletion, four concurrent
+clients and 32 identity-preserving retries, replacement restart, certificate
+revocation, redirects, and quorum loss/restoration. It validates actual debug
+and release workload output; zero-test filters cannot satisfy the gate. These
+loopback process tests do not establish machine-failure or WAN capacity readiness.

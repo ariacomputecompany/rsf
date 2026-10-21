@@ -9,9 +9,11 @@ mid-upload, publishes only the candidate, restarts both endpoints, and completes
 the same installation without recollecting old-view reports.
 
 Opt-in daemon peer election scheduling, quorum installation, and lagging voter
-adoption are implemented. Automatic client coordinator ownership, listener
-routing, certified membership changes, and client redirection remain release
-blockers. Peer election events do not establish client-service readiness.
+adoption are implemented. Opt-in client coordinator ownership, shared application writers, and primary
+redirects are implemented through the peer's `client` configuration. Certified
+membership changes, independent-group routing, incremental recovery, and
+independent-machine qualification remain release work. Peer election events
+do not establish client-service readiness.
 
 ## Automatic peer control
 
@@ -166,8 +168,9 @@ the group pending; normal peer traffic cannot succeed until prefix application
 succeeds. An installed generation starts pending after server restart as well.
 Materializers must remain idempotent and the candidate controller must keep
 client service gated until the quorum installation call succeeds. The daemon
-peer controller enforces installation/materialization completion; client-serving
-integration is still outstanding.
+peer controller enforces installation/materialization completion. The opt-in
+client endpoint independently reconciles recovery and confirms a current quorum
+before executing each request.
 
 The transfer and selection currently hold full histories in memory. Incremental
 checkpoint recovery remains required for growing histories. These APIs install
@@ -232,8 +235,9 @@ protocol receipts on the replacement, retries original application commands,
 and issues new SQL/KV/object/blob writes through the surviving TLS peer. Both
 survivors are reopened and checked for exact values and history counts. Loss
 of the remaining quorum rejects strict reads, and restarting it restores quorum
-confirmation. This test drives the recovery API directly; automatic daemon
-elections and client-listener routing are not yet integrated.
+confirmation. This older test drives the recovery API directly. A separate real-daemon test now
+exercises automatic elections and client listeners without an external recovery
+coordinator, including concurrent requests during primary loss.
 
 ## Remaining takeover work
 
@@ -248,10 +252,36 @@ ordinary stale-view prepare/commit traffic remains fenced, and another payload
 or index cannot use the authorization. The authorization is replayed with the
 installation and survives subsequent views.
 
-The remaining controller work includes transferring cell and application-writer
-ownership to the client coordinator, opening/routing client listeners through
-that coordinator, and certified membership changes. Peer elections alone do
-not enable automatic client-service takeover.
+The peer's optional `client` endpoint now serializes request execution with peer
+traffic. `VsrBackedFabricRouter::with_installed_cells` lends exact live cells for
+one scoped operation and returns them on callback failure, recovery rejection,
+and unwinding. The peer marks materialization pending before the handoff, so
+ordinary acknowledgements cannot bypass a failed application operation. The
+client coordinator recovers receipts from those cells, reconciles complete
+commands, applies their payloads through the peer's resident writers, and
+confirms the installed quorum before execution. It does not reopen a separate
+bootstrap log or assume the smallest voter is primary.
+
+Every connection uses application mTLS. Each request rechecks certificate
+binding, namespace grants, tenancy, admitted voter identities, and installed
+membership. An unfenced follower returns an explicit primary endpoint without
+attempting the request; clients must retry with the same request identity.
+Admission remains closed during a promise, before installation, on conflicting
+primary ownership across hosted groups, or when quorum confirmation fails.
+
+The real-daemon client test writes all four surfaces, starts four concurrent
+KV clients, kills the primary after acknowledged writes, deletes its state,
+and resolves all 32 concurrent request identities on the elected replacement.
+It checks original certificates, exact applied values/counts on both survivors,
+new writes on all surfaces, replacement restart, a usable redirect, certificate
+revocation, and strict-read rejection/restoration with quorum loss. Debug and
+optimized-release executions are required by the automatic-client Fozzy domain.
+
+Remaining work includes certified membership changes, independently led placement
+groups and cross-group scheduling, incremental recovery/checkpoints, control
+metadata distribution, and deployment qualification. The legacy standalone
+`serve` entry point retains its existing static primary configuration; automatic
+service takeover requires the explicit peer `client` configuration.
 Independent-machine partitions and crash/power-loss qualification remain
 required. Process exit tests establish software publication ordering; they do
 not simulate loss of filesystem caches or prove hardware fsync behavior.

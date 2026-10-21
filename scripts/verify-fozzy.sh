@@ -95,6 +95,7 @@ run_domain sql tests/sql-host.pass.fozzy.json
 run_domain authentication tests/auth-host.pass.fozzy.json
 run_domain tenancy tests/tenancy-host.pass.fozzy.json
 run_domain daemon tests/rsfd-host.pass.fozzy.json
+run_domain automatic-client tests/automatic-client-host.pass.fozzy.json
 run_domain daemon-stress tests/stress-host.pass.fozzy.json
 run_domain release-stress tests/stress-release-host.pass.fozzy.json
 run_domain object-blob tests/object-blob-host.pass.fozzy.json
@@ -111,6 +112,7 @@ from pathlib import Path
 
 root, seed, passed, failed, before, after = sys.argv[1:]
 metrics = {}
+automatic_client_metrics = {}
 for name in ("daemon-stress", "release-stress"):
     trace = Path(root, name + ".trace.fozzy")
     if not trace.exists():
@@ -139,8 +141,35 @@ workloads_valid = all(
     and metrics[name].get("uncertain_writes_resolved") == 3
     for name, profile, writes in (("daemon-stress", "debug", 16), ("release-stress", "release", 64))
 )
+automatic_trace = Path(root, "automatic-client.trace.fozzy")
+if automatic_trace.exists():
+    for event in json.loads(automatic_trace.read_text()).get("events", []):
+        fields = event.get("fields", {})
+        if event.get("name") != "proc_spawn" or fields.get("exit_code") != 0:
+            continue
+        for line in fields.get("stdout", "").splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if value.get("workload") == "automatic-client-takeover":
+                automatic_client_metrics[value.get("profile")] = value
+automatic_valid = all(
+    profile in automatic_client_metrics
+    and automatic_client_metrics[profile].get("concurrent_clients") == 4
+    and automatic_client_metrics[profile].get("submitted_requests") == 32
+    and 4 <= automatic_client_metrics[profile].get("acknowledged_before_crash", 0) < 32
+    and automatic_client_metrics[profile].get("requests_without_acknowledgement") == 32 - automatic_client_metrics[profile].get("acknowledged_before_crash", 0)
+    and automatic_client_metrics[profile].get("retried_requests") == 32
+    and automatic_client_metrics[profile].get("verified_logical_kv_writes") == 34
+    and automatic_client_metrics[profile].get("surviving_replicas_checked") == 2
+    and automatic_client_metrics[profile].get("primary_state_deleted") is True
+    and automatic_client_metrics[profile].get("replacement_restarts") == 1
+    and automatic_client_metrics[profile].get("surface_count") == 4
+    for profile in ("debug", "release")
+)
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -150,6 +179,8 @@ summary = {
     "trace_directory": root,
     "workload_evidence_valid": workloads_valid,
     "workload_metrics": metrics,
+    "automatic_client_metrics": automatic_client_metrics,
+    "automatic_client_evidence_valid": automatic_valid,
     "coverage_per_passing_domain": [
         "five-run doctor", "strict deterministic test", "real host recorded run",
         "strict trace verification", "replay", "CI"

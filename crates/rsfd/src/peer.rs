@@ -10,6 +10,7 @@ use rsf_rpc::replication::{PeerElectionTiming, PeerEndpoint, PeerIdentity, PeerR
 use rsf_vsr::DurableVsrCell;
 use serde::Deserialize;
 
+mod client;
 mod materializer;
 use materializer::ApplicationMaterializer;
 
@@ -26,6 +27,8 @@ struct PeerConfig {
     cells: Vec<CellConfig>,
     #[serde(default)]
     elections: Option<ElectionConfig>,
+    #[serde(default)]
+    client: Option<client::ClientConfig>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,6 +73,7 @@ struct PeerService {
     materializer: ApplicationMaterializer,
     elections: Option<PeerElectionTiming>,
     last_elections: BTreeMap<u64, (u64, u64, bool, String)>,
+    client: Option<client::ClientService>,
 }
 
 pub fn run_cli(args: &[String]) -> Result<(), String> {
@@ -85,7 +89,7 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
     let mut service = PeerService::open(Path::new(path))?;
     println!(
         "{}",
-        serde_json::json!({"event":"peer.ready","listen":service.listener.local_addr().map_err(|err|err.to_string())?.to_string()})
+        serde_json::json!({"event":"peer.ready","listen":service.listener.local_addr().map_err(|err|err.to_string())?.to_string(),"client_listen":service.client.as_ref().map(|client|client.local_addr().to_string())})
     );
     std::io::stdout().flush().map_err(|err| err.to_string())?;
     loop {
@@ -144,6 +148,9 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
                     );
                     service.last_elections.insert(update.pg.0, state);
                 }
+            }
+            if let Some(client) = &service.client {
+                client.serve_one(&mut service.server, &mut service.materializer)?;
             }
             std::thread::sleep(timing.heartbeat.min(Duration::from_millis(10)));
         }
@@ -238,8 +245,29 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
             .iter()
             .filter(|cell| cell.learner_source.is_none())
         {
-            elections.timing().validate(timeout, cell.voters.len())?;
+            let timing = elections.timing();
+            timing.validate(timeout, cell.voters.len())?;
+            if config.client.is_some() {
+                let minimum = timeout
+                    .saturating_mul((cell.voters.len().saturating_sub(1) as u32).saturating_mul(2))
+                    .saturating_add(timing.heartbeat.saturating_mul(3))
+                    .saturating_add(crate::data::DATA_CONNECTION_TIMEOUT);
+                if timing.timeout < minimum {
+                    return Err("client election timeout must also cover the absolute data connection deadline".into());
+                }
+            }
         }
+    }
+    if config.client.is_some()
+        && (config.elections.is_none()
+            || config
+                .cells
+                .iter()
+                .any(|cell| cell.learner_source.is_some()))
+    {
+        return Err(
+            "peer client service requires automatic elections and hosted voting cells only".into(),
+        );
     }
     if config.cells.is_empty() {
         return Err("peer server requires at least one cell".into());
@@ -310,6 +338,19 @@ impl PeerService {
                 .map_err(|err| err.message)?,
             );
         }
+        let client = config
+            .client
+            .as_ref()
+            .map(|client| {
+                client::ClientService::open(
+                    client,
+                    path.parent().unwrap_or(Path::new(".")),
+                    &state,
+                    local,
+                    &peers,
+                )
+            })
+            .transpose()?;
         let server = PeerReplicaServer::with_learners(
             NodeId(config.node),
             &cluster,
@@ -342,6 +383,7 @@ impl PeerService {
             server,
             elections,
             last_elections: BTreeMap::new(),
+            client,
             _lock: lock,
             materializer,
         })
@@ -424,38 +466,6 @@ pub(crate) fn bind_state(root: &Path, cluster: &ClusterId, node: NodeId) -> Resu
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn state_identity_cannot_move_to_another_node_or_cluster() {
-        let root = std::env::temp_dir().join(format!(
-            "rsf-peer-identity-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let cluster = ClusterId::new("alpha").unwrap();
-        bind_state(&root, &cluster, NodeId(1)).unwrap();
-        bind_state(&root, &cluster, NodeId(1)).unwrap();
-        assert!(bind_state(&root, &cluster, NodeId(2)).is_err());
-        assert!(bind_state(&root, &ClusterId::new("beta").unwrap(), NodeId(1)).is_err());
-        std::fs::write(root.join("IDENTITY.json"), b"torn").unwrap();
-        assert!(bind_state(&root, &cluster, NodeId(1)).is_err());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn peer_configuration_rejects_ambiguous_fields_and_fingerprints() {
-        assert!(serde_json::from_str::<NodeConfig>(r#"{"node":1,"address":"127.0.0.1:1","server_name":"localhost","fingerprint":"ab","extra":true}"#).is_err());
-        assert!(decode_fingerprint("ab").is_err());
-        assert!(decode_fingerprint(&"z".repeat(64)).is_err());
-        assert_eq!(decode_fingerprint(&"ab".repeat(32)).unwrap(), [0xab; 32]);
-    }
-}
-
 fn sync_learner_cli(args: &[String]) -> Result<(), String> {
     let usage =
         "usage: rsfd peer sync-learner --config <source-peer.json> --pg <id> --target <node>";
@@ -503,4 +513,36 @@ fn sync_learner_cli(args: &[String]) -> Result<(), String> {
         serde_json::json!({"event":"peer.learner-synced","pg":pg,"target":target.0,"committed_tail":tail.0,"role":"learner"})
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn state_identity_cannot_move_to_another_node_or_cluster() {
+        let root = std::env::temp_dir().join(format!(
+            "rsf-peer-identity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cluster = ClusterId::new("alpha").unwrap();
+        bind_state(&root, &cluster, NodeId(1)).unwrap();
+        bind_state(&root, &cluster, NodeId(1)).unwrap();
+        assert!(bind_state(&root, &cluster, NodeId(2)).is_err());
+        assert!(bind_state(&root, &ClusterId::new("beta").unwrap(), NodeId(1)).is_err());
+        std::fs::write(root.join("IDENTITY.json"), b"torn").unwrap();
+        assert!(bind_state(&root, &cluster, NodeId(1)).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn peer_configuration_rejects_ambiguous_fields_and_fingerprints() {
+        assert!(serde_json::from_str::<NodeConfig>(r#"{"node":1,"address":"127.0.0.1:1","server_name":"localhost","fingerprint":"ab","extra":true}"#).is_err());
+        assert!(decode_fingerprint("ab").is_err());
+        assert!(decode_fingerprint(&"z".repeat(64)).is_err());
+        assert_eq!(decode_fingerprint(&"ab".repeat(32)).unwrap(), [0xab; 32]);
+    }
 }

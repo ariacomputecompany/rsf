@@ -36,11 +36,11 @@ The standard is strict:
   - Have a real relational page/redo/buffer path with deterministic page-image and redo-record codecs, slot/tombstone capacity validation, idempotent redo replay and checkpoint summaries, WAL-before-page-flush gating, dirty frame flush planning, clean LRU eviction under frame/byte budgets, and a durable relational WAL gate over `rsf-storage` segment records that recovers synced flush eligibility, recovers unsynced redo as not flushable, rejects malformed relational WAL payloads fail-closed, and has host-backed deterministic Fozzy trace coverage for page/WAL/buffer/storage/core recovery behavior.
 - `crates/rsf-vsr`
   - Has a prepare/ack/commit/view-change state machine, deterministic timeout election, exact signer-set commit certificates that bind quorum acknowledgements to the prepared operation, durable prepare/commit/view-change/client-table/membership WAL records through multi-segment `rsf-storage` stores, restart recovery for committed prepares, learner catch-up from committed prefixes, view-change committed-prefix proof, quorum-overlap voter-change validation, stale-primary fencing, duplicate client requests, explicit replica transport abstraction, deterministic partition/drop tests at the protocol-certificate boundary, multi-segment restart coverage for prepare/commit/view-change/membership/client-table records, VSR-level committed-prefix compaction rejection until snapshots exist, full binary command persistence on independent follower stores, bounded prepare/commit codecs, contiguous commit and catch-up prefixes, stale-vote-free local reproposal, durability-error fencing, forced follower-process termination recovery, and host-backed Fozzy trace coverage.
-  - Has durable election promises in a mandatory WAL kind, fail-closed replay and truncation protection, old-view mutation/probe fences that survive restart, and authenticated per-voter frozen-history collection over TLS. Reports preserve accepted-but-uncommitted operations and client metadata; collecting a quorum does not activate a candidate. Exhaustive three-/five-voter majority tests and real process kill/restart tests cover fencing. See `docs/primary-failover.md`; automatic daemon takeover and certified membership changes remain unfinished.
-  - Has shared authoritative replay for cold recovery and election validation; common-installed-view quorum selection with accepted-prefix validation, deterministic source selection, merged commit evidence and client mappings; immutable generation publication with synced checksummed pointer/seal, mandatory installation WAL records, idempotent retry preserving later commits, receiver-local receipt preservation, I/O-failure fencing and inactive-generation cleanup. Tests cover successive views, abrupt process exit at publication boundaries, corruption, learner replay, and actual TLS replication after local installation on both survivors. Mixed-view reconciliation and resumable remote view installation are implemented; automatic daemon takeover remains unfinished.
-  - Reconciles mixed installed views using last-normal-view priority, accepted operation prefixes (including differing reprepare headers), quorum commit/receipt evidence, and exact-operation authorization for certificates learned after an older view was sealed. Uses versioned compact marker metadata with legacy replay and semantic retry compatibility. Tests reject committed forks and recover a TLS candidate that restarted after activating alone; automatic daemon service takeover remains unfinished.
+  - Has durable election promises in a mandatory WAL kind, fail-closed replay and truncation protection, old-view mutation/probe fences that survive restart, and authenticated per-voter frozen-history collection over TLS. Reports preserve accepted-but-uncommitted operations and client metadata; collecting a quorum does not activate a candidate. Exhaustive three-/five-voter majority tests and real process kill/restart tests cover fencing. See `docs/primary-failover.md`; opt-in peer elections and client takeover are implemented; certified membership changes and deployment qualification remain unfinished.
+  - Has shared authoritative replay for cold recovery and election validation; common-installed-view quorum selection with accepted-prefix validation, deterministic source selection, merged commit evidence and client mappings; immutable generation publication with synced checksummed pointer/seal, mandatory installation WAL records, idempotent retry preserving later commits, receiver-local receipt preservation, I/O-failure fencing and inactive-generation cleanup. Tests cover successive views, abrupt process exit at publication boundaries, corruption, learner replay, and actual TLS replication after local installation on both survivors. Mixed-view reconciliation and resumable remote view installation are implemented; opt-in peer/client takeover is implemented; independent-group routing and deployment qualification remain unfinished.
+  - Reconciles mixed installed views using last-normal-view priority, accepted operation prefixes (including differing reprepare headers), quorum commit/receipt evidence, and exact-operation authorization for certificates learned after an older view was sealed. Uses versioned compact marker metadata with legacy replay and semantic retry compatibility. Tests reject committed forks and recover a TLS candidate that restarted after activating alone; opt-in peer/client takeover is implemented; broader topology qualification remains unfinished.
 - `crates/rsf-protocol`
-  - Has complete protocol-only command replication and ordered recovery alongside surface commands, reconstruction of protocol receipts from installed peer cells, exclusive cell ownership transfer, receipt-failure fencing, and rejection of conflicting receipts and request identities. Recovery APIs are not yet integrated into automatic daemon service takeover.
+  - Has complete protocol-only command replication and ordered recovery alongside surface commands, reconstruction of protocol receipts from installed peer cells, exclusive cell ownership transfer, receipt-failure fencing, and rejection of conflicting receipts and request identities. Recovery APIs now support the opt-in peer client listener through scoped live-cell custody and shared application writers.
   - Has the custom protocol profile contract, operation identities, commit certificates, strict/AP mode gates, a durable protocol WAL boundary over `SegmentStore`, restart recovery for commit certificates, corrupt-payload failure tests, multi-segment protocol WAL recovery, durable router recovery, durable client request idempotency through the VSR client table, recovered commit-version/index generation, durable placement-map routing, durable policy catalog gates, multi-segment placement-map/policy recovery, protocol truncation safety for certificates and metadata, VSR view-synchronized certificate epochs, router-integrated VSR membership changes, timeout-driven primary recovery with local-leadership guards, split protocol-WAL/VSR-store layout coverage, and a transport-driven VSR-backed router that only emits protocol certificates after durable quorum VSR commits.
 - `crates/rsf-admin`
   - Has durable invite-token verifier admission, node identity validation and duplicate rejection, explicit learner sync before promotion, membership-backed learner promotion with quorum-overlap evidence once voters exist, quorum-preserving voter removal and synced-learner replacement over the VSR membership path, durable append-only admission/learner/promotion/reconfiguration/audit recovery over `rsf-storage`, side-effect-free placement preview, failure-domain-aware replicated placement planning, placement policy preflight explanations, durable protocol placement-map apply integration through `rsf-protocol`, safe protocol policy apply preflight, and accepted/rejected admission/placement/reconfiguration/policy audit events.
@@ -125,35 +125,40 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Latest verification (2026-10-21): `artifacts/verification.7zrGkH/summary.json`
-passes all 17 domains with unchanged executable sources (SHA-256
-`2e5ea2b0e19fe97dcf86ea2ba0fc89e817ccf2aee02f986bbea2af43e39f5460`).
-Includes 84 VSR tests, 51 protocol tests, 28 peer RPC tests, 56 storage tests,
-multi-page SQL tests, the full workspace, recorded host traces, and debug/release
-crash-restart workloads (198/774 acknowledged writes, 18 process shutdowns and
-three uncertain-write resolutions per workload). Strict Clippy passes for
-`rsf-vsr`, `rsf-rpc`, `rsf-protocol`, and `rsf-blob` with `--no-deps`. A real-daemon test
-removes the old primary's state, installs a new view on survivors, recovers a
-coordinator from the installed cells, preserves original retry certificates,
-and commits new SQL/KV/object/blob operations through a surviving TLS peer.
-Metadata commands now preserve their complete protocol operation and original
-version/request identity. Receipt failure, global version ordering, and metadata/
-application request collisions are covered. Installed-cell adoption rejects surface
-operations without payloads. Tagged immutable dependencies preserve orphaned
-object pins without creating user blob receipts; identity/purpose checks, preflight,
-and real object process-kill recovery cover this boundary. Opt-in automatic peer elections and restart-resumed installation are now implemented
-and pass the full fresh gate. Real-daemon tests cover primary loss, stale-primary
-rejoin, minority fencing, quorum restoration, and restart after local-only
-publication. The initial gate caught a short setup RPC deadline; seed setup now
-uses the standard 2 s host-test budget, while election-phase deadlines remain
-unchanged. Both new parent tests execute successfully in the daemon host trace;
-the complete workspace Cargo invocation also exits successfully. This does not establish automatic
-client coordinator takeover/routing, full legacy-value migration, workspace-wide lint
-cleanliness, or independent-machine readiness. See `docs/primary-failover.md`.
+Latest verification (2026-10-21): `artifacts/verification.dtfIqB/summary.json`
+passes all 18 domains with unchanged executable sources (SHA-256
+`cec044efba94e3d936640dd507e5e39f7135eba91cf3fcfb35d16e4664644f34`). Includes 84 VSR tests, 52 protocol tests,
+28 peer RPC tests, 56 storage tests, the full daemon/workspace suites, and
+recorded host traces with strict verification, replay, and CI. Strict Clippy
+passes for `rsf-protocol`, `rsf-rpc`, and `rsfd` with `--all-targets --no-deps -D warnings`;
+workspace-wide lint cleanliness remains separate work.
+
+The required automatic-client domain executes debug and optimized-release real
+daemons with all four application surfaces, scoped live-cell custody, shared
+resident application writers, primary redirects, authorization revocation,
+minority fencing, quorum restoration, and replacement restart. Four concurrent
+clients submit 32 writes across actual primary death and deletion of its data;
+each profile preserves four acknowledgements and resolves 28 requests without
+acknowledgements by identity. Both surviving stores contain the exact 34 logical
+KV writes without duplicates. The report requires actual workload output, so a
+zero-test filter cannot pass. Separate debug/release stress workloads verify
+198/774 acknowledged writes, 18 process shutdowns, and three uncertain-write
+resolutions per profile.
+
+Peer/client takeover is opt-in through `peer serve` configuration. Installed
+membership must match explicitly provisioned admission metadata, and all hosted
+groups must name the same primary before this coordinator admits a request.
+Each request recovers installed complete commands and confirms current quorum;
+election observations are not leases. Scope remains loopback TLS with fsync on
+one host, not independent-machine or WAN capacity qualification. The initial
+expanded gate exposed an ephemeral listener reservation collision in a restart
+test; fixed-endpoint fixtures now reserve below the default ephemeral ranges.
+The fresh complete gate passes. See `docs/primary-failover.md` and
+`docs/peer-replication.md` for configuration and remaining limitations.
 
 ## Remaining Release Blockers
 
-- Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and incremental replay/checkpoint cursors. Complete quorum-certified configuration changes and learner promotion, and automatic primary failover with peer/client ownership integration, application recovery, and client routing. Installed-cell coordinator recovery and four-surface recovery/write integration are implemented; the daemon now optionally schedules peer elections and repairs stale voters, but does not route client listeners through that recovery API. Mixed-view selection, atomic generation installation, and authenticated resumable remote view installation are implemented. Authenticated non-voting history catch-up does not install membership. Prove end-to-end quorum durability under machine failure.
+- Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and incremental replay/checkpoint cursors. Complete quorum-certified configuration changes and learner promotion, independent-group client routing, distributed control metadata, and production qualification of automatic takeover. Installed-cell coordinator recovery and four-surface recovery/write integration are implemented; the daemon now optionally schedules peer elections, repairs stale voters, and serves client listeners through scoped installed-cell recovery with shared application writers and primary redirects. Independent-group routing and distributed control metadata remain unfinished. Mixed-view selection, atomic generation installation, and authenticated resumable remote view installation are implemented. Authenticated non-voting history catch-up does not install membership. Prove end-to-end quorum durability under machine failure.
 - Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. Establish the purpose and payload history of old unmarked immutable pins before adopting them as dependencies. The secured daemon currently rejects shared top-level surface directories.
 - Add durable SQL sessions, incremental persistence, and bounded result streaming; current autocommit checkpoints rewrite the full state and replicated planning rebuilds canonical page placement per mutation. Multi-page tables and atomic row relocation are implemented; growing-table capacity and throughput still need qualification.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.

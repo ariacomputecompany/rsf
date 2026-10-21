@@ -7,12 +7,12 @@ const RPC_MS: u64 = 150;
 const HEARTBEAT_MS: u64 = 100;
 const ELECTION_MS: u64 = 1500;
 
-struct AutomaticProcess {
-    process: Process,
+pub(super) struct AutomaticProcess {
+    pub(super) process: Process,
     elections: Arc<Mutex<Vec<serde_json::Value>>>,
 }
 impl AutomaticProcess {
-    fn start(path: &Path) -> Self {
+    pub(super) fn start(path: &Path) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_rsfd"))
             .args(["peer", "serve", "--config"])
             .arg(path)
@@ -66,14 +66,14 @@ impl AutomaticProcess {
         self.elections.lock().unwrap().last().cloned()
     }
 }
-fn state(root: &Path, node: u64) -> PathBuf {
+pub(super) fn state(root: &Path, node: u64) -> PathBuf {
     if node == 0 {
         root.join("seed-protocol.vsr")
     } else {
         root.join(format!("store-{node}"))
     }
 }
-fn configure(root: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>, automatic: bool) {
+pub(super) fn configure(root: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>, automatic: bool) {
     // Seed writes and frozen-input setup use the normal host-test RPC budget.
     // Short deadlines belong to the election phase, where payloads already exist.
     let rpc_ms = if automatic { RPC_MS } else { PEER_TIMEOUT_MS };
@@ -90,10 +90,28 @@ fn configure(root: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>, automatic: boo
         .unwrap();
     }
 }
-fn reserve(peers: &mut BTreeMap<NodeId, PeerEndpoint>) -> Vec<Option<std::net::TcpListener>> {
+// Keep child listener reservations outside default macOS/Linux ephemeral
+// client-port ranges. Dropping a port-zero reservation before exec can let a
+// parallel outbound connection take that port before the child binds it.
+pub(super) fn reserve_listener() -> std::net::TcpListener {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    for _ in 0..10_000 {
+        let ordinal = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let port = 10_000 + ((std::process::id() as usize * 31 + ordinal) % 10_000) as u16;
+        match std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))) {
+            Ok(listener) => return listener,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(error) => panic!("test listener reservation: {error}"),
+        }
+    }
+    panic!("no fixed test listener port available");
+}
+pub(super) fn reserve(
+    peers: &mut BTreeMap<NodeId, PeerEndpoint>,
+) -> Vec<Option<std::net::TcpListener>> {
     (0..3)
         .map(|node| {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let listener = reserve_listener();
             peers.get_mut(&NodeId(node)).unwrap().address = listener.local_addr().unwrap();
             Some(listener)
         })
@@ -115,7 +133,7 @@ fn observe(
     .unwrap()
     .replica_status(NodeId(node), PlacementGroupId(1))
 }
-fn await_primary(
+pub(super) fn await_primary(
     root: &Path,
     peers: &BTreeMap<NodeId, PeerEndpoint>,
     processes: &mut [Option<AutomaticProcess>],
@@ -173,7 +191,7 @@ fn await_primary(
         std::thread::sleep(Duration::from_millis(50));
     }
 }
-fn await_minority(
+pub(super) fn await_minority(
     root: &Path,
     peers: &BTreeMap<NodeId, PeerEndpoint>,
     process: &mut AutomaticProcess,

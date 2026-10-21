@@ -22,10 +22,52 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
         transport: T,
     ) -> RsfResult<Self> {
+        let mut cells = cells;
+        Self::recover_installed_cells(
+            path.as_ref(),
+            coordination_epoch,
+            local,
+            &mut cells,
+            transport,
+        )
+    }
+
+    /// Lend exact live peer cells for one serialized coordination operation.
+    /// Cells (including persisted mutations) return to their owner on every
+    /// result and during unwinding. Recovery failure cannot release ownership.
+    pub fn with_installed_cells<R>(
+        path: impl AsRef<Path>,
+        coordination_epoch: Epoch,
+        local: NodeId,
+        cells: &mut BTreeMap<PlacementGroupId, DurableVsrCell>,
+        transport: T,
+        operation: impl FnOnce(&mut Self) -> RsfResult<R>,
+    ) -> RsfResult<R> {
+        let router = Self::recover_installed_cells(
+            path.as_ref(),
+            coordination_epoch,
+            local,
+            cells,
+            transport,
+        )?;
+        let mut custody = InstalledCellCustody {
+            router,
+            owner: cells,
+        };
+        operation(&mut custody.router)
+    }
+
+    fn recover_installed_cells(
+        path: &Path,
+        coordination_epoch: Epoch,
+        local: NodeId,
+        cells: &mut BTreeMap<PlacementGroupId, DurableVsrCell>,
+        transport: T,
+    ) -> RsfResult<Self> {
         if cells.is_empty() {
             return Err(handoff_invalid("installed-state recovery requires cells"));
         }
-        for (pg, cell) in &cells {
+        for (pg, cell) in cells.iter() {
             let probe = cell.primary_probe()?;
             if !cell.has_installed_view()
                 || probe.pg != *pg
@@ -54,7 +96,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
                 }
             }
         }
-        let path = path.as_ref().to_path_buf();
+        let path = path.to_path_buf();
         let groups = cells.keys().copied().collect::<Vec<_>>();
         // Reject an incomplete/different cell inventory before persisting any
         // metadata or opening writers for a new group.
@@ -80,7 +122,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             path,
             epoch: coordination_epoch,
             router,
-            cells,
+            cells: std::mem::take(cells),
             placement,
             policy,
             primary: local,
@@ -91,8 +133,13 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             application_failure: None,
             provision_local_cells: false,
         };
-        recovered.recover_application_commands()?;
-        recovered.validate_installed_receipts()?;
+        let validation = recovered
+            .recover_application_commands()
+            .and_then(|()| recovered.validate_installed_receipts());
+        if let Err(error) = validation {
+            *cells = recovered.into_cells();
+            return Err(error);
+        }
         Ok(recovered)
     }
 
@@ -147,6 +194,15 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             }
         }
         Ok(())
+    }
+}
+struct InstalledCellCustody<'a, T: VsrTransport> {
+    router: VsrBackedFabricRouter<T>,
+    owner: &'a mut BTreeMap<PlacementGroupId, DurableVsrCell>,
+}
+impl<T: VsrTransport> Drop for InstalledCellCustody<'_, T> {
+    fn drop(&mut self) {
+        *self.owner = std::mem::take(&mut self.router.cells);
     }
 }
 fn handoff_invalid(message: &str) -> RsfError {

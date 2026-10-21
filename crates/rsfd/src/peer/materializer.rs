@@ -84,34 +84,80 @@ impl ApplicationMaterializer {
     }
 
     pub(super) fn apply(&mut self, command: &ReplicatedFabricCommand) -> Result<(), String> {
-        let namespace = &command.application.namespace;
-        let surface = command.application.surface;
+        self.with_store(
+            &command.application.namespace,
+            command.application.surface,
+            |store| store.apply(command),
+        )
+        .map_err(|err| err.message)
+    }
+
+    pub(super) fn execute<T: rsf_vsr::VsrTransport>(
+        &mut self,
+        envelope: &rsf_wire::RequestEnvelope,
+        router: &mut rsf_protocol::VsrBackedFabricRouter<T>,
+    ) -> RsfResult<crate::data::DataPlaneResponse> {
+        use rsf_wire::WireProtocol;
+        let surface = match envelope.protocol {
+            WireProtocol::Sql => ApplicationSurface::Sql,
+            WireProtocol::Kv => ApplicationSurface::Kv,
+            WireProtocol::Object => ApplicationSurface::Object,
+            WireProtocol::Blob => ApplicationSurface::Blob,
+            _ => {
+                return Err(rsf_core::RsfError::new(
+                    rsf_core::ErrorCode::InvalidInput,
+                    "unsupported client surface",
+                ));
+            }
+        };
+        let namespace = envelope.namespace.as_deref().ok_or_else(|| {
+            rsf_core::RsfError::new(rsf_core::ErrorCode::InvalidInput, "namespace is required")
+        })?;
+        self.with_store(namespace, surface, |store| match store {
+            Store::Kv(kv) => {
+                kv.reconcile(router)?;
+                crate::data::execution::kv(envelope, router, kv)
+            }
+            Store::Sql(sql) => {
+                sql.reconcile(router)?;
+                crate::data::execution::sql(envelope, router, sql)
+            }
+            Store::Object(objects) => {
+                objects.reconcile(router)?;
+                crate::data::execution::object(envelope, router, objects)
+            }
+            Store::Blob(blobs) => crate::data::execution::blob(envelope, router, blobs),
+        })
+    }
+
+    fn with_store<R>(
+        &mut self,
+        namespace: &str,
+        surface: ApplicationSurface,
+        operation: impl FnOnce(&mut Store) -> RsfResult<R>,
+    ) -> RsfResult<R> {
         let position = self
             .stores
             .iter()
-            .position(|store| store.namespace == *namespace && store.surface == surface);
+            .position(|store| store.namespace == namespace && store.surface == surface);
         let mut resident = match position {
             Some(position) => self
                 .stores
                 .remove(position)
                 .expect("resident position exists"),
             None => {
-                // Release the old writer's descriptors before opening another
-                // store, including when already near the host's descriptor cap.
                 if self.stores.len() == self.capacity {
                     self.stores.pop_front();
                 }
                 Resident {
-                    namespace: namespace.clone(),
+                    namespace: namespace.to_owned(),
                     surface,
-                    store: Store::open(&self.root, namespace, surface)
-                        .map_err(|err| err.message)?,
+                    store: Store::open(&self.root, namespace, surface)?,
                 }
             }
         };
-        let result = resident.store.apply(command).map_err(|err| err.message);
-        // Keep failed writers fenced as well. Eviction/restart must perform
-        // normal recovery; an RPC failure never swaps in an empty engine.
+        let result = operation(&mut resident.store);
+        // Error paths retain the engine and its durable-failure fence as well.
         self.stores.push_back(resident);
         result
     }

@@ -559,3 +559,61 @@ fn orphaned_internal_pin_recovers_as_coordination_without_becoming_a_user_blob_r
     drop(router);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn scoped_custody_restores_live_cells_after_errors_unwind_and_recovery_rejection() {
+    let root = root("scoped-custody");
+    let mut cells = installed(&root, 2, false);
+    let path = root.join("protocol");
+    let error: RsfResult<()> = VsrBackedFabricRouter::with_installed_cells(
+        &path,
+        Epoch(1),
+        NodeId(1),
+        &mut cells,
+        LocalVsrTransport::all_reachable(voters()),
+        |router| {
+            router.reconcile_application_commands()?;
+            assert_eq!(router.latest_version(), CommitVersion(2));
+            Err(handoff_invalid("client failed after reconciliation"))
+        },
+    );
+    assert_eq!(
+        error.unwrap_err().message,
+        "client failed after reconciliation"
+    );
+    assert_eq!(cells[&PlacementGroupId(1)].committed_tail(), LogIndex(2));
+    assert!(DurableVsrCell::open_existing(root.join("candidate"), PlacementGroupId(1)).is_err());
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _: RsfResult<()> = VsrBackedFabricRouter::with_installed_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |_| panic!("injected client unwind"),
+        );
+    }));
+    assert!(panic.is_err());
+    assert_eq!(cells.len(), 1);
+    // Failure after cells have entered recovery must also restore custody.
+    let unrelated = command(3);
+    let mut foreign = DurableFabricRouter::open(&path, [PlacementGroupId(1)], Epoch(2)).unwrap();
+    foreign
+        .commit(PlacementGroupId(1), unrelated.commit.operation)
+        .unwrap();
+    drop(foreign);
+    let result: RsfResult<()> = VsrBackedFabricRouter::with_installed_cells(
+        &path,
+        Epoch(1),
+        NodeId(1),
+        &mut cells,
+        LocalVsrTransport::all_reachable(voters()),
+        |_| Ok(()),
+    );
+    assert!(result.is_err());
+    assert_eq!(cells.len(), 1);
+    assert!(DurableVsrCell::open_existing(root.join("candidate"), PlacementGroupId(1)).is_err());
+    drop(cells);
+    DurableVsrCell::open_existing(root.join("candidate"), PlacementGroupId(1)).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}

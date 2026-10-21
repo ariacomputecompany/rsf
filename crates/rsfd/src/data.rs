@@ -1,3 +1,5 @@
+mod deadline;
+pub(crate) mod execution;
 use crate::replication::ReplicationTransport;
 type DataRouter = VsrBackedFabricRouter<ReplicationTransport>;
 
@@ -18,6 +20,7 @@ use rsf_wire::{
     RequestEnvelope, WireAdapter, WireCodec, WireDecision, WireOperationKind, WireProtocol,
 };
 
+pub(crate) const DATA_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_DATA_FRAME_BYTES: u32 = 64 * 1024;
 const MAX_DATA_REQUESTS_PER_TICK: usize = 64;
 
@@ -54,9 +57,29 @@ impl DataPlaneListener {
     }
 
     pub fn serve_pending(&self, out: &mut impl Write) -> Result<usize, String> {
-        // The burst owns its writers. Dropping it before returning also releases
-        // them before the daemon samples health or another control operation.
         let executor = DataPlaneExecutor::new(self.state.clone());
+        self.serve_with(
+            MAX_DATA_REQUESTS_PER_TICK,
+            &mut |envelope, fingerprint| executor.execute(envelope, fingerprint),
+            out,
+        )
+    }
+
+    /// One connection per peer-control tick bounds application admission work.
+    pub(crate) fn serve_one_with(
+        &self,
+        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
+        out: &mut impl Write,
+    ) -> Result<usize, String> {
+        self.serve_with(1, executor, out)
+    }
+
+    fn serve_with(
+        &self,
+        limit: usize,
+        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
+        out: &mut impl Write,
+    ) -> Result<usize, String> {
         let mut served = 0_usize;
         loop {
             match self.listener.accept() {
@@ -65,7 +88,7 @@ impl DataPlaneListener {
                         stream,
                         &self.codec,
                         &self.adapter,
-                        &executor,
+                        executor,
                         self.tls.clone(),
                     )
                     .unwrap_or_else(|err| DataPlaneResponse::Rejected {
@@ -77,7 +100,7 @@ impl DataPlaneListener {
                     });
                     emit_data_plane_response(out, peer, &response)?;
                     served = served.saturating_add(1);
-                    if served == MAX_DATA_REQUESTS_PER_TICK {
+                    if served == limit {
                         return Ok(served);
                     }
                 }
@@ -118,6 +141,11 @@ pub enum DataPlaneResponse {
         protocol: &'static str,
         mutation: MutationOutcome,
         reason: String,
+    },
+    Redirect {
+        protocol: &'static str,
+        primary: u64,
+        address: SocketAddr,
     },
     Corrupt {
         reason: String,
@@ -174,278 +202,45 @@ impl DataPlaneExecutor {
     }
 
     fn execute_sql(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        ensure_empty_body(&envelope.body, "sql")?;
-        let request_client = sql_request_client_from_envelope(&envelope)?;
         let namespace = envelope
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_sql_runtime(namespace)?;
-        if envelope.operation_kind == WireOperationKind::Read
-            && runtime.router.transport_mut().is_network()
-        {
-            runtime.router.confirm_read_quorum()?;
-        }
-        let execution = runtime.sql.execute(
-            &mut runtime.router,
-            PlacementGroupId(1),
-            &envelope.operation,
-            request_client,
-        )?;
-        let payload = match &execution.outcome {
-            SqlOutcome::Selected { rows } => {
-                serde_json::to_vec(&rows.iter().map(|row| &row.columns).collect::<Vec<_>>())
-                    .map_err(|err| invalid(format!("failed to encode SQL result: {err}")))?
-            }
-            _ => Vec::new(),
-        };
-        let response = DataPlaneResponse::Executed {
-            protocol: envelope.protocol.as_str(),
-            operation_kind: operation_kind_label(envelope.operation_kind),
-            surface: "sql",
-            version: execution.version.map(|version| version.0),
-            bytes: payload.len() as u64,
-            payload,
-            detail: format!(
-                "{} replayed={}",
-                sql_outcome_detail(&execution.outcome),
-                execution.replayed
-            ),
-        };
+        let response = execution::sql(&envelope, &mut runtime.router, &mut runtime.sql);
         self.remember(namespace, Runtime::Sql(runtime));
-        Ok(response)
+        response
     }
 
     fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_kv_command(&envelope.operation, &envelope.body)?;
         let namespace = envelope
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_kv_runtime(namespace)?;
-        if matches!(&command, KvCommand::Get { .. }) && runtime.router.transport_mut().is_network()
-        {
-            runtime.router.confirm_read_quorum()?;
-        }
-        let response = match command {
-            KvCommand::Get { key } => {
-                let value = runtime.kv.get(key.as_bytes());
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "kv",
-                    version: value.map(|value| value.version.0),
-                    bytes: value.map_or(0, |value| value.value.len() as u64),
-                    payload: value.map_or_else(Vec::new, |value| value.value.clone()),
-                    detail: match value {
-                        Some(value) => format!(
-                            "hit key={} version={} deleted={}",
-                            key, value.version.0, value.deleted
-                        ),
-                        None => format!("miss key={key}"),
-                    },
-                })
-            }
-            KvCommand::Set { key, value } => {
-                let request = client_request_from_envelope(&envelope)?;
-                let snapshot = runtime.kv.snapshot(&runtime.router);
-                let result = runtime.kv.commit_batch_routed(
-                    &mut runtime.router,
-                    KvBatch {
-                        client_request: Some(request),
-                        snapshot,
-                        mutations: vec![KvMutation::Set {
-                            key: key.as_bytes().to_vec(),
-                            value: value.clone(),
-                        }],
-                    },
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "kv",
-                    version: Some(result.version.0),
-                    bytes: value.len() as u64,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "set key={} replayed={} placement_group={} log_index={}",
-                        key,
-                        result.replayed,
-                        result.evidence.placement_group.0,
-                        result.evidence.log_index.0
-                    ),
-                })
-            }
-            KvCommand::Clear { key } => {
-                let request = client_request_from_envelope(&envelope)?;
-                let snapshot = runtime.kv.snapshot(&runtime.router);
-                let result = runtime.kv.commit_batch_routed(
-                    &mut runtime.router,
-                    KvBatch {
-                        client_request: Some(request),
-                        snapshot,
-                        mutations: vec![KvMutation::Clear {
-                            key: key.as_bytes().to_vec(),
-                        }],
-                    },
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "kv",
-                    version: Some(result.version.0),
-                    bytes: 0,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "clear key={} replayed={} placement_group={} log_index={}",
-                        key,
-                        result.replayed,
-                        result.evidence.placement_group.0,
-                        result.evidence.log_index.0
-                    ),
-                })
-            }
-        };
+        let response = execution::kv(&envelope, &mut runtime.router, &mut runtime.kv);
         self.remember(namespace, Runtime::Kv(runtime));
         response
     }
 
     fn execute_blob(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_blob_command(&envelope.operation, &envelope.body)?;
         let namespace = envelope
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_blob_runtime(namespace)?;
-        let response = match command {
-            BlobCommand::Put { name: _, bytes } => {
-                let record = runtime.blobs.put_request(
-                    &mut runtime.router,
-                    PlacementGroupId(1),
-                    client_request_from_envelope_for_surface(&envelope, "blob")?,
-                    bytes,
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "blob",
-                    version: Some(record.pin_version.0),
-                    bytes: record.bytes,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "put id=blake3:{} deduped={} pins={} placement_group={} log_index={}",
-                        hex_bytes(record.id.as_bytes()),
-                        record.deduped,
-                        record.pins,
-                        record.pin_evidence.placement_group.0,
-                        record.pin_evidence.log_index.0
-                    ),
-                })
-            }
-            BlobCommand::Get { id } => {
-                let bytes = runtime.blobs.read_verified(&id)?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "blob",
-                    version: None,
-                    bytes: bytes.len() as u64,
-                    payload: bytes,
-                    detail: format!("hit id=blake3:{}", hex_bytes(id.as_bytes())),
-                })
-            }
-        };
+        let response = execution::blob(&envelope, &mut runtime.router, &mut runtime.blobs);
         self.remember(namespace, Runtime::Blob(runtime));
         response
     }
 
     fn execute_object(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_object_command(&envelope.operation, &envelope.body)?;
         let namespace = envelope
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_object_runtime(namespace)?;
-        if matches!(&command, ObjectCommand::Get { .. })
-            && runtime.router.transport_mut().is_network()
-        {
-            runtime.router.confirm_read_quorum()?;
-        }
-        let response = match command {
-            ObjectCommand::CreateBucket { bucket } => {
-                let record = runtime.objects.create_bucket_request(
-                    &mut runtime.router,
-                    PlacementGroupId(1),
-                    client_request_from_envelope_for_surface(&envelope, "object")?,
-                    bucket,
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "object",
-                    version: Some(record.version.0),
-                    bytes: 0,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "create_bucket bucket={} placement_group={} log_index={}",
-                        record.name, record.evidence.placement_group.0, record.evidence.log_index.0
-                    ),
-                })
-            }
-            ObjectCommand::Put { bucket, key, bytes } => {
-                let request = client_request_from_envelope_for_surface(&envelope, "object")?;
-                let put = runtime.objects.put(
-                    &mut runtime.router,
-                    PlacementGroupId(1),
-                    PlacementGroupId(1),
-                    request,
-                    bucket,
-                    key,
-                    bytes,
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "object",
-                    version: Some(put.head.version.0),
-                    bytes: put.head.bytes,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "put bucket={} key={} id=blake3:{} manifest=blake3:{} deduped={} pins={} placement_group={} log_index={}",
-                        put.head.bucket,
-                        put.head.key,
-                        hex_bytes(put.head.content.as_bytes()),
-                        hex_bytes(put.head.manifest_digest.as_bytes()),
-                        put.deduped,
-                        put.pins,
-                        put.head.evidence.placement_group.0,
-                        put.head.evidence.log_index.0
-                    ),
-                })
-            }
-            ObjectCommand::Get { bucket, key } => {
-                let bytes = runtime.objects.read_verified(&bucket, &key)?;
-                let head = runtime
-                    .objects
-                    .head(&bucket, &key)
-                    .expect("object head exists after verified read");
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "object",
-                    version: Some(head.version.0),
-                    bytes: bytes.len() as u64,
-                    payload: bytes,
-                    detail: format!(
-                        "hit bucket={} key={} id=blake3:{} manifest=blake3:{}",
-                        bucket,
-                        key,
-                        hex_bytes(head.content.as_bytes()),
-                        hex_bytes(head.manifest_digest.as_bytes())
-                    ),
-                })
-            }
-        };
+        let response = execution::object(&envelope, &mut runtime.router, &mut runtime.objects);
         self.remember(namespace, Runtime::Object(runtime));
         response
     }
@@ -721,10 +516,10 @@ enum ObjectCommand {
 }
 
 fn serve_data_stream(
-    mut stream: TcpStream,
+    stream: TcpStream,
     codec: &WireCodec,
     adapter: &WireAdapter,
-    executor: &DataPlaneExecutor,
+    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
     tls: std::sync::Arc<rustls::ServerConfig>,
 ) -> Result<DataPlaneResponse, String> {
     stream
@@ -733,12 +528,7 @@ fn serve_data_stream(
     stream
         .set_nodelay(true)
         .map_err(|err| format!("failed to configure data socket latency: {err}"))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .map_err(|err| format!("failed to configure data read timeout: {err}"))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .map_err(|err| format!("failed to configure data write timeout: {err}"))?;
+    let mut stream = deadline::DeadlineStream::new(stream, DATA_CONNECTION_TIMEOUT);
 
     let mut connection = rustls::ServerConnection::new(tls).map_err(|err| err.to_string())?;
     while connection.is_handshaking() {
@@ -795,11 +585,11 @@ fn read_data_frame(stream: &mut impl Read) -> Result<Vec<u8>, String> {
 
 fn data_plane_response(
     decision: WireDecision,
-    executor: &DataPlaneExecutor,
+    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
     fingerprint: &[u8; 32],
 ) -> DataPlaneResponse {
     match decision {
-        WireDecision::Accepted(envelope) => executor.execute(envelope, fingerprint),
+        WireDecision::Accepted(envelope) => executor(envelope, fingerprint),
         WireDecision::Rejected { protocol, reason } => DataPlaneResponse::Rejected {
             protocol: protocol.as_str(),
             mutation: MutationOutcome::NotAttempted,
@@ -1200,6 +990,14 @@ fn render_data_plane_response(response: &DataPlaneResponse) -> String {
                 single_line(reason)
             )
         }
+        DataPlaneResponse::Redirect {
+            protocol,
+            primary,
+            address,
+        } => format!(
+            "RSF/1 redirect protocol={} mutation=not-attempted primary={} address={}\n",
+            protocol, primary, address
+        ),
         DataPlaneResponse::Corrupt { reason } => {
             format!("RSF/1 corrupt reason={}\n", single_line(reason))
         }
@@ -1235,6 +1033,10 @@ fn emit_data_plane_response(
             out,
             "daemon data peer={} status=rejected protocol={} mutation={} reason={}",
             peer, protocol, mutation.as_str(), single_line(reason)
+        ),
+        DataPlaneResponse::Redirect { protocol, primary, address } => writeln!(
+            out, "daemon data peer={} status=redirect protocol={} primary={} address={}",
+            peer, protocol, primary, address
         ),
         DataPlaneResponse::Corrupt { reason } => {
             writeln!(

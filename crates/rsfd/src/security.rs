@@ -246,7 +246,7 @@ pub fn run_cli(command: &str, args: &[String]) -> Result<(), String> {
         .map_err(|err| err.message)?;
     crate::audit_operator_event(
         &mut audit,
-        &format!("{command}.{action}"),
+        format!("{command}.{action}"),
         None,
         None,
         None,

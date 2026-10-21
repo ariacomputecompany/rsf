@@ -33,7 +33,7 @@ pub struct PeerEndpoint {
     pub fingerprint: [u8; 32],
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NetworkVsrTransport {
     local: NodeId,
     cluster: [u8; 32],
@@ -230,6 +230,23 @@ pub struct PeerReplicaServer {
 }
 
 impl PeerReplicaServer {
+    /// Serialize a client coordinator with peer traffic over the same live cells.
+    /// The callback must return cell custody before returning; protocol's scoped
+    /// installed-cell API provides restoration on errors and unwinding. Mark the
+    /// prefix pending before lending so even a failed client operation is applied
+    /// before any subsequent peer acknowledgement or heartbeat succeeds.
+    pub fn with_voting_cells<R>(
+        &mut self,
+        operation: impl FnOnce(
+            NodeId,
+            &mut BTreeMap<PlacementGroupId, DurableVsrCell>,
+            NetworkVsrTransport,
+        ) -> R,
+    ) -> R {
+        self.installation_pending.extend(self.cells.keys().copied());
+        operation(self.local, &mut self.cells, self.control_transport.clone())
+    }
+
     pub fn new(
         local: NodeId,
         cluster: &ClusterId,

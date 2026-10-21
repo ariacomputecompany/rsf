@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "2e5ea2b0e19fe97dcf86ea2ba0fc89e817ccf2aee02f986bbea2af43e39f5460",
-  "source_sha256_after": "2e5ea2b0e19fe97dcf86ea2ba0fc89e817ccf2aee02f986bbea2af43e39f5460",
+  "source_sha256_before": "cec044efba94e3d936640dd507e5e39f7135eba91cf3fcfb35d16e4664644f34",
+  "source_sha256_after": "cec044efba94e3d936640dd507e5e39f7135eba91cf3fcfb35d16e4664644f34",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -15,6 +15,7 @@
     "authentication",
     "tenancy",
     "daemon",
+    "automatic-client",
     "daemon-stress",
     "release-stress",
     "object-blob",
@@ -24,21 +25,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.7zrGkH",
+  "trace_directory": "artifacts/verification.dtfIqB",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 12.449522696971226,
-      "elapsed_ms": 81479,
+      "concurrent_write_ops_per_second": 12.61125574280132,
+      "elapsed_ms": 75485,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 617734,
-        "p50": 285118,
-        "p95": 487098,
-        "p99": 549377
+        "max": 589312,
+        "p50": 303013,
+        "p95": 407086,
+        "p99": 521613
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -51,14 +52,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 19.819372228610472,
-      "elapsed_ms": 102576,
+      "concurrent_write_ops_per_second": 15.32666572817448,
+      "elapsed_ms": 118618,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 606341,
-        "p50": 183966,
-        "p95": 297354,
-        "p99": 385792
+        "max": 1357126,
+        "p50": 197725,
+        "p95": 641998,
+        "p99": 1095132
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -68,6 +69,41 @@
       "workload": "native-kv-process-stress"
     }
   },
+  "automatic_client_metrics": {
+    "debug": {
+      "acknowledged_before_crash": 4,
+      "concurrent_clients": 4,
+      "elapsed_ms": 23843,
+      "primary_state_deleted": true,
+      "profile": "debug",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 34,
+      "workload": "automatic-client-takeover"
+    },
+    "release": {
+      "acknowledged_before_crash": 4,
+      "concurrent_clients": 4,
+      "elapsed_ms": 20571,
+      "primary_state_deleted": true,
+      "profile": "release",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 34,
+      "workload": "automatic-client-takeover"
+    }
+  },
+  "automatic_client_evidence_valid": true,
   "coverage_per_passing_domain": [
     "five-run doctor",
     "strict deterministic test",
