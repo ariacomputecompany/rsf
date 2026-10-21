@@ -34,10 +34,20 @@ pub(in crate::durable) struct SessionState {
     pub pg: u64,
     pub statements: Vec<String>,
     pub savepoints: Vec<(String, usize)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependencies: Option<std::collections::BTreeSet<super::dependencies::Dependency>>,
 }
 impl SessionState {
     pub fn validate(&self) -> RsfResult<()> {
         validate_token(&self.token)?;
+        if let Some(dependencies) = &self.dependencies {
+            if dependencies.len() > MAX_SQL_SESSION_DEPENDENCIES {
+                return Err(invalid("SQL session read dependency limit reached"));
+            }
+            for dependency in dependencies {
+                dependency.validate()?;
+            }
+        }
         if self.statements.len() > MAX_SQL_SESSION_STATEMENTS
             || self.savepoints.len() > MAX_SQL_SAVEPOINTS
             || encode(self)?.len() > MAX_SQL_SESSION_BYTES
@@ -100,6 +110,11 @@ pub(in crate::durable) struct RowEffect {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub(in crate::durable) enum SessionResult {
+    Selected {
+        token: String,
+        snapshot: u64,
+        rows: Vec<SessionRow>,
+    },
     Began {
         token: String,
         snapshot: u64,
@@ -158,6 +173,9 @@ impl SessionResult {
             version: CommitVersion(*snapshot),
         };
         match self {
+            Self::Selected { rows, .. } => SqlOutcome::Selected {
+                rows: rows.iter().map(|value| row(value, &0)).collect(),
+            },
             Self::Began { token, snapshot } => SqlOutcome::TransactionBegan {
                 session_id: token.clone(),
                 snapshot: CommitVersion(*snapshot),
@@ -241,6 +259,8 @@ pub(in crate::durable) struct SessionProposal {
     // Omission preserves canonical RSFSP1 bytes and their original certificates.
     #[serde(default, skip_serializing_if = "snapshot_isolation")]
     pub serializable: bool,
+    #[serde(default, skip_serializing_if = "snapshot_isolation")]
+    pub tracked: bool,
 }
 fn snapshot_isolation(serializable: &bool) -> bool {
     !serializable
@@ -248,12 +268,29 @@ fn snapshot_isolation(serializable: &bool) -> bool {
 impl SessionProposal {
     pub fn validate(&self) -> RsfResult<()> {
         self.request.validate()?;
-        if matches!(
-            parse_statement(&self.request.statement)?,
-            ParsedStatement::Select { .. }
-        ) {
+        if !self.tracked
+            && matches!(
+                parse_statement(&self.request.statement)?,
+                ParsedStatement::Select { .. }
+            )
+        {
             return Err(corrupt(
                 "read-only SQL session command cannot be replicated",
+            ));
+        }
+        if self.tracked && !self.serializable {
+            return Err(corrupt(
+                "tracked SQL session requires serializable isolation",
+            ));
+        }
+        if !self.tracked
+            && [self.before.as_ref(), self.after.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|state| state.dependencies.is_some())
+        {
+            return Err(corrupt(
+                "legacy SQL command cannot carry tracked dependency state",
             ));
         }
         if let Some(before) = &self.before {
@@ -273,7 +310,9 @@ impl SessionProposal {
     }
     pub fn encode(&self) -> RsfResult<Vec<u8>> {
         self.validate()?;
-        let mut bytes = if self.serializable {
+        let mut bytes = if self.tracked {
+            TRACKED_PROPOSAL_MAGIC
+        } else if self.serializable {
             SERIALIZABLE_PROPOSAL_MAGIC
         } else {
             PROPOSAL_MAGIC
@@ -286,16 +325,18 @@ impl SessionProposal {
         if bytes.len() > MAX_PROPOSAL_BYTES + PROPOSAL_MAGIC.len() {
             return Err(corrupt("SQL session transition exceeds limit"));
         }
-        let (body, serializable) =
-            if let Some(body) = bytes.strip_prefix(SERIALIZABLE_PROPOSAL_MAGIC) {
-                (body, true)
+        let (body, serializable, tracked) =
+            if let Some(body) = bytes.strip_prefix(TRACKED_PROPOSAL_MAGIC) {
+                (body, true, true)
+            } else if let Some(body) = bytes.strip_prefix(SERIALIZABLE_PROPOSAL_MAGIC) {
+                (body, true, false)
             } else if let Some(body) = bytes.strip_prefix(PROPOSAL_MAGIC) {
-                (body, false)
+                (body, false, false)
             } else {
                 return Err(corrupt("invalid SQL session transition format"));
             };
         let value: Self = decode(body)?;
-        if value.serializable != serializable {
+        if value.serializable != serializable || value.tracked != tracked {
             return Err(corrupt(
                 "SQL session isolation differs from transition format",
             ));

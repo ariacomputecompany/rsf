@@ -38,9 +38,24 @@ impl DurableSqlEngine {
             return self.execute_receipt(receipt, true);
         }
         if matches!(parse_statement(statement)?, ParsedStatement::Select { .. }) {
-            return read(self, request);
+            let request = dependencies::read_request(self, request)?;
+            if let Some(receipt) = self.receipts.get(&request.client) {
+                receipt.request.matches_session(&request)?;
+                self.confirm_retry(router, &receipt.request)?;
+                return self.execute_receipt(receipt, true);
+            }
+            return self.execute_session_transition(router, pg, request);
         }
-        let proposal = propose(self, request.clone(), router.latest_version(), true)?;
+        self.execute_session_transition(router, pg, request)
+    }
+
+    fn execute_session_transition(
+        &mut self,
+        router: &mut impl FabricRouterPort,
+        pg: PlacementGroupId,
+        request: SessionRequest,
+    ) -> RsfResult<DurableSqlExecution> {
+        let proposal = propose(self, request.clone(), router.latest_version(), true, true)?;
         let pending = PendingRequest {
             client: request.client,
             statement: request.statement,

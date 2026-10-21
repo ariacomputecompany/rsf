@@ -213,6 +213,16 @@ fn legacy(
     statement: &str,
     id: &str,
 ) -> DurableSqlExecution {
+    old_format(sql, router, context, statement, id, false)
+}
+pub(super) fn old_format(
+    sql: &mut DurableSqlEngine,
+    router: &mut VsrBackedFabricRouter,
+    context: &SqlSessionContext,
+    statement: &str,
+    id: &str,
+    serializable: bool,
+) -> DurableSqlExecution {
     let request = SessionRequest {
         owner: "alice".into(),
         context: context.clone(),
@@ -220,13 +230,14 @@ fn legacy(
         statement: statement.into(),
         pg: 1,
     };
-    let proposal = propose(sql, request, router.latest_version(), false).unwrap();
+    let proposal = propose(sql, request, router.latest_version(), serializable, false).unwrap();
     let encoded = proposal.encode().unwrap();
-    assert!(encoded.starts_with(b"RSFSP1"));
+    assert!(encoded.starts_with(if serializable { b"RSFSP2" } else { b"RSFSP1" }));
     assert!(
-        !std::str::from_utf8(&encoded)
-            .unwrap()
-            .contains("serializable")
+        serializable
+            || !std::str::from_utf8(&encoded)
+                .unwrap()
+                .contains("serializable")
     );
     assert_eq!(SessionProposal::decode(&encoded).unwrap(), proposal);
     let operation = proposal.operation().unwrap();
@@ -343,13 +354,38 @@ fn serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits
     let proposal = sql.receipts["new-begin"].request.session.as_ref().unwrap();
     assert!(proposal.serializable);
     let encoded = proposal.encode().unwrap();
-    assert!(encoded.starts_with(b"RSFSP2"));
+    assert!(encoded.starts_with(b"RSFSP3"));
     let mut downgraded = encoded.clone();
     downgraded[..6].copy_from_slice(b"RSFSP1");
     assert!(SessionProposal::decode(&downgraded).is_err());
+    run(
+        &mut sql,
+        &mut router,
+        "alice",
+        &fresh,
+        "ROLLBACK",
+        "new-abort",
+    )
+    .unwrap();
+    let mut pending_context = SqlSessionContext {
+        name: "pending-legacy".into(),
+        transaction: None,
+    };
+    let SqlOutcome::TransactionBegan { session_id, .. } = legacy(
+        &mut sql,
+        &mut router,
+        &pending_context,
+        "BEGIN",
+        "pending-legacy-begin",
+    )
+    .outcome
+    else {
+        panic!("legacy BEGIN");
+    };
+    pending_context.transaction = Some(session_id);
     let request = SessionRequest {
         owner: "alice".into(),
-        context: fresh.clone(),
+        context: pending_context.clone(),
         client: "pending-old-commit".into(),
         statement: "COMMIT".into(),
         pg: 1,
@@ -359,7 +395,7 @@ fn serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits
         statement: request.statement.clone(),
         pg: PlacementGroupId(1),
         session: Some(Box::new(
-            propose(&sql, request, router.latest_version(), false).unwrap(),
+            propose(&sql, request, router.latest_version(), false, false).unwrap(),
         )),
     };
     auto(
@@ -381,9 +417,9 @@ fn serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits
         &mut sql,
         &mut router,
         "alice",
-        &fresh,
+        &pending_context,
         "ROLLBACK",
-        "new-abort",
+        "legacy-pending-abort",
     )
     .unwrap();
     let mut follower = DurableSqlEngine::open_replicated(root.join("follower"), "tenant").unwrap();

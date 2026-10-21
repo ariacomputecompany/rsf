@@ -48,8 +48,11 @@ pub(crate) fn sql<T: VsrTransport>(
         bytes: payload.len() as u64,
         payload,
         detail: format!(
-            "{} replayed={}",
+            "{}{} replayed={}",
             sql_outcome_detail(&execution.outcome),
+            execution
+                .read_snapshot
+                .map_or_else(String::new, |snapshot| format!(" snapshot={}", snapshot.0)),
             execution.replayed
         ),
     };

@@ -182,6 +182,7 @@ fn invalid_plans_do_not_create_intents_or_committed_commands() {
 struct Interrupt {
     inner: VsrBackedFabricRouter,
     stop: bool,
+    stop_on_read: bool,
     fail_journal_head: Option<PathBuf>,
 }
 impl FabricRouterPort for Interrupt {
@@ -247,7 +248,11 @@ impl FabricRouterPort for Interrupt {
             matches!(
                 parse_statement(&pending.statement).unwrap(),
                 ParsedStatement::Commit
-            )
+            ) || (self.stop_on_read
+                && matches!(
+                    parse_statement(&pending.statement).unwrap(),
+                    ParsedStatement::Select { .. }
+                ))
         });
         let is_row = matches!(op, FabricOperation::RelationalMutation { .. }) || is_session_commit;
         let result = self
@@ -278,6 +283,7 @@ fn interrupted_writer_process() {
     let mut router = Interrupt {
         inner: router(&root),
         stop: true,
+        stop_on_read: false,
         fail_journal_head: None,
     };
     let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
@@ -294,6 +300,7 @@ fn interrupted_session_commit_process() {
     let mut router = Interrupt {
         inner: router(&root),
         stop: true,
+        stop_on_read: false,
         fail_journal_head: None,
     };
     let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
@@ -404,6 +411,122 @@ fn killed_session_commit_recovers_atomic_rows_schema_and_original_receipt() {
 }
 
 #[test]
+fn interrupted_session_read_process() {
+    let Some(root) = std::env::var_os("RSF_SQL_READ_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let mut router = Interrupt {
+        inner: router(&root),
+        stop: true,
+        stop_on_read: true,
+        fail_journal_head: None,
+    };
+    let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
+    execute(&mut sql, &mut router, CREATE, "create").unwrap();
+    let mut context = crate::SqlSessionContext {
+        name: "work".into(),
+        transaction: None,
+    };
+    let SqlOutcome::TransactionBegan { session_id, .. } = sql
+        .execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            "BEGIN",
+            "begin",
+        )
+        .unwrap()
+        .outcome
+    else {
+        panic!("BEGIN");
+    };
+    context.transaction = Some(session_id);
+    sql.execute_session(
+        &mut router,
+        PlacementGroupId(1),
+        "alice",
+        &context,
+        "SELECT * FROM users WHERE id=missing",
+        "read",
+    )
+    .unwrap();
+}
+
+#[test]
+fn killed_session_read_recovers_certified_dependency_and_original_result_before_acknowledgement() {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+    let root = root("read-kill");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "durable::replicated::tests::interrupted_session_read_process",
+            "--nocapture",
+        ])
+        .env("RSF_SQL_READ_ROOT", &root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            if line.unwrap().contains("SQL_COMMAND_DURABLE") {
+                let _ = send.send(());
+                return;
+            }
+        }
+    });
+    let arrived = receive.recv_timeout(std::time::Duration::from_secs(15));
+    let _ = child.kill();
+    child.wait().unwrap();
+    reader.join().unwrap();
+    arrived.unwrap();
+    let mut router = router(&root);
+    let mut sql = DurableSqlEngine::open(root.join("sql")).unwrap();
+    let context = crate::SqlSessionContext {
+        name: "work".into(),
+        transaction: Some(sql.sessions.values().next().unwrap().token.clone()),
+    };
+    assert_eq!(sql.reconcile(&mut router).unwrap(), 1);
+    let result = sql
+        .execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            "SELECT * FROM users WHERE id=missing",
+            "read",
+        )
+        .unwrap();
+    assert!(result.replayed && result.persisted);
+    assert_eq!(result.rows, 0);
+    assert_eq!(router.committed_application_commands().len(), 3);
+    execute(
+        &mut sql,
+        &mut router,
+        "INSERT INTO users (id, name) VALUES (missing, phantom)",
+        "phantom",
+    )
+    .unwrap();
+    let error = sql
+        .execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            "COMMIT",
+            "commit",
+        )
+        .unwrap_err();
+    assert!(error.message.contains("serializable snapshot conflict"));
+    assert!(sql.pending.is_none());
+}
+
+#[test]
 fn killed_writer_recovers_authoritative_statement_before_local_checkpoint() {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
@@ -456,6 +579,7 @@ fn journal_head_failure_fences_serving_and_replays_exact_command_after_reopen() 
     let mut router = Interrupt {
         inner: router(&root),
         stop: false,
+        stop_on_read: false,
         fail_journal_head: Some(sql_root.clone()),
     };
     let mut sql = DurableSqlEngine::open_replicated(&sql_root, "tenant").unwrap();

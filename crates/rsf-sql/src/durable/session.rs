@@ -3,13 +3,14 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+mod dependencies;
 mod execute;
-mod model;
+pub(super) mod model;
 mod plan;
 mod validation;
 pub(super) use model::{SessionProposal, SessionRequest, SessionState};
 pub(super) use plan::validate_serializable_snapshot;
-pub(super) use plan::{prepare, propose, read, validate_recovered};
+pub(super) use plan::{prepare, propose, validate_recovered};
 
 pub const MAX_ACTIVE_SQL_SESSIONS: usize = 128;
 pub const MAX_SQL_SESSION_STATEMENTS: usize = 64;
@@ -18,6 +19,9 @@ pub const MAX_SQL_SAVEPOINTS: usize = 32;
 const CONTEXT_MAGIC: &[u8] = b"RSF_SQL_SESSION_V1\n";
 const PROPOSAL_MAGIC: &[u8] = b"RSFSP1";
 const SERIALIZABLE_PROPOSAL_MAGIC: &[u8] = b"RSFSP2";
+const TRACKED_PROPOSAL_MAGIC: &[u8] = b"RSFSP3";
+const MAX_SQL_SESSION_DEPENDENCIES: usize = 128;
+const MAX_SQL_SESSION_READ_BYTES: usize = 24 * 1024;
 const MAX_PROPOSAL_BYTES: usize = 384 * 1024;
 
 fn invalid(message: impl Into<String>) -> RsfError {

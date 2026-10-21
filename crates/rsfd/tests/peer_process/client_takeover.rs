@@ -23,6 +23,29 @@ fn must_execute(
     );
     response
 }
+fn begin_session(address: SocketAddr, name: &str, id: &str) -> Vec<u8> {
+    let body = rsf_sql::SqlSessionContext {
+        name: name.into(),
+        transaction: None,
+    }
+    .encode()
+    .unwrap();
+    let reply = must_execute(address, Sql, "BEGIN", id, &body);
+    let token = reply
+        .split("session=")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+    rsf_sql::SqlSessionContext {
+        name: name.into(),
+        transaction: Some(token),
+    }
+    .encode()
+    .unwrap()
+}
 
 #[test]
 fn automatic_client_takeover_recovers_every_surface_routes_followers_and_rechecks_security() {
@@ -169,6 +192,20 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         })
         .collect::<Vec<_>>();
     assert!(staged_replies[1].contains("staged=true"));
+    let precrash_body = begin_session(
+        addresses[primary as usize],
+        "precrash-predicate",
+        "precrash-begin",
+    );
+    let precrash_query = "SELECT * FROM users WHERE name=precrashghost";
+    let precrash_read = must_execute(
+        addresses[primary as usize],
+        Sql,
+        precrash_query,
+        "precrash-read",
+        &precrash_body,
+    );
+    assert!(precrash_read.contains("select rows=0"));
     assert!(
         surface_request(
             addresses[primary as usize],
@@ -317,6 +354,30 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         };
         assert_eq!(retry, expected);
     }
+    assert_eq!(
+        must_execute(
+            address,
+            Sql,
+            precrash_query,
+            "precrash-read",
+            &precrash_body
+        ),
+        precrash_read.replace("replayed=false", "replayed=true")
+    );
+    must_execute(
+        address,
+        Sql,
+        "INSERT INTO users (id, name) VALUES (4, precrashghost)",
+        "precrash-external",
+        b"",
+    );
+    let rejected = surface_request(address, Sql, "COMMIT", "precrash-commit", &precrash_body);
+    assert!(
+        rejected.starts_with("RSF/1 rejected")
+            && rejected.contains("serializable snapshot conflict"),
+        "{rejected}"
+    );
+    must_execute(address, Sql, "ROLLBACK", "precrash-abort", &precrash_body);
     let resumed = must_execute(
         address,
         Sql,
@@ -394,6 +455,54 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         unchanged.contains(&hex(b"ada")) && !unchanged.contains(&hex(b"must-not-commit")),
         "{unchanged}"
     );
+    for (statement, id) in [
+        (
+            "CREATE TABLE parallel_rows(id PRIMARY KEY, name)",
+            "parallel-table",
+        ),
+        (
+            "INSERT INTO parallel_rows (id, name) VALUES (1, left)",
+            "parallel-left",
+        ),
+        (
+            "INSERT INTO parallel_rows (id, name) VALUES (2, right)",
+            "parallel-right",
+        ),
+    ] {
+        must_execute(address, Sql, statement, id, b"");
+    }
+    let left = begin_session(address, "parallel-left", "parallel-left-begin");
+    let right = begin_session(address, "parallel-right", "parallel-right-begin");
+    must_execute(
+        address,
+        Sql,
+        "SELECT * FROM parallel_rows WHERE id=1",
+        "parallel-left-read",
+        &left,
+    );
+    must_execute(
+        address,
+        Sql,
+        "SELECT * FROM parallel_rows WHERE id=2",
+        "parallel-right-read",
+        &right,
+    );
+    must_execute(
+        address,
+        Sql,
+        "UPDATE parallel_rows SET name=alpha WHERE id=1",
+        "parallel-left-update",
+        &left,
+    );
+    must_execute(
+        address,
+        Sql,
+        "UPDATE parallel_rows SET name=beta WHERE id=2",
+        "parallel-right-update",
+        &right,
+    );
+    must_execute(address, Sql, "COMMIT", "parallel-left-commit", &left);
+    must_execute(address, Sql, "COMMIT", "parallel-right-commit", &right);
     let read = must_execute(
         address,
         Sql,
@@ -522,6 +631,16 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         };
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].columns["name"], "durable");
+        let result = sql.read_snapshot("SELECT * FROM parallel_rows").unwrap();
+        let rsf_sql::SqlOutcome::Selected { rows } = result.outcome else {
+            panic!("parallel rows");
+        };
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.columns["name"].as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha", "beta"]
+        );
         let kv = rsf_kv::DurableKvEngine::open_replicated(
             crate_namespace(&state(&root, node)).join("kv"),
             Epoch(1),
@@ -566,6 +685,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "primary_state_deleted":true,"replacement_restarts":1,"surface_count":4,
             "active_sql_session_resumed":true,"sql_session_original_results_replayed":true,
             "serializable_sql_phantom_rejected":true,
+            "precrash_sql_read_dependency_recovered":true,"disjoint_sql_sessions_committed":true,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"
         })

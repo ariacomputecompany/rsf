@@ -172,9 +172,16 @@ automatic_valid = all(
     and automatic_client_metrics[profile].get("active_sql_session_resumed") is True
     and automatic_client_metrics[profile].get("sql_session_original_results_replayed") is True
     and automatic_client_metrics[profile].get("serializable_sql_phantom_rejected") is True
+    and automatic_client_metrics[profile].get("precrash_sql_read_dependency_recovered") is True
+    and automatic_client_metrics[profile].get("disjoint_sql_sessions_committed") is True
     for profile in ("debug", "release")
 )
 session_regressions = [
+    "tracked_reads_allow_disjoint_commits_and_replay_after_every_follower_restart",
+    "savepoint_rewinds_retain_predicates_and_implicit_absence_reads_after_restart",
+    "tracked_read_limits_fail_before_intents_and_identical_reads_reuse_certificates",
+    "legacy_active_sessions_keep_coarse_validation_and_original_rsfsp2_receipts",
+    "killed_session_read_recovers_certified_dependency_and_original_result_before_acknowledgement",
     "serializable_sessions_reject_write_skew_after_restart_and_follower_recovery",
     "serializable_sessions_reject_phantoms_and_tombstones_including_read_only_commits",
     "serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits",

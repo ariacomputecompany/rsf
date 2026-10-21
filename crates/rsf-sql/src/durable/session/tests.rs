@@ -2,6 +2,7 @@ use super::*;
 use rsf_core::{Epoch, NodeId};
 use rsf_protocol::VsrBackedFabricRouter;
 
+mod read_dependencies;
 mod serializable;
 
 #[test]

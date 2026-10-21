@@ -100,6 +100,11 @@ BEGIN, staged DDL/DML, SAVEPOINT, ROLLBACK TO, COMMIT and ROLLBACK each carry a
 complete `RSFSC2` command through the strict quorum protocol. Their acknowledgements
 make session state durable, while staged rows and schema remain invisible outside
 the session. Session SELECT uses the BEGIN snapshot plus its own staged statements.
+SELECT durably records its bounded result and row/predicate dependencies through
+the strict quorum path before returning. Response `version` certifies that read
+acknowledgement; `snapshot` is the older BEGIN data snapshot. Identical queries
+against an unchanged snapshot and staged statement prefix reuse their original
+read receipt, including after restart or failover.
 COMMIT publishes all final row effects, schema changes and session closure at one
 certified version. Transaction tokens prevent a stale request from committing a
 new transaction after reuse of a name. Exact retries retain their original results,
@@ -108,22 +113,24 @@ The pending intent contains the complete proposal, preserving an uncertain COMMI
 through process death. Recovery checks the transition chain, original results,
 row effects, catalog history and active-session inventory.
 
-Current native session commits use serializable namespace snapshot validation.
-After BEGIN, any committed SQL row change in the namespace, including an insert
-or tombstone outside the transaction's write set, makes COMMIT reject. A catalog
-change also invalidates the transaction. If validation succeeds, the BEGIN data
-and catalog are still the namespace state immediately before COMMIT, so all
-snapshot reads and staged writes can serialize at that commit. This closes write
-skew and predicate phantom cases without losing read dependencies on failover.
-It is conservative: unrelated rows can cause retries, and a read-only COMMIT can
-also reject. ROLLBACK remains available. Bounded durable read/predicate metadata
-to allow disjoint concurrent transactions remains performance work; this change
-does not establish transaction throughput or growing-history capacity.
+Current native sessions use serializable row/predicate validation. Successful
+mutations retain implicit row/existence dependencies, including inserts later
+rewound by a savepoint. SELECT retains its supported equality predicate or table
+scan. Dependencies survive ROLLBACK TO and process loss: forgetting observed reads
+while rewinding writes would allow write skew. COMMIT rejects later changes to
+dependent keys and changes whose old or new row matches an observed predicate,
+including phantoms and tombstones. Catalog changes still invalidate a transaction.
+Disjoint point reads/writes can commit, preserving the latest unrelated rows.
+Predicate checks reuse SELECT's typed query planner/executor. They conservatively
+cover the full predicate even with LIMIT or a narrower projection. ROLLBACK remains
+available. Validation and planning still inspect retained history; throughput,
+growing-history capacity and tighter conflict windows remain qualification work.
 
-New decisions carry the `RSFSP2` isolation marker inside the complete command and
-its operation digest. Canonical `RSFSP1` snapshot-only commands remain readable;
-their historical certificates and retry results are unchanged. A new COMMIT on
-an older active session uses current serializable validation. Reconciliation
+New decisions carry the `RSFSP3` read-tracking marker inside the complete command
+and its operation digest. Canonical `RSFSP1` snapshot-only and `RSFSP2` namespace
+snapshot commands remain readable; historical certificates and retry results are
+unchanged. A new COMMIT on an older active session retains conservative
+namespace-wide validation because earlier reads were not tracked. Reconciliation
 checks an uncertified pre-upgrade COMMIT against namespace data changes before
 resubmission and retains a conflicting intent for authoritative recovery. A
 previously certified legacy COMMIT retains its original semantics. Upgrade every
@@ -131,9 +138,12 @@ voter and drain uncertain pre-upgrade writes before qualifying serializable
 operation; mixed-version or unresolved legacy execution is not that guarantee.
 
 The transaction is pinned to its original placement group. Limits per namespace
-are 128 active sessions, 64 staged mutation
-statements per transaction, 32 savepoints, 64 KiB of canonical session state and
-384 KiB of canonical transition payload. Limit failures occur before intent or
+are 128 active sessions, 64 staged mutation statements per transaction, 32
+savepoints, 128 unique row/query dependencies, 64 KiB of canonical session state,
+24 KiB of canonical SELECT rows and 384 KiB of canonical transition payload.
+SELECTs that exceed the result bound require a smaller LIMIT. This bounds the
+persisted result, not peak query memory; result streaming remains unfinished.
+Limit failures occur before intent or
 protocol submission and preserve the transaction for rollback. There is no
 automatic expiry; clients must close abandoned transactions. Session reads and
 planning reconstruct retained snapshot history and are not capacity-qualified.

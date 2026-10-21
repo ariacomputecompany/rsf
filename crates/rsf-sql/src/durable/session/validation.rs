@@ -14,6 +14,11 @@ pub(super) fn validate(proposal: &SessionProposal) -> RsfResult<()> {
             || after.pg != proposal.request.pg
             || !after.statements.is_empty()
             || !after.savepoints.is_empty()
+            || after
+                .dependencies
+                .as_ref()
+                .is_some_and(|dependencies| !dependencies.is_empty())
+            || after.dependencies.is_some() != proposal.tracked
             || proposal.result
                 != (SessionResult::Began {
                     token: after.token.clone(),
@@ -32,6 +37,26 @@ pub(super) fn validate(proposal: &SessionProposal) -> RsfResult<()> {
     }
     let mut after = Some(before.clone());
     let valid = match (&statement, &proposal.result) {
+        (
+            ParsedStatement::Select { table, limit, .. },
+            SessionResult::Selected {
+                token,
+                snapshot,
+                rows,
+            },
+        ) => {
+            if let Some(dependencies) = &mut after.as_mut().unwrap().dependencies {
+                dependencies.insert(super::dependencies::Dependency::Query {
+                    statement: proposal.request.statement.clone(),
+                });
+            }
+            proposal.tracked
+                && token == &before.token
+                && snapshot == &before.snapshot
+                && rows.iter().all(|row| &row.table == table)
+                && limit.is_none_or(|limit| rows.len() <= limit)
+                && encode(rows)?.len() <= MAX_SQL_SESSION_READ_BYTES
+        }
         (ParsedStatement::Commit, SessionResult::Committed { token, mutations }) => {
             after = None;
             let schemas = before.statements.iter().try_fold(0, |count, sql| {
@@ -175,6 +200,18 @@ pub(super) fn validate(proposal: &SessionProposal) -> RsfResult<()> {
             .unwrap()
             .statements
             .push(proposal.request.statement.clone());
+        if let Some(dependencies) = &mut after.as_mut().unwrap().dependencies {
+            let row = match &proposal.result {
+                SessionResult::Inserted { row, .. } | SessionResult::Updated { row, .. } => {
+                    Some((row.table.clone(), row.key.clone()))
+                }
+                SessionResult::Deleted { table, key, .. } => Some((table.clone(), key.clone())),
+                _ => None,
+            };
+            if let Some((table, key)) = row {
+                dependencies.insert(super::dependencies::Dependency::Row { table, key });
+            }
+        }
     }
     if !valid || after != proposal.after {
         return Err(fail());

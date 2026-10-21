@@ -36,6 +36,9 @@ pub struct DurableSqlExecution {
     pub outcome: SqlOutcome,
     pub rows: usize,
     pub version: Option<CommitVersion>,
+    /// Data snapshot for a durable session SELECT; `version` certifies the read
+    /// dependency acknowledgement, which can be later than this snapshot.
+    pub read_snapshot: Option<CommitVersion>,
     pub persisted: bool,
     pub replayed: bool,
 }
@@ -354,6 +357,7 @@ impl DurableSqlEngine {
 
 fn execution(outcome: SqlOutcome, replayed: bool) -> DurableSqlExecution {
     DurableSqlExecution {
+        read_snapshot: None,
         rows: outcome_row_count(&outcome),
         version: outcome_version(&outcome),
         persisted: outcome_persists(&outcome),

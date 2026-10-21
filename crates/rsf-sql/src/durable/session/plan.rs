@@ -91,7 +91,10 @@ fn working(engine: &SqlEngine, state: &SessionState) -> RsfResult<Working> {
         touched,
     })
 }
-fn active<'a>(sql: &'a DurableSqlEngine, request: &SessionRequest) -> RsfResult<&'a SessionState> {
+pub(super) fn active<'a>(
+    sql: &'a DurableSqlEngine,
+    request: &SessionRequest,
+) -> RsfResult<&'a SessionState> {
     request.validate()?;
     let state = sql
         .sessions
@@ -134,7 +137,7 @@ fn effects(
     serializable: bool,
 ) -> RsfResult<Vec<RowEffect>> {
     if serializable {
-        validate_serializable_snapshot(sql, state.snapshot)?;
+        dependencies::validate(sql, state, None)?;
     }
     let mut effects = Vec::new();
     for (table, key) in &work.touched {
@@ -173,6 +176,7 @@ pub(in crate::durable) fn propose(
     request: SessionRequest,
     begin_snapshot: CommitVersion,
     serializable: bool,
+    tracked: bool,
 ) -> RsfResult<SessionProposal> {
     request.validate()?;
     let parsed = parse_statement(&request.statement)?;
@@ -199,6 +203,7 @@ pub(in crate::durable) fn propose(
                 pg: request.pg,
                 statements: vec![],
                 savepoints: vec![],
+                dependencies: tracked.then(BTreeSet::new),
             };
             (
                 Some(state),
@@ -281,7 +286,38 @@ pub(in crate::durable) fn propose(
             (Some(state), result, vec![])
         }
         ParsedStatement::Select { .. } => {
-            return Err(invalid("SQL session reads are not replicated mutations"));
+            if !tracked {
+                return Err(invalid("legacy SQL session reads are not replicated"));
+            }
+            let mut state = active(sql, &request)?.clone();
+            let execution = read(sql, request.clone())?;
+            let SqlOutcome::Selected { rows } = execution.outcome else {
+                return Err(corrupt("SQL read has no rows"));
+            };
+            let rows = rows
+                .into_iter()
+                .map(|row| SessionRow {
+                    table: row.table,
+                    key: row.primary_key,
+                    columns: row.columns,
+                })
+                .collect::<Vec<_>>();
+            if encode(&rows)?.len() > MAX_SQL_SESSION_READ_BYTES {
+                return Err(invalid(
+                    "SQL session SELECT result exceeds limit; use a smaller LIMIT",
+                ));
+            }
+            if let Some(dependencies) = &mut state.dependencies {
+                dependencies.insert(dependencies::Dependency::Query {
+                    statement: request.statement.clone(),
+                });
+            }
+            let result = SessionResult::Selected {
+                token: state.token.clone(),
+                snapshot: state.snapshot,
+                rows,
+            };
+            (Some(state), result, vec![])
         }
         _ => {
             let mut state = active(sql, &request)?.clone();
@@ -341,11 +377,24 @@ pub(in crate::durable) fn propose(
                 }
                 _ => return Err(invalid("unsupported SQL session statement")),
             };
+            if let Some(dependencies) = &mut state.dependencies {
+                let row = match &result {
+                    SessionResult::Inserted { row, .. } | SessionResult::Updated { row, .. } => {
+                        Some((row.table.clone(), row.key.clone()))
+                    }
+                    SessionResult::Deleted { table, key, .. } => Some((table.clone(), key.clone())),
+                    _ => None,
+                };
+                if let Some((table, key)) = row {
+                    dependencies.insert(dependencies::Dependency::Row { table, key });
+                }
+            }
             (Some(state), result, vec![])
         }
     };
     let proposal = SessionProposal {
         serializable,
+        tracked,
         request,
         before,
         after,
@@ -377,6 +426,7 @@ pub(in crate::durable) fn prepare(
         proposal.request.clone(),
         CommitVersion(snapshot),
         proposal.serializable,
+        proposal.tracked,
     )?;
     if expected != *proposal {
         return Err(corrupt(
@@ -506,7 +556,13 @@ pub(in crate::durable) fn validate_recovered(sql: &DurableSqlEngine) -> RsfResul
                 ));
             }
             if matches!(proposal.result, SessionResult::Committed { .. }) {
-                if proposal.serializable
+                if proposal.serializable && proposal.tracked {
+                    dependencies::validate(sql, state, Some(command.commit.version)).map_err(
+                        |_| {
+                            corrupt("serializable SQL session committed across a dependency change")
+                        },
+                    )?;
+                } else if proposal.serializable
                     && versions.values().flatten().any(|value| {
                         state.snapshot < value.version.0 && value.version < command.commit.version
                     })

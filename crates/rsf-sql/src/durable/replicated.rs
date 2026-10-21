@@ -30,6 +30,11 @@ fn receipt_execution(
         result.version = Some(receipt.evidence.version);
         result.persisted = true;
     }
+    if let Some(proposal) = &receipt.request.session
+        && let session::model::SessionResult::Selected { snapshot, .. } = &proposal.result
+    {
+        result.read_snapshot = Some(CommitVersion(*snapshot));
+    }
     Ok(result)
 }
 fn invalid(message: impl Into<String>) -> RsfError {
