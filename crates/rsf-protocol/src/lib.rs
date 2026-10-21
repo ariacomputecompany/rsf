@@ -10,10 +10,11 @@ use rsf_core::{
 };
 
 pub use durable::{
-    ApplicationPayload, ApplicationSurface, DurableFabricRouter, DurableProtocolCommit,
-    DurableRequestCommit, PlacementMap, ProtocolCommandPurpose, ProtocolCommitRecord,
-    ProtocolPolicy, ProtocolWal, RecoveredProtocolCommit, ReplicatedFabricCommand,
-    ReplicatedProtocolCommand, VsrBackedFabricRouter,
+    ApplicationPayload, ApplicationSurface, CoordinatorCacheStats, CoordinatorState,
+    DurableFabricRouter, DurableProtocolCommit, DurableRequestCommit, InstalledCoordinatorCache,
+    PlacementMap, ProtocolCommandPurpose, ProtocolCommitRecord, ProtocolPolicy, ProtocolWal,
+    RecoveredProtocolCommit, ReplicatedFabricCommand, ReplicatedProtocolCommand,
+    VsrBackedFabricRouter,
 };
 pub use profile::{
     BorrowedProtocolPart, CustomProtocolProfile, ProtocolSpine, custom_protocol_profile,

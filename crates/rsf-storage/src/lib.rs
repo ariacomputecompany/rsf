@@ -20,7 +20,8 @@ use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
     CompactionReport, QuarantineReport, SegmentDescriptor, SegmentScan, SegmentScanFilter,
-    SegmentStore, SegmentStoreBenchmark, SegmentStoreOptions, SegmentStoreRecovery, TruncateReport,
+    SegmentStore, SegmentStoreBenchmark, SegmentStoreOptions, SegmentStoreRecovery,
+    SegmentStoreRevision, TruncateReport,
 };
 
 const MAGIC: [u8; 4] = *b"RSF1";

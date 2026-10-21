@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "377707e970bf97cbae347a4269607517923a9ea8588a89cdbb4f43c1a97bb5af",
-  "source_sha256_after": "377707e970bf97cbae347a4269607517923a9ea8588a89cdbb4f43c1a97bb5af",
+  "source_sha256_before": "524e5e8a93732c31c41e880cf5fa5ece4688a36c1827a0a8b5f8a710809bd654",
+  "source_sha256_after": "524e5e8a93732c31c41e880cf5fa5ece4688a36c1827a0a8b5f8a710809bd654",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -25,21 +25,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.BcylMU",
+  "trace_directory": "artifacts/verification.kcOVwm",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 10.98088970599926,
-      "elapsed_ms": 79303,
+      "concurrent_write_ops_per_second": 11.980508461514894,
+      "elapsed_ms": 81412,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 987901,
-        "p50": 304742,
-        "p95": 600800,
-        "p99": 853847
+        "max": 683271,
+        "p50": 309130,
+        "p95": 486554,
+        "p99": 610146
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -52,14 +52,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 15.48708859774193,
-      "elapsed_ms": 125201,
+      "concurrent_write_ops_per_second": 20.3622869764748,
+      "elapsed_ms": 103920,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 1007790,
-        "p50": 209772,
-        "p95": 510595,
-        "p99": 745972
+        "max": 350928,
+        "p50": 187988,
+        "p95": 250150,
+        "p99": 286241
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -73,7 +73,11 @@
     "debug": {
       "acknowledged_before_crash": 4,
       "concurrent_clients": 4,
-      "elapsed_ms": 20799,
+      "coordinator_recoveries_before_crash": 2,
+      "coordinator_reuses_before_crash": 138,
+      "elapsed_ms": 74500,
+      "history_growth_ms": 32355,
+      "history_growth_writes": 128,
       "primary_state_deleted": true,
       "profile": "debug",
       "replacement_restarts": 1,
@@ -83,13 +87,17 @@
       "submitted_requests": 32,
       "surface_count": 4,
       "surviving_replicas_checked": 2,
-      "verified_logical_kv_writes": 34,
+      "verified_logical_kv_writes": 162,
       "workload": "automatic-client-takeover"
     },
     "release": {
       "acknowledged_before_crash": 4,
       "concurrent_clients": 4,
-      "elapsed_ms": 20624,
+      "coordinator_recoveries_before_crash": 2,
+      "coordinator_reuses_before_crash": 138,
+      "elapsed_ms": 64252,
+      "history_growth_ms": 27701,
+      "history_growth_writes": 128,
       "primary_state_deleted": true,
       "profile": "release",
       "replacement_restarts": 1,
@@ -99,7 +107,7 @@
       "submitted_requests": 32,
       "surface_count": 4,
       "surviving_replicas_checked": 2,
-      "verified_logical_kv_writes": 34,
+      "verified_logical_kv_writes": 162,
       "workload": "automatic-client-takeover"
     }
   },

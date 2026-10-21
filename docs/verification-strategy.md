@@ -393,3 +393,34 @@ records after installation, and a successful subsequent quorum-selected view.
 The real TLS router test exercises the same rejection with quorum present and
 absent, then restores quorum and commits in the original configuration. This
 coverage is included in the VSR/RPC host traces and full workspace suite.
+
+The automatic-client domain now requires 128 acknowledged history-growth writes
+before the crash, at least 128 observed retained coordinator uses, and fewer
+full recoveries than retained uses. Each profile then resolves 32 concurrent
+request identities and verifies exactly 162 logical KV writes plus all four
+surface recovery paths. Actual JSON workload output is required in both debug
+and optimized-release traces. Reported history-growth time is a loopback work
+measurement, not an independent-host capacity or latency guarantee.
+
+Resident-coordinator regressions verify shared multi-group WAL writers, cached
+logical tail invalidation, checksum failure after changed disk state, receipt/
+policy/generation/reopen invalidation, and ownership restoration after errors
+and unwinding. Installed-prefix recovery is tested with quorum lost before or
+after receipt reconstruction and with an accepted-only suffix that still needs
+fresh prepare acknowledgements. Both cold and retained execution continue to
+require fresh quorum before client admission.
+
+The growing workload also checks that object-internal tagged pins remain absent
+from the user blob surface. A deliberately rejected blob read invalidates its
+coordinator entry, so this profile can include an additional cold reconstruction
+before the history-growth phase. Post-execution materialization visits every new
+certified payload command before advancing the cursor; protocol-only dependencies
+are excluded from that index. Workload cache counters describe observed use, not
+an entitlement to serve without fresh authority/quorum checks.
+
+Cold materializer coverage evicts a namespace writer, removes its derived files,
+and verifies reconstruction before the next read. The regression first reproduced
+an incorrect empty read, then passed with per-writer cold replay. Election-disabled
+seed processes bind port zero atomically and advertise their actual addresses;
+automatic-election phases retain their configured fixed endpoints. This removes
+the seed fixture's reserve/exec gap without relaxing RPC deadlines or crash checks.

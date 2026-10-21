@@ -617,3 +617,517 @@ fn scoped_custody_restores_live_cells_after_errors_unwind_and_recovery_rejection
     DurableVsrCell::open_existing(root.join("candidate"), PlacementGroupId(1)).unwrap();
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn resident_coordinator_reuses_exact_cells_and_recovers_after_peer_receipts_and_reopen() {
+    let root = root("resident-reuse");
+    let mut cells = installed(&root, 2, false);
+    let path = root.join("protocol");
+    let mut cache = InstalledCoordinatorCache::default();
+    for index in 3..=66 {
+        let command = command(index);
+        cache
+            .with_cells(
+                &path,
+                Epoch(1),
+                NodeId(1),
+                &mut cells,
+                LocalVsrTransport::all_reachable(voters()),
+                |router, state| {
+                    assert_eq!(
+                        state,
+                        if index == 3 {
+                            CoordinatorState::Recovered
+                        } else {
+                            CoordinatorState::Retained
+                        }
+                    );
+                    router.reconcile_application_commands()?;
+                    router.commit_application(
+                        PlacementGroupId(1),
+                        command.request.clone(),
+                        command.commit.mode,
+                        command.commit.operation.clone(),
+                        command.application.clone(),
+                    )?;
+                    assert_eq!(
+                        router.committed_application_commands_since(CommitVersion(index - 1)),
+                        vec![command]
+                    );
+                    assert_eq!(router.reconcile_application_commands()?, 0);
+                    Ok(())
+                },
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        cache.stats(),
+        CoordinatorCacheStats {
+            full_recoveries: 1,
+            reuses: 63
+        }
+    );
+    cells
+        .get_mut(&PlacementGroupId(1))
+        .unwrap()
+        .remember_client_request(VsrClientRequestId::new("peer-receipt", 1), LogIndex(1))
+        .unwrap();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                assert_eq!(router.latest_version(), CommitVersion(66));
+                Ok(())
+            },
+        )
+        .unwrap();
+    let token = cells[&PlacementGroupId(1)].state_token().unwrap();
+    drop(cells);
+    cells = [(
+        PlacementGroupId(1),
+        DurableVsrCell::open_existing(root.join("candidate"), PlacementGroupId(1)).unwrap(),
+    )]
+    .into();
+    assert_ne!(token, cells[&PlacementGroupId(1)].state_token().unwrap());
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                assert_eq!(router.committed_application_commands().len(), 66);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(cache.stats().full_recoveries, 3);
+    drop(cache);
+    drop(cells);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn resident_coordinator_drops_stale_policy_errors_unwind_and_promised_authority() {
+    let root = root("resident-invalidations");
+    let mut cells = installed(&root, 1, false);
+    let path = root.join("protocol");
+    let mut cache = InstalledCoordinatorCache::default();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, _| {
+                router.reconcile_application_commands()?;
+                Ok(())
+            },
+        )
+        .unwrap();
+    let result: RsfResult<()> = cache.with_cells(
+        &path,
+        Epoch(1),
+        NodeId(1),
+        &mut cells,
+        LocalVsrTransport::all_reachable(voters()),
+        |_, state| {
+            assert_eq!(state, CoordinatorState::Retained);
+            append_protocol_policy(&path, Epoch(1), &ProtocolPolicy::new(2, false, 1)?)?;
+            Ok(())
+        },
+    );
+    assert!(result.unwrap_err().message.contains("another writer"));
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                assert!(!router.policy().allow_availability_first_immutable);
+                Ok(())
+            },
+        )
+        .unwrap();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Retained);
+                router.update_policy(true, 1)?;
+                Ok(())
+            },
+        )
+        .unwrap();
+    let result: RsfResult<()> = cache.with_cells(
+        &path,
+        Epoch(1),
+        NodeId(1),
+        &mut cells,
+        LocalVsrTransport::all_reachable(voters()),
+        |_, _| Err(handoff_invalid("injected request error")),
+    );
+    assert!(result.is_err());
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _: RsfResult<()> = cache.with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |_, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                panic!("injected unwind")
+            },
+        );
+    }));
+    assert!(panic.is_err());
+    assert_eq!(cells.len(), 1);
+    assert!(DurableVsrCell::open_existing(root.join("candidate"), PlacementGroupId(1)).is_err());
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |_, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                Ok(())
+            },
+        )
+        .unwrap();
+    cells
+        .get_mut(&PlacementGroupId(1))
+        .unwrap()
+        .begin_view_change(
+            NodeId(1),
+            NodeId(1),
+            VsrViewChangeRequest {
+                pg: PlacementGroupId(1),
+                previous_view: Epoch(2),
+                target_view: Epoch(3),
+                candidate: NodeId(1),
+                voters: voters(),
+            },
+        )
+        .unwrap();
+    let result = cache.with_cells(
+        &path,
+        Epoch(1),
+        NodeId(1),
+        &mut cells,
+        LocalVsrTransport::all_reachable(voters()),
+        |_, _| Ok(()),
+    );
+    assert!(result.is_err());
+    assert_eq!(cells[&PlacementGroupId(1)].view(), Epoch(2));
+    let mut source =
+        DurableVsrCell::open_existing(root.join("source"), PlacementGroupId(1)).unwrap();
+    let request = VsrViewChangeRequest {
+        pg: PlacementGroupId(1),
+        previous_view: Epoch(1),
+        target_view: Epoch(4),
+        candidate: NodeId(1),
+        voters: voters(),
+    };
+    let snapshots = [
+        source
+            .begin_view_change(NodeId(0), NodeId(1), request.clone())
+            .unwrap(),
+        cells
+            .get_mut(&PlacementGroupId(1))
+            .unwrap()
+            .begin_view_change(NodeId(1), NodeId(1), request)
+            .unwrap(),
+    ];
+    cells
+        .get_mut(&PlacementGroupId(1))
+        .unwrap()
+        .install_view(&VsrViewInstallation::select(&snapshots).unwrap())
+        .unwrap();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                assert_eq!(router.membership(PlacementGroupId(1))?.0, Epoch(4));
+                Ok(())
+            },
+        )
+        .unwrap();
+    drop(source);
+    drop(cache);
+    drop(cells);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn protocol_groups_share_a_validated_writer_without_cross_group_cursor_replays() {
+    let root = root("shared-protocol-writer");
+    let mut router =
+        DurableFabricRouter::open(&root, [PlacementGroupId(1), PlacementGroupId(2)], Epoch(1))
+            .unwrap();
+    assert!(Arc::ptr_eq(
+        &router.wals[&PlacementGroupId(1)].store,
+        &router.wals[&PlacementGroupId(2)].store
+    ));
+    let before = router.storage_revision().unwrap();
+    for index in 0..32 {
+        let pg = PlacementGroupId(index % 2 + 1);
+        let commit = router
+            .commit(
+                pg,
+                FabricOperation::CatalogMutation {
+                    namespace: "app".into(),
+                    item: format!("item-{index}"),
+                },
+            )
+            .unwrap();
+        assert_eq!(commit.index, LogIndex(index / 2 + 1));
+        assert_eq!(commit.version, CommitVersion(index + 1));
+    }
+    let after = router.storage_revision().unwrap();
+    assert!(after.same_writer_epoch(&before));
+    drop(router);
+    let router =
+        DurableFabricRouter::open(&root, [PlacementGroupId(1), PlacementGroupId(2)], Epoch(1))
+            .unwrap();
+    assert_eq!(router.latest_version(), CommitVersion(32));
+    for pg in [PlacementGroupId(1), PlacementGroupId(2)] {
+        assert_eq!(router.recovered_certificates(pg).unwrap().len(), 16);
+    }
+    drop(router);
+    fs::remove_dir_all(root).unwrap();
+}
+
+struct PrefixTransport {
+    inner: LocalVsrTransport,
+    probes: Arc<std::sync::atomic::AtomicUsize>,
+    prepares: Arc<std::sync::atomic::AtomicUsize>,
+    fail_after: usize,
+}
+impl VsrTransport for PrefixTransport {
+    fn confirm_primary(
+        &mut self,
+        replica: NodeId,
+        probe: &rsf_vsr::VsrPrimaryProbe,
+    ) -> Result<(), rsf_vsr::VsrTransportError> {
+        let count = self
+            .probes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if count > self.fail_after {
+            return Err(rsf_vsr::VsrTransportError {
+                replica,
+                reason: "injected quorum loss".into(),
+            });
+        }
+        if probe.view == Epoch(2)
+            && probe.primary == NodeId(1)
+            && probe.voters == voters()
+            && self.inner.committed_tail(replica, probe.pg)? == probe.committed_tail
+        {
+            Ok(())
+        } else {
+            Err(rsf_vsr::VsrTransportError {
+                replica,
+                reason: "simulated peer probe differs from installed prefix".into(),
+            })
+        }
+    }
+    fn acknowledge_prepare(
+        &mut self,
+        message: rsf_vsr::VsrPrepareMessage,
+    ) -> Result<NodeId, rsf_vsr::VsrTransportError> {
+        self.prepares
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.inner.acknowledge_prepare(message)
+    }
+    fn acknowledge_commit(
+        &mut self,
+        replica: NodeId,
+        commit: rsf_vsr::VsrCommit,
+    ) -> Result<NodeId, rsf_vsr::VsrTransportError> {
+        self.inner.acknowledge_commit(replica, commit)
+    }
+    fn committed_tail(
+        &mut self,
+        replica: NodeId,
+        pg: PlacementGroupId,
+    ) -> Result<LogIndex, rsf_vsr::VsrTransportError> {
+        self.inner.committed_tail(replica, pg)
+    }
+    fn transfer_committed(
+        &mut self,
+        replica: NodeId,
+        entry: rsf_vsr::VsrCommittedEntry,
+    ) -> Result<(), rsf_vsr::VsrTransportError> {
+        self.inner.transfer_committed(replica, entry)
+    }
+}
+#[test]
+fn installed_prefix_receipt_recovery_confirms_before_and_after_and_replicates_accepted_entries() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for fail_after in [0, 2, usize::MAX] {
+        let root = root(&format!("prefix-confirmation-{fail_after}"));
+        let mut cells = installed(&root, 8, true);
+        let path = root.join("protocol");
+        let probes = Arc::new(AtomicUsize::new(0));
+        let prepares = Arc::new(AtomicUsize::new(0));
+        let transport = PrefixTransport {
+            inner: LocalVsrTransport::all_reachable(voters()),
+            probes: probes.clone(),
+            prepares: prepares.clone(),
+            fail_after,
+        };
+        let mut cache = InstalledCoordinatorCache::default();
+        let result = cache.with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            transport,
+            |router, _| router.reconcile_installed_application_commands(),
+        );
+        if fail_after == usize::MAX {
+            assert_eq!(result.unwrap(), 9)
+        } else {
+            assert_eq!(result.unwrap_err().code, ErrorCode::QuorumUnavailable)
+        }
+        assert_eq!(
+            ProtocolWal::recover(&path, PlacementGroupId(1))
+                .unwrap()
+                .len(),
+            if fail_after == 0 { 0 } else { 9 }
+        );
+        assert_eq!(
+            prepares.load(Ordering::Relaxed),
+            if fail_after == 0 { 0 } else { 2 }
+        );
+        assert_eq!(
+            probes.load(Ordering::Relaxed),
+            if fail_after == 0 { 2 } else { 4 }
+        );
+        assert_eq!(
+            cells[&PlacementGroupId(1)].committed_tail(),
+            LogIndex(if fail_after == 0 { 8 } else { 9 })
+        );
+        drop(cache);
+        drop(cells);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn retained_installed_inventory_cannot_drop_an_unmigrated_group() {
+    let root = root("retained-group-inventory");
+    let mut cells = installed(&root, 1, false);
+    let mut source = DurableVsrCell::open(
+        root.join("pg2-source"),
+        PlacementGroupId(2),
+        Epoch(1),
+        NodeId(0),
+        voters(),
+    )
+    .unwrap();
+    let mut candidate = DurableVsrCell::open(
+        root.join("pg2-candidate"),
+        PlacementGroupId(2),
+        Epoch(1),
+        NodeId(0),
+        voters(),
+    )
+    .unwrap();
+    let request = VsrViewChangeRequest {
+        pg: PlacementGroupId(2),
+        previous_view: Epoch(1),
+        target_view: Epoch(2),
+        candidate: NodeId(1),
+        voters: voters(),
+    };
+    let reports = [
+        source
+            .begin_view_change(NodeId(0), NodeId(1), request.clone())
+            .unwrap(),
+        candidate
+            .begin_view_change(NodeId(1), NodeId(1), request)
+            .unwrap(),
+    ];
+    candidate
+        .install_view(&VsrViewInstallation::select(&reports).unwrap())
+        .unwrap();
+    cells.insert(PlacementGroupId(2), candidate);
+    let path = root.join("protocol");
+    let mut cache = InstalledCoordinatorCache::default();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, _| {
+                router.reconcile_application_commands()?;
+                Ok(())
+            },
+        )
+        .unwrap();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Retained);
+                let before = router.placement_map().clone();
+                assert!(router.update_placement_map([PlacementGroupId(1)]).is_err());
+                assert_eq!(router.placement_map(), &before);
+                Ok(())
+            },
+        )
+        .unwrap();
+    cache.invalidate();
+    cache
+        .with_cells(
+            &path,
+            Epoch(1),
+            NodeId(1),
+            &mut cells,
+            LocalVsrTransport::all_reachable(voters()),
+            |router, state| {
+                assert_eq!(state, CoordinatorState::Recovered);
+                assert_eq!(
+                    router.placement_map().groups,
+                    vec![PlacementGroupId(1), PlacementGroupId(2)]
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+    drop(cache);
+    drop(cells);
+    drop(source);
+    fs::remove_dir_all(root).unwrap();
+}

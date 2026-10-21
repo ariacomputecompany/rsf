@@ -1,6 +1,8 @@
 //! Ownership transfer from a peer's installed cells into client coordination.
 //! No log is copied or bootstrapped from an operator's stale primary setting.
 use super::*;
+mod cache;
+pub use cache::{CoordinatorCacheStats, CoordinatorState, InstalledCoordinatorCache};
 
 impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     /// Recover coordination around the exact installed cells owned by a peer.
@@ -57,7 +59,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         operation(&mut custody.router)
     }
 
-    fn recover_installed_cells(
+    pub(super) fn recover_installed_cells(
         path: &Path,
         coordination_epoch: Epoch,
         local: NodeId,
@@ -130,6 +132,9 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             transport,
             application_commands: BTreeMap::new(),
             protocol_commands: BTreeMap::new(),
+            protocol_requests: BTreeMap::new(),
+            pending_commands: BTreeMap::new(),
+            committed_applications: BTreeMap::new(),
             application_failure: None,
             provision_local_cells: false,
         };

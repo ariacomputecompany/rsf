@@ -198,3 +198,54 @@ groups returns a rejection. Independently led groups require further scheduling
 and routing work. A local primary's mutation error remains `mutation=unknown`
 when durable admission may already have occurred; retrying the same identity
 resolves the outcome.
+
+## Resident client coordination
+
+The opt-in client endpoint retains derived coordination between requests while
+the peer keeps exclusive ownership of every voting cell. Cache entries contain
+no cells while idle. Reuse requires the exact live handles, unchanged cell
+mutation tokens, matching local node/coordination epoch/path, and an unchanged
+validated protocol-store revision. Reopen, a durable promise, an installation,
+a peer-side receipt/write, or changed derived metadata invalidates that entry.
+Callback errors and unwinding return all cells and discard derived state.
+
+All protocol groups share one physical SegmentStore writer. A logical receipt
+cursor follows the validated physical tail, so appending another receipt does
+not replay unchanged history. Changed files/layouts invalidate the storage
+cursor and undergo recovery/checksum validation. An observer epoch distinguishes
+own writes from another handle's changes; a change detected during coordination
+returns an uncertain error and discards the cache. This observation is not a
+persistent checkpoint or authorization lease.
+
+Pending commands and certified application versions have separate ordered
+indexes. Healthy requests reconcile outstanding work and apply only payloads
+newer than the materializer cursor. Successful requests mark the complete local
+prefix materialized before returning custody, avoiding a redundant full-prefix
+application on the next heartbeat. Failures retain the pending-materialization
+fence. Every request still rechecks authorization, admitted identities, installed
+authority, and fresh quorum.
+
+On cold takeover, installed committed payloads may lack local derived receipts.
+The coordinator repairs/confirms the committed prefix, reconstructs only matching
+receipts in global version order, and confirms the prefix/quorum again. Accepted
+but uncommitted commands use ordinary fresh replication. Failure of either
+confirmation prevents success. This avoids separate network round trips for
+every already-committed historical receipt.
+
+`peer.client_cache` events report full recovery attempts and retained uses.
+Required debug/release automatic-client workloads grow 128 acknowledged writes
+before crashing the primary, require at least 128 retained uses, then resolve
+32 concurrent identities and inspect all 162 logical KV writes on both survivors.
+They also exercise SQL/object/blob recovery, authorization revocation, and restart.
+These are single-host correctness/work-count measurements. Cold history loading,
+full-history elections, retained payload memory, segment metadata checks, SQL
+checkpoint cost, receipt retention, and independent-host capacity still need
+checkpointing/retention work and separate qualification.
+
+A global payload cursor does not establish the completeness of a newly opened
+application writer. Reopened/evicted writers replay their own namespace and
+surface from certified commands before execution, even when the coordinator
+remains resident. A regression deletes an evicted derived KV store and requires
+the next read to return its committed value, rather than a false miss. This cold
+namespace replay remains proportional to its retained history; durable checkpoints
+are still required to bound reconstruction and memory at large scale.

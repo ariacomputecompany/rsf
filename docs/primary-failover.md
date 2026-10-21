@@ -342,3 +342,24 @@ reachability observations do not authorize a voter-set change. Normal elections
 continue to use the durable promise and quorum installation protocol. These
 fences close a bypass; they do not implement certified voter changes. See
 [certified membership](certified-membership.md).
+
+## Retained coordination and receipt recovery
+
+`InstalledCoordinatorCache` retains the derived router with its cell map empty
+between scoped requests. Opaque process-local cell tokens and a validated
+physical store revision determine whether the same inventory can be reused.
+A new handle, cell append/promise/installation, or changed derived WAL forces
+recovery. Another writer observed during a callback prevents a successful return.
+Errors and unwinding preserve cell custody and discard cached derived state.
+Fresh quorum checks remain mandatory; a cache hit grants no authority.
+
+Cold installed-prefix receipt recovery confirms the committed prefix before and
+after reconstructing its matching local receipts. Accepted-only commands still
+require normal prepare/commit replication. Tests fail each confirmation in turn,
+check that no receipts appear before initial confirmation, and require fresh
+prepares for the accepted suffix. Retained-state tests grow history, mutate peer
+receipts, reopen cells, publish a later installed generation, change policy from
+another writer, update policy through the shared writer, and inject callback
+errors/unwinding. Source-bound host traces include those tests and the growing
+real-daemon workload. Full disk checkpoints and growing-history capacity are
+still separate release requirements.

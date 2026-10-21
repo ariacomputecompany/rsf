@@ -87,12 +87,32 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
                     let command = ReplicatedProtocolCommand::decode(payload)?;
                     let commit = command.commit.clone();
                     let request = command.request.clone();
+                    if let Some(request) = &command.request {
+                        self.protocol_requests
+                            .insert(request.clone(), commit.version);
+                    }
+                    if self
+                        .router
+                        .next_indexes
+                        .get(pg)
+                        .is_none_or(|next| *next <= index)
+                    {
+                        self.pending_commands
+                            .insert(commit.version, PendingCommand::Protocol(command.clone()));
+                    }
                     self.protocol_commands.insert(commit.version, command);
                     (commit, request)
                 } else {
                     let command = ReplicatedFabricCommand::decode(payload)?;
                     let commit = command.commit.clone();
                     let request = Some(command.request.clone());
+                    if self.router.request_certificate(&command.request).is_some() {
+                        self.committed_applications
+                            .insert(commit.version, command.request.clone());
+                    } else {
+                        self.pending_commands
+                            .insert(commit.version, PendingCommand::Application(command.clone()));
+                    }
                     self.application_commands
                         .insert(command.request.clone(), command);
                     (commit, request)
@@ -146,24 +166,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     /// global version order before allocating another version.
     pub fn reconcile_application_commands(&mut self) -> RsfResult<usize> {
         self.ensure_application_healthy()?;
-        let mut pending = self
-            .application_commands
-            .values()
-            .filter(|command| self.router.request_certificate(&command.request).is_none())
-            .map(|command| PendingCommand::Application(command.clone()))
-            .collect::<Vec<_>>();
-        pending.extend(
-            self.protocol_commands
-                .values()
-                .filter(|command| {
-                    self.router
-                        .next_indexes
-                        .get(&command.commit.pg)
-                        .is_none_or(|next| *next <= command.commit.index.0)
-                })
-                .map(|command| PendingCommand::Protocol(command.clone())),
-        );
-        pending.sort_by_key(PendingCommand::version);
+        let pending = self.pending_commands.values().cloned().collect::<Vec<_>>();
         let count = pending.len();
         for command in pending {
             match command {
@@ -288,6 +291,10 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             application,
         };
         self.prepare_application_command(&command)?;
+        self.pending_commands.insert(
+            command.commit.version,
+            PendingCommand::Application(command.clone()),
+        );
         self.application_commands.insert(request, command.clone());
         self.finish_application_command(&command)?;
         Ok(DurableRequestCommit {
@@ -296,10 +303,54 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         })
     }
 
+    /// Rebuild derived receipts from an installed committed prefix after a fresh
+    /// quorum check. Accepted-only entries still use ordinary replication. A
+    /// second prefix/quorum confirmation is required before reporting success.
+    pub fn reconcile_installed_application_commands(&mut self) -> RsfResult<usize> {
+        self.ensure_application_healthy()?;
+        if self.provision_local_cells || self.cells.values().any(|cell| !cell.has_installed_view())
+        {
+            return Err(invalid(
+                "prefix receipt recovery requires installed peer cells",
+            ));
+        }
+        self.repair_and_confirm_read_quorum()?;
+        let pending = self.pending_commands.values().cloned().collect::<Vec<_>>();
+        let count = pending.len();
+        for command in pending {
+            match command {
+                PendingCommand::Application(command) => {
+                    if self.cells[&command.commit.pg].committed_operation(command.commit.index)
+                        == Some(&command.vsr_operation()?)
+                    {
+                        self.append_application_receipt(&command)?;
+                    } else {
+                        self.finish_application_command(&command)?;
+                    }
+                }
+                PendingCommand::Protocol(command) => {
+                    if self.cells[&command.commit.pg].committed_operation(command.commit.index)
+                        == Some(&command.vsr_operation()?)
+                    {
+                        self.append_protocol_receipt(&command)?;
+                    } else {
+                        self.finish_protocol_command(&command)?;
+                    }
+                }
+            }
+        }
+        self.repair_and_confirm_read_quorum()?;
+        Ok(count)
+    }
+
     /// Confirm the configured primary against a current quorum before serving
     /// local application reads. The caller must serialize the read with writes.
     pub fn confirm_read_quorum(&mut self) -> RsfResult<()> {
         self.reconcile_application_commands()?;
+        self.repair_and_confirm_read_quorum()
+    }
+
+    fn repair_and_confirm_read_quorum(&mut self) -> RsfResult<()> {
         for cell in self.cells.values_mut() {
             if cell.primary() != self.primary {
                 return Err(invalid("local node is not the current read primary"));
@@ -355,14 +406,18 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     /// The ordered, locally certified commands available to an application
     /// materializer. Reconcile first to include an interrupted commit.
     pub fn committed_application_commands(&self) -> Vec<ReplicatedFabricCommand> {
-        let mut commands = self
-            .application_commands
-            .values()
-            .filter(|command| self.router.request_certificate(&command.request).is_some())
-            .cloned()
-            .collect::<Vec<_>>();
-        commands.sort_by_key(|command| command.commit.version);
-        commands
+        self.committed_application_commands_since(CommitVersion(0))
+    }
+
+    /// Return only certified application payloads newer than a materializer cursor.
+    pub fn committed_application_commands_since(
+        &self,
+        after: CommitVersion,
+    ) -> Vec<ReplicatedFabricCommand> {
+        self.committed_applications
+            .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+            .map(|(_, request)| self.application_commands[request].clone())
+            .collect()
     }
 
     pub(super) fn ensure_application_healthy(&self) -> RsfResult<()> {
@@ -430,12 +485,31 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             ));
         }
         self.require_application_commit(command)?;
+        self.append_application_receipt(command)
+    }
+
+    fn append_application_receipt(&mut self, command: &ReplicatedFabricCommand) -> RsfResult<()> {
+        let next = self.router.next_commit(
+            command.commit.pg,
+            command.commit.mode,
+            command.commit.operation.clone(),
+        )?;
+        if next != command.commit {
+            return Err(corrupt(
+                "application receipt would change its original commit version or index",
+            ));
+        }
         self.sync_protocol_epoch(command.commit.pg)?;
         match self
             .router
             .append_existing_request(command.commit.clone(), command.request.clone())
         {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.pending_commands.remove(&command.commit.version);
+                self.committed_applications
+                    .insert(command.commit.version, command.request.clone());
+                Ok(())
+            }
             Err(err) => {
                 self.application_failure = Some(err.message.clone());
                 Err(err)

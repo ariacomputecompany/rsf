@@ -161,7 +161,10 @@ automatic_valid = all(
     and 4 <= automatic_client_metrics[profile].get("acknowledged_before_crash", 0) < 32
     and automatic_client_metrics[profile].get("requests_without_acknowledgement") == 32 - automatic_client_metrics[profile].get("acknowledged_before_crash", 0)
     and automatic_client_metrics[profile].get("retried_requests") == 32
-    and automatic_client_metrics[profile].get("verified_logical_kv_writes") == 34
+    and automatic_client_metrics[profile].get("verified_logical_kv_writes") == 162
+    and automatic_client_metrics[profile].get("history_growth_writes") == 128
+    and automatic_client_metrics[profile].get("coordinator_reuses_before_crash", 0) >= 128
+    and automatic_client_metrics[profile].get("coordinator_recoveries_before_crash", 9999) < automatic_client_metrics[profile].get("coordinator_reuses_before_crash", 0)
     and automatic_client_metrics[profile].get("surviving_replicas_checked") == 2
     and automatic_client_metrics[profile].get("primary_state_deleted") is True
     and automatic_client_metrics[profile].get("replacement_restarts") == 1

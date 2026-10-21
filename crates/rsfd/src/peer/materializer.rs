@@ -63,6 +63,7 @@ struct Resident {
     namespace: String,
     surface: ApplicationSurface,
     store: Store,
+    needs_replay: bool,
 }
 
 #[derive(Debug)]
@@ -87,7 +88,7 @@ impl ApplicationMaterializer {
         self.with_store(
             &command.application.namespace,
             command.application.surface,
-            |store| store.apply(command),
+            |store, _| store.apply(command),
         )
         .map_err(|err| err.message)
     }
@@ -113,20 +114,35 @@ impl ApplicationMaterializer {
         let namespace = envelope.namespace.as_deref().ok_or_else(|| {
             rsf_core::RsfError::new(rsf_core::ErrorCode::InvalidInput, "namespace is required")
         })?;
-        self.with_store(namespace, surface, |store| match store {
-            Store::Kv(kv) => {
-                kv.reconcile(router)?;
-                crate::data::execution::kv(envelope, router, kv)
+        self.with_store(namespace, surface, |store, needs_replay| {
+            if *needs_replay {
+                // Reopening a writer must not trust a process-wide cursor: its
+                // derived files may have been evicted/lost independently. Rebuild
+                // this namespace/surface from certified commands before reading.
+                for command in router.committed_application_commands() {
+                    if command.application.namespace == namespace
+                        && command.application.surface == surface
+                    {
+                        store.apply(&command)?;
+                    }
+                }
+                *needs_replay = false;
             }
-            Store::Sql(sql) => {
-                sql.reconcile(router)?;
-                crate::data::execution::sql(envelope, router, sql)
+            match store {
+                Store::Kv(kv) => {
+                    kv.reconcile(router)?;
+                    crate::data::execution::kv(envelope, router, kv)
+                }
+                Store::Sql(sql) => {
+                    sql.reconcile(router)?;
+                    crate::data::execution::sql(envelope, router, sql)
+                }
+                Store::Object(objects) => {
+                    objects.reconcile(router)?;
+                    crate::data::execution::object(envelope, router, objects)
+                }
+                Store::Blob(blobs) => crate::data::execution::blob(envelope, router, blobs),
             }
-            Store::Object(objects) => {
-                objects.reconcile(router)?;
-                crate::data::execution::object(envelope, router, objects)
-            }
-            Store::Blob(blobs) => crate::data::execution::blob(envelope, router, blobs),
         })
     }
 
@@ -134,7 +150,7 @@ impl ApplicationMaterializer {
         &mut self,
         namespace: &str,
         surface: ApplicationSurface,
-        operation: impl FnOnce(&mut Store) -> RsfResult<R>,
+        operation: impl FnOnce(&mut Store, &mut bool) -> RsfResult<R>,
     ) -> RsfResult<R> {
         let position = self
             .stores
@@ -153,10 +169,11 @@ impl ApplicationMaterializer {
                     namespace: namespace.to_owned(),
                     surface,
                     store: Store::open(&self.root, namespace, surface)?,
+                    needs_replay: true,
                 }
             }
         };
-        let result = operation(&mut resident.store);
+        let result = operation(&mut resident.store, &mut resident.needs_replay);
         // Error paths retain the engine and its durable-failure fence as well.
         self.stores.push_back(resident);
         result
@@ -230,6 +247,74 @@ mod tests {
         let recovered = DurableKvEngine::open_replicated(&path, Epoch(1), first).unwrap();
         assert_eq!(recovered.changes_since(CommitVersion(0)).len(), 1);
         drop(recovered);
+        drop(router);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn reopened_missing_materializer_store_recovers_before_returning_a_read() {
+        use rsf_wire::{RequestEnvelope, WireOperationKind, WireProtocol};
+        let root = std::env::temp_dir().join(format!(
+            "rsf-materializer-missing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut router = VsrBackedFabricRouter::open(
+            root.join("protocol"),
+            [PlacementGroupId(1)],
+            Epoch(1),
+            NodeId(0),
+            [NodeId(0)],
+        )
+        .unwrap();
+        for (index, namespace) in ["alpha", "beta"].iter().enumerate() {
+            let mut source = DurableKvEngine::open_replicated(
+                root.join(format!("source-{namespace}")),
+                Epoch(1),
+                namespace,
+            )
+            .unwrap();
+            let snapshot = source.snapshot(&router);
+            source
+                .commit_batch(
+                    &mut router,
+                    PlacementGroupId(1),
+                    KvBatch {
+                        client_request: Some(ClientRequestId::new("missing-store", index as u64)),
+                        snapshot,
+                        mutations: vec![KvMutation::Set {
+                            key: b"key".to_vec(),
+                            value: namespace.as_bytes().to_vec(),
+                        }],
+                    },
+                )
+                .unwrap();
+        }
+        let mut materializer = ApplicationMaterializer::new(root.join("target"));
+        materializer.capacity = 1;
+        for command in router.committed_application_commands() {
+            materializer.apply(&command).unwrap();
+        }
+        let path = crate::security::namespace_root(&root.join("target"), "alpha").join("kv");
+        std::fs::remove_dir_all(&path).unwrap();
+        let envelope = RequestEnvelope {
+            protocol: WireProtocol::Kv,
+            principal: "app-client".into(),
+            namespace: Some("alpha".into()),
+            operation: "GET key".into(),
+            operation_kind: WireOperationKind::Read,
+            idempotency_key: None,
+            body_bytes: 0,
+            body: vec![],
+        };
+        let response = materializer.execute(&envelope, &mut router).unwrap();
+        let crate::data::DataPlaneResponse::Executed { payload, .. } = response else {
+            panic!("read did not execute")
+        };
+        assert_eq!(payload, b"alpha");
+        drop(materializer);
         drop(router);
         std::fs::remove_dir_all(root).unwrap();
     }

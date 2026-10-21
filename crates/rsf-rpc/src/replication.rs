@@ -234,17 +234,24 @@ impl PeerReplicaServer {
     /// The callback must return cell custody before returning; protocol's scoped
     /// installed-cell API provides restoration on errors and unwinding. Mark the
     /// prefix pending before lending so even a failed client operation is applied
-    /// before any subsequent peer acknowledgement or heartbeat succeeds.
+    /// before any subsequent peer acknowledgement or heartbeat succeeds. The
+    /// callback returns true only after applying every committed prefix and all
+    /// successful client mutations through that same serialized materializer.
     pub fn with_voting_cells<R>(
         &mut self,
         operation: impl FnOnce(
             NodeId,
             &mut BTreeMap<PlacementGroupId, DurableVsrCell>,
             NetworkVsrTransport,
-        ) -> R,
+        ) -> (R, bool),
     ) -> R {
         self.installation_pending.extend(self.cells.keys().copied());
-        operation(self.local, &mut self.cells, self.control_transport.clone())
+        let (result, materialized) =
+            operation(self.local, &mut self.cells, self.control_transport.clone());
+        if materialized {
+            self.installation_pending.clear();
+        }
+        result
     }
 
     pub fn new(

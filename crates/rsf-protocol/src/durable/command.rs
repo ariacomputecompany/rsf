@@ -2,17 +2,10 @@
 use super::*;
 use application::codec::{Reader, encode_operation, field};
 
+#[derive(Clone, Debug)]
 pub(super) enum PendingCommand {
     Application(ReplicatedFabricCommand),
     Protocol(ReplicatedProtocolCommand),
-}
-impl PendingCommand {
-    pub(super) fn version(&self) -> CommitVersion {
-        match self {
-            Self::Application(command) => command.commit.version,
-            Self::Protocol(command) => command.commit.version,
-        }
-    }
 }
 
 const MAGIC: &[u8; 5] = b"RSFG1";
@@ -139,11 +132,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     ) -> RsfResult<()> {
         let operation = FabricOperation::BlobPin { digest };
         self.validate_request(pg, request, ConsistencyMode::AvailabilityFirst, &operation)?;
-        if let Some(command) = self
-            .protocol_commands
-            .values()
-            .find(|command| command.request.as_ref() == Some(request))
-        {
+        if let Some(command) = self.protocol_request(request) {
             if command.purpose != ProtocolCommandPurpose::ImmutableDependency
                 || command.commit.pg != pg
                 || command.commit.mode != ConsistencyMode::AvailabilityFirst
@@ -174,6 +163,23 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             ));
         }
         self.require_vsr_commit(&command.commit, command.request.clone(), command.purpose)?;
+        self.append_protocol_receipt(command)
+    }
+
+    pub(super) fn append_protocol_receipt(
+        &mut self,
+        command: &ReplicatedProtocolCommand,
+    ) -> RsfResult<()> {
+        let next = self.router.next_commit(
+            command.commit.pg,
+            command.commit.mode,
+            command.commit.operation.clone(),
+        )?;
+        if next != command.commit {
+            return Err(corrupt(
+                "protocol receipt would change its original version or index",
+            ));
+        }
         self.sync_protocol_epoch(command.commit.pg)?;
         if let Some(request) = &command.request {
             self.remember_vsr_request(
@@ -196,6 +202,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             self.application_failure = Some(err.message.clone());
             return Err(err);
         }
+        self.pending_commands.remove(&command.commit.version);
         Ok(())
     }
 }

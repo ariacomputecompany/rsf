@@ -189,6 +189,7 @@ impl DurableVsrCell {
                 ));
             }
         }
+        let next_revision = self.next_state_revision()?;
         // Preserve receiver-local durable request receipts even when their
         // original primary was outside the election quorum.
         let mut records = plan.records.clone();
@@ -291,6 +292,7 @@ impl DurableVsrCell {
                 Some(err.message.clone());
             return Err(err);
         }
+        self.state_revision = next_revision;
         self.store = store;
         self.cell = recovered.0;
         self.history = recovered.1;

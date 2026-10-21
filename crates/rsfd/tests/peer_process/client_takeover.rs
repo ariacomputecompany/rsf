@@ -116,6 +116,17 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             )
         })
         .collect::<Vec<_>>();
+    // Object-internal protocol pins must not become a user blob value when the
+    // resident materializer advances its complete-command cursor.
+    let internal = rsf_core::blob::ContentId::for_bytes(b"object before failover");
+    let hidden = surface_request(
+        addresses[primary as usize],
+        Blob,
+        &format!("GET blake3:{}", hex(internal.as_bytes())),
+        "internal-pin-isolation",
+        b"",
+    );
+    assert!(hidden.starts_with("RSF/1 rejected"), "{hidden}");
     // A follower publishes a usable endpoint and never attempts the mutation.
     let follower = (primary + 1) % 3;
     let redirect = surface_request(
@@ -140,6 +151,20 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         .unwrap();
     must_execute(routed, Kv, "GET client/key", "follow-redirect", b"");
 
+    // Grow acknowledged history before the crash; hot coordination must remain
+    // resident while application receipts and cell tails advance.
+    let growing_started = std::time::Instant::now();
+    for index in 0..128 {
+        must_execute(
+            addresses[primary as usize],
+            Kv,
+            &format!("SET growing/{index}"),
+            &format!("growing-{index}"),
+            format!("history-{index}").as_bytes(),
+        );
+    }
+    let history_growth_ms = growing_started.elapsed().as_millis();
+    println!("history growth completed in {history_growth_ms} ms");
     // Four clients keep requests in flight while the primary is killed. Every
     // acknowledgement must survive; every lost response is retried by identity.
     let (send, receive) = std::sync::mpsc::channel();
@@ -188,6 +213,20 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             acknowledged += 1;
         }
     }
+    let cache = processes[primary as usize]
+        .as_ref()
+        .unwrap()
+        .cache
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("client cache evidence");
+    let reuses = cache["reuses"].as_u64().unwrap();
+    let recoveries = cache["full_recoveries"].as_u64().unwrap();
+    assert!(
+        reuses >= 128 && recoveries < reuses,
+        "hot requests reconstructed coordination: {cache}"
+    );
     drop(processes[primary as usize].take());
     std::fs::remove_dir_all(state(&root, primary)).unwrap(); // Physically lose its data.
     let survivors = (0..3).filter(|node| *node != primary).collect::<Vec<_>>();
@@ -312,7 +351,13 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         assert_eq!(kv.get(b"client/key").unwrap().value, b"kv before failover");
         assert_eq!(kv.get(b"client/after").unwrap().value, b"new kv");
         assert!(kv.get(b"must-not-exist").is_none());
-        assert_eq!(kv.changes_since(rsf_core::CommitVersion(0)).len(), 34);
+        assert_eq!(kv.changes_since(rsf_core::CommitVersion(0)).len(), 162);
+        for index in 0..128 {
+            assert_eq!(
+                kv.get(format!("growing/{index}").as_bytes()).unwrap().value,
+                format!("history-{index}").as_bytes()
+            );
+        }
         for (key, _, value, _) in &concurrent {
             assert_eq!(&kv.get(key.as_bytes()).unwrap().value, value);
         }
@@ -334,9 +379,10 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         serde_json::json!({
             "workload":"automatic-client-takeover",
             "profile":if cfg!(debug_assertions) {"debug"} else {"release"},
-            "concurrent_clients":4,"submitted_requests":32,"acknowledged_before_crash":acknowledged,
+            "coordinator_reuses_before_crash":reuses,"coordinator_recoveries_before_crash":recoveries,
+        "concurrent_clients":4,"submitted_requests":32,"acknowledged_before_crash":acknowledged,
             "requests_without_acknowledgement":32-acknowledged,"retried_requests":32,
-            "verified_logical_kv_writes":34,"surviving_replicas_checked":2,
+            "history_growth_ms":history_growth_ms,"verified_logical_kv_writes":162,"history_growth_writes":128,"surviving_replicas_checked":2,
             "primary_state_deleted":true,"replacement_restarts":1,"surface_count":4,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"

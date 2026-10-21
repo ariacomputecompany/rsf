@@ -10,6 +10,7 @@ const ELECTION_MS: u64 = 1500;
 pub(super) struct AutomaticProcess {
     pub(super) process: Process,
     elections: Arc<Mutex<Vec<serde_json::Value>>>,
+    pub(super) cache: Arc<Mutex<Option<serde_json::Value>>>,
 }
 impl AutomaticProcess {
     pub(super) fn start(path: &Path) -> Self {
@@ -23,6 +24,8 @@ impl AutomaticProcess {
         let stdout = child.stdout.take().unwrap();
         let elections = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::clone(&elections);
+        let cache = Arc::new(Mutex::new(None));
+        let cache_events = Arc::clone(&cache);
         let (send, receive) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             for line in std::io::BufReader::new(stdout).lines() {
@@ -38,6 +41,9 @@ impl AutomaticProcess {
                             .parse::<SocketAddr>()
                             .unwrap(),
                     );
+                }
+                if event["event"] == "peer.client_cache" {
+                    *cache_events.lock().unwrap() = Some(event.clone());
                 }
                 if event["event"] == "peer.election" {
                     let mut log = events.lock().unwrap();
@@ -60,6 +66,7 @@ impl AutomaticProcess {
                 health: None,
             },
             elections,
+            cache,
         }
     }
     fn latest(&self) -> Option<serde_json::Value> {
@@ -79,7 +86,12 @@ pub(super) fn configure(root: &Path, peers: &BTreeMap<NodeId, PeerEndpoint>, aut
     let rpc_ms = if automatic { RPC_MS } else { PEER_TIMEOUT_MS };
     let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
     for node in 0..3 {
-        let mut config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":state(root,node),"tls":root.join(format!("tls-{node}")),"listen":peers[&NodeId(node)].address.to_string(),"timeout_ms":rpc_ms,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
+        let listen = if automatic {
+            peers[&NodeId(node)].address.to_string()
+        } else {
+            "127.0.0.1:0".into()
+        };
+        let mut config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":state(root,node),"tls":root.join(format!("tls-{node}")),"listen":listen,"timeout_ms":rpc_ms,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
         if automatic {
             config["elections"] = serde_json::json!({"heartbeat_ms":HEARTBEAT_MS,"timeout_ms":ELECTION_MS,"rank_delay_ms":1000});
         }
@@ -228,15 +240,13 @@ pub(super) fn await_minority(
 fn automatic_peer_elections_preserve_payloads_across_primary_loss_and_stale_primary_rejoin() {
     let root = root();
     let mut peers = provision(&root);
-    let mut listeners = reserve(&mut peers);
     configure(&root, &peers, false);
-    drop(listeners[0].take());
     let initial = Process::start(&root.join("auto-0.json"));
     drop(initial);
-    drop(listeners[1].take());
     let first = Process::start(&root.join("auto-1.json"));
-    drop(listeners[2].take());
     let second = Process::start(&root.join("auto-2.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
     let network = NetworkVsrTransport::new(
         NodeId(0),
         &ClusterId::new("cli-cluster").unwrap(),
@@ -430,16 +440,14 @@ fn partial_installation_child() {
 fn automatic_daemon_restart_resumes_a_candidate_killed_after_only_local_publication() {
     let root = root();
     let mut peers = provision(&root);
-    let mut listeners = reserve(&mut peers);
     configure(&root, &peers, false);
-    drop(listeners[0].take());
     let first = Process::start(&root.join("auto-0.json"));
     drop(first);
-    drop(listeners[1].take());
     let first = Process::start(&root.join("auto-1.json"));
     drop(first);
-    drop(listeners[2].take());
     let follower = Process::start(&root.join("auto-2.json"));
+    peers.get_mut(&NodeId(2)).unwrap().address = follower.address;
+    configure(&root, &peers, false);
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",

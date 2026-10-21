@@ -325,8 +325,26 @@ pub struct VsrCell {
     client_table: BTreeMap<VsrClientRequestId, LogIndex>,
 }
 
+/// Process-local identity of one live cell state, not a durable recovery proof.
+#[derive(Clone, Debug)]
+pub struct VsrStateToken {
+    identity: std::sync::Arc<()>,
+    revision: u64,
+    installation: Option<[u8; 32]>,
+}
+impl PartialEq for VsrStateToken {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.identity, &other.identity)
+            && self.revision == other.revision
+            && self.installation == other.installation
+    }
+}
+impl Eq for VsrStateToken {}
+
 #[derive(Debug)]
 pub struct DurableVsrCell {
+    state_identity: std::sync::Arc<()>,
+    state_revision: u64,
     root: std::path::PathBuf,
     options: SegmentStoreOptions,
     installed_plan: Option<[u8; 32]>,
@@ -613,6 +631,22 @@ impl VsrCell {
 }
 
 impl DurableVsrCell {
+    /// Valid only for this exact owned handle and unchanged durable authority.
+    /// Reopen, any appended state/receipt/promise, or installation invalidates it.
+    pub fn state_token(&self) -> RsfResult<VsrStateToken> {
+        self.ensure_active_view()?;
+        Ok(VsrStateToken {
+            identity: self.state_identity.clone(),
+            revision: self.state_revision,
+            installation: self.installed_plan,
+        })
+    }
+    fn next_state_revision(&self) -> RsfResult<u64> {
+        self.state_revision
+            .checked_add(1)
+            .ok_or_else(|| corrupt("VSR state revision exhausted; reopen required"))
+    }
+
     /// Whether this store has published a quorum-selected generation.
     pub fn has_installed_view(&self) -> bool {
         self.installed_plan.is_some()
@@ -763,6 +797,8 @@ impl DurableVsrCell {
         let (cell, history, view_change) = replay::recover(cell, &replay)?;
 
         let mut durable = Self {
+            state_identity: std::sync::Arc::new(()),
+            state_revision: 0,
             root: path.to_path_buf(),
             options,
             installed_plan: active.plan,
@@ -1187,8 +1223,10 @@ impl DurableVsrCell {
     fn append_control(&mut self, kind: WalRecordKind, payload: &[u8]) -> RsfResult<()> {
         self.ensure_healthy()?;
         let result: RsfResult<()> = (|| {
+            let revision = self.next_state_revision()?;
             self.store
                 .append_next_wal(self.cell.pg, self.cell.view, kind, payload)?;
+            self.state_revision = revision;
             Ok(())
         })();
         if let Err(err) = &result {

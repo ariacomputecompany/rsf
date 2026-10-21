@@ -3,15 +3,20 @@ mod command;
 mod handoff;
 pub use application::{ApplicationPayload, ApplicationSurface, ReplicatedFabricCommand};
 pub use command::{ProtocolCommandPurpose, ReplicatedProtocolCommand};
+pub use handoff::{CoordinatorCacheStats, CoordinatorState, InstalledCoordinatorCache};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{
     CommitVersion, Epoch, ErrorCode, LogIndex, NodeId, PlacementGroupId, RsfError, RsfResult,
 };
-use rsf_storage::{SegmentStore, SegmentStoreOptions, WalAppend};
+use rsf_storage::{
+    SegmentStore, SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision, WalAppend,
+    WalTail,
+};
 use rsf_vsr::{
     DurableVsrCell, LocalVsrTransport, VsrClientRequestId, VsrDecision, VsrOperation, VsrPrepare,
     VsrTransport,
@@ -169,7 +174,8 @@ impl ProtocolCommitRecord {
 
 #[derive(Debug)]
 pub struct ProtocolWal {
-    store: SegmentStore,
+    store: Arc<Mutex<SegmentStore>>,
+    logical_cursor: Option<(Option<WalTail>, u64)>,
     pg: PlacementGroupId,
     epoch: Epoch,
 }
@@ -185,11 +191,53 @@ impl ProtocolWal {
         epoch: Epoch,
         options: SegmentStoreOptions,
     ) -> RsfResult<Self> {
+        let (store, recovery) = SegmentStore::open_recovered(path, options)?;
+        Self::from_recovery(Arc::new(Mutex::new(store)), pg, epoch, &recovery)
+    }
+
+    fn from_recovery(
+        store: Arc<Mutex<SegmentStore>>,
+        pg: PlacementGroupId,
+        epoch: Epoch,
+        recovery: &SegmentStoreRecovery,
+    ) -> RsfResult<Self> {
+        let next = Self::next_logical_index(recovery, pg)?;
         Ok(Self {
-            store: SegmentStore::open_with_options(path, options)?,
+            store,
             pg,
             epoch,
+            logical_cursor: Some((recovery.recovery.pg_tail(pg), next)),
         })
+    }
+
+    fn next_logical_index(recovery: &SegmentStoreRecovery, pg: PlacementGroupId) -> RsfResult<u64> {
+        Self::recover_records(recovery, pg)?
+            .iter()
+            .map(|record| record.certificate.index.0)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| {
+                RsfError::new(ErrorCode::InvalidInput, "protocol logical index exhausted")
+            })
+    }
+
+    fn recover_records(
+        recovery: &SegmentStoreRecovery,
+        pg: PlacementGroupId,
+    ) -> RsfResult<Vec<RecoveredProtocolCommit>> {
+        recovery
+            .recovery
+            .wal_records
+            .iter()
+            .filter(|record| {
+                record.pg == pg
+                    && record.kind == WalRecordKind::Commit
+                    && ProtocolCommitRecord::is_protocol_payload(&record.payload)
+            })
+            .cloned()
+            .map(RecoveredProtocolCommit::try_from_wal)
+            .collect()
     }
 
     pub fn append_commit(&mut self, commit: &FabricCommit) -> RsfResult<DurableProtocolCommit> {
@@ -221,22 +269,25 @@ impl ProtocolWal {
         }
 
         let payload = record.encode();
-        let recovery = self.store.recover_current()?.recovery;
-        let expected_logical_index = recovery
-            .wal_records
-            .iter()
-            .filter(|wal| {
-                wal.pg == self.pg
-                    && wal.kind == WalRecordKind::Commit
-                    && ProtocolCommitRecord::is_protocol_payload(&wal.payload)
-            })
-            .map(|wal| ProtocolCommitRecord::decode(&wal.payload))
-            .collect::<RsfResult<Vec<_>>>()?
-            .into_iter()
-            .map(|commit| commit.certificate.index.0)
-            .max()
-            .unwrap_or(0)
-            + 1;
+        let mut store = self.store.lock().map_err(|_| {
+            RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "protocol WAL writer mutex poisoned",
+            )
+        })?;
+        let tail = store.wal_tail(self.pg)?;
+        if self
+            .logical_cursor
+            .as_ref()
+            .is_none_or(|(previous, _)| *previous != tail)
+        {
+            let recovery = store.recover_current()?;
+            self.logical_cursor = Some((
+                recovery.recovery.pg_tail(self.pg),
+                Self::next_logical_index(&recovery, self.pg)?,
+            ));
+        }
+        let (tail, expected_logical_index) = self.logical_cursor.expect("logical cursor validated");
         if record.certificate.index.0 != expected_logical_index {
             return Err(RsfError::new(
                 ErrorCode::InvalidInput,
@@ -246,11 +297,17 @@ impl ProtocolWal {
                 ),
             ));
         }
-
-        let tail = recovery.pg_tail(self.pg);
+        let next_logical = expected_logical_index.checked_add(1).ok_or_else(|| {
+            RsfError::new(ErrorCode::InvalidInput, "protocol logical index exhausted")
+        })?;
         let previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-        let storage_index = LogIndex(tail.map_or(1, |tail| tail.index.0 + 1));
-        let (segment_id, offset, wal_record) = self.store.append_wal(WalAppend {
+        let storage_index = LogIndex(
+            tail.map_or(Some(1), |tail| tail.index.0.checked_add(1))
+                .ok_or_else(|| {
+                    RsfError::new(ErrorCode::InvalidInput, "protocol physical index exhausted")
+                })?,
+        );
+        let (segment_id, offset, wal_record) = store.append_wal(WalAppend {
             pg: self.pg,
             epoch: self.epoch,
             index: storage_index,
@@ -258,6 +315,14 @@ impl ProtocolWal {
             previous_hash,
             payload: &payload,
         })?;
+        self.logical_cursor = Some((
+            Some(WalTail {
+                epoch: wal_record.epoch,
+                index: wal_record.index,
+                record_hash: wal_record.record_hash,
+            }),
+            next_logical,
+        ));
 
         Ok(DurableProtocolCommit {
             segment_id,
@@ -673,13 +738,16 @@ impl DurableFabricRouter {
         epoch: Epoch,
     ) -> RsfResult<Self> {
         let path = path.as_ref().to_path_buf();
+        let (store, recovery) =
+            SegmentStore::open_recovered(&path, SegmentStoreOptions::default())?;
+        let store = Arc::new(Mutex::new(store));
         let mut wals = BTreeMap::new();
         let mut next_indexes = BTreeMap::new();
         let mut next_version = 1;
         let mut request_certificates = BTreeMap::new();
 
         for pg in groups {
-            let recovered = ProtocolWal::recover(&path, pg)?;
+            let recovered = ProtocolWal::recover_records(&recovery, pg)?;
             let mut max_index = 0;
             for commit in recovered {
                 max_index = max_index.max(commit.certificate.index.0);
@@ -689,7 +757,10 @@ impl DurableFabricRouter {
                 }
             }
             next_indexes.insert(pg, max_index + 1);
-            wals.insert(pg, ProtocolWal::open(&path, pg, epoch)?);
+            wals.insert(
+                pg,
+                ProtocolWal::from_recovery(Arc::clone(&store), pg, epoch, &recovery)?,
+            );
         }
 
         Ok(Self {
@@ -772,6 +843,43 @@ impl DurableFabricRouter {
             .collect())
     }
 
+    fn append_control(&mut self, payload: &[u8]) -> RsfResult<()> {
+        let wal = self.wals.values_mut().next().ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                "protocol coordinator has no mapped groups",
+            )
+        })?;
+        wal.store
+            .lock()
+            .map_err(|_| {
+                RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "protocol WAL writer mutex poisoned",
+                )
+            })?
+            .append_next_wal(METADATA_PG, self.epoch, WalRecordKind::Membership, payload)?;
+        Ok(())
+    }
+
+    fn storage_revision(&mut self) -> RsfResult<SegmentStoreRevision> {
+        let wal = self.wals.values_mut().next().ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                "protocol coordinator has no mapped groups",
+            )
+        })?;
+        wal.store
+            .lock()
+            .map_err(|_| {
+                RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "protocol WAL writer mutex poisoned",
+                )
+            })?
+            .revision()
+    }
+
     fn next_commit(
         &self,
         pg: PlacementGroupId,
@@ -852,7 +960,20 @@ impl DurableFabricRouter {
         if self.wals.contains_key(&pg) {
             return Ok(());
         }
-        let recovered = ProtocolWal::recover(&self.path, pg)?;
+        let store = match self.wals.values().next() {
+            Some(wal) => Arc::clone(&wal.store),
+            None => Arc::new(Mutex::new(SegmentStore::open(&self.path)?)),
+        };
+        let recovery = store
+            .lock()
+            .map_err(|_| {
+                RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "protocol WAL writer mutex poisoned",
+                )
+            })?
+            .recover_current()?;
+        let recovered = ProtocolWal::recover_records(&recovery, pg)?;
         let mut max_index = 0;
         for commit in recovered {
             max_index = max_index.max(commit.certificate.index.0);
@@ -863,8 +984,10 @@ impl DurableFabricRouter {
             }
         }
         self.next_indexes.insert(pg, max_index + 1);
-        self.wals
-            .insert(pg, ProtocolWal::open(&self.path, pg, self.epoch)?);
+        self.wals.insert(
+            pg,
+            ProtocolWal::from_recovery(store, pg, self.epoch, &recovery)?,
+        );
         Ok(())
     }
 
@@ -987,6 +1110,9 @@ pub struct VsrBackedFabricRouter<T: VsrTransport = LocalVsrTransport> {
     transport: T,
     application_commands: BTreeMap<ClientRequestId, ReplicatedFabricCommand>,
     protocol_commands: BTreeMap<CommitVersion, ReplicatedProtocolCommand>,
+    protocol_requests: BTreeMap<ClientRequestId, CommitVersion>,
+    pending_commands: BTreeMap<CommitVersion, command::PendingCommand>,
+    committed_applications: BTreeMap<CommitVersion, ClientRequestId>,
     application_failure: Option<String>,
     provision_local_cells: bool,
 }
@@ -1045,6 +1171,9 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             transport,
             application_commands: BTreeMap::new(),
             protocol_commands: BTreeMap::new(),
+            protocol_requests: BTreeMap::new(),
+            pending_commands: BTreeMap::new(),
+            committed_applications: BTreeMap::new(),
             application_failure: None,
             provision_local_cells: true,
         };
@@ -1107,8 +1236,12 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     ) -> RsfResult<FabricCommit> {
         self.policy.validate_commit(mode, &operation)?;
         let pending_retry = self
-            .protocol_commands
+            .pending_commands
             .values()
+            .filter_map(|pending| match pending {
+                command::PendingCommand::Protocol(command) => Some(command),
+                _ => None,
+            })
             .find(|command| {
                 command.request.is_none()
                     && command.commit.pg == pg
@@ -1170,13 +1303,12 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
                 "installed-state surface mutations require complete application payloads",
             ));
         }
-        if self.protocol_commands.values().any(|command| {
-            command.request.as_ref() == Some(&request)
-                && (command.purpose != purpose
-                    || (purpose == ProtocolCommandPurpose::ImmutableDependency
-                        && (command.commit.pg != pg
-                            || command.commit.mode != mode
-                            || command.commit.operation != operation)))
+        if self.protocol_request(&request).is_some_and(|command| {
+            command.purpose != purpose
+                || (purpose == ProtocolCommandPurpose::ImmutableDependency
+                    && (command.commit.pg != pg
+                        || command.commit.mode != mode
+                        || command.commit.operation != operation))
         }) {
             return Err(RsfError::new(
                 ErrorCode::InvalidInput,
@@ -1192,14 +1324,9 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             };
             self.validate_dependency_request(pg, &request, *digest)?;
         }
-        let completed_here = self.protocol_commands.values().any(|command| {
-            command.request.as_ref() == Some(&request)
-                && self
-                    .router
-                    .next_indexes
-                    .get(&command.commit.pg)
-                    .is_none_or(|next| *next <= command.commit.index.0)
-        });
+        let completed_here = self
+            .protocol_request(&request)
+            .is_some_and(|command| self.pending_commands.contains_key(&command.commit.version));
         self.reconcile_application_commands()?;
         if self.application_commands.contains_key(&request) {
             return Err(RsfError::new(
@@ -1273,11 +1400,17 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     ) -> RsfResult<PlacementMap> {
         let next = PlacementMap::new(self.placement.version + 1, groups)?;
         self.policy.validate_placement_map(&next)?;
-        if !self.provision_local_cells && next.groups.iter().any(|pg| !self.cells.contains_key(pg))
+        if !self.provision_local_cells
+            && next
+                .groups
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+                != self.cells.keys().copied().collect()
         {
             return Err(RsfError::new(
                 ErrorCode::InvalidInput,
-                "placement expansion requires an explicitly installed voting cell",
+                "placement changes require certified migration and an exact installed voting-cell inventory",
             ));
         }
         if self
@@ -1291,7 +1424,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             ));
         }
         self.reconcile_application_commands()?;
-        append_placement_map(&self.path, self.epoch, &next)?;
+        self.router.append_control(&next.encode()?)?;
         for pg in next.groups.iter().copied() {
             self.router.ensure_group(pg)?;
             self.ensure_cell(pg)?;
@@ -1312,9 +1445,15 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         )?;
         next.validate_placement_map(&self.placement)?;
         self.reconcile_application_commands()?;
-        append_protocol_policy(&self.path, self.epoch, &next)?;
+        self.router.append_control(&next.encode()?)?;
         self.policy = next.clone();
         Ok(next)
+    }
+
+    fn protocol_request(&self, request: &ClientRequestId) -> Option<&ReplicatedProtocolCommand> {
+        self.protocol_requests
+            .get(request)
+            .and_then(|version| self.protocol_commands.get(version))
     }
 
     pub fn latest_version(&self) -> CommitVersion {
@@ -1482,6 +1621,21 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
                     ErrorCode::CorruptionDetected,
                     "protocol command reuses a commit version",
                 ));
+            }
+            if let Some(request) = &command.request {
+                self.protocol_requests
+                    .insert(request.clone(), commit.version);
+            }
+            if self
+                .router
+                .next_indexes
+                .get(&commit.pg)
+                .is_none_or(|next| *next <= commit.index.0)
+            {
+                self.pending_commands.insert(
+                    commit.version,
+                    command::PendingCommand::Protocol(command.clone()),
+                );
             }
             self.protocol_commands.insert(commit.version, command);
             full

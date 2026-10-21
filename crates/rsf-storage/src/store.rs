@@ -59,6 +59,8 @@ pub struct SegmentStore {
     write_failed: bool,
     gate: StoreGate,
     cursor: Option<WalCursor>,
+    observer: std::sync::Arc<()>,
+    external_changes: u64,
 }
 
 #[derive(Debug)]
@@ -67,11 +69,38 @@ struct WalCursor {
     stamp: Vec<SegmentStamp>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct SegmentStamp {
     id: u64,
     bytes: u64,
     modified: SystemTime,
+}
+
+/// Opaque identity of a validated physical store state. Comparing revisions is
+/// bounded by segment count; changed disk state is recovered and validated
+/// before a new revision is returned. It is not a durable checkpoint.
+#[derive(Clone, Debug)]
+pub struct SegmentStoreRevision {
+    manifest: SegmentManifest,
+    stamp: Vec<SegmentStamp>,
+    observer: std::sync::Arc<()>,
+    external_changes: u64,
+}
+impl PartialEq for SegmentStoreRevision {
+    fn eq(&self, other: &Self) -> bool {
+        self.same_writer_epoch(other)
+            && self.manifest == other.manifest
+            && self.stamp == other.stamp
+    }
+}
+impl Eq for SegmentStoreRevision {}
+impl SegmentStoreRevision {
+    /// True only for the same observed handle without an intervening refresh
+    /// caused by another writer or a changed physical layout.
+    pub fn same_writer_epoch(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.observer, &other.observer)
+            && self.external_changes == other.external_changes
+    }
 }
 
 impl SegmentStore {
@@ -123,9 +152,41 @@ impl SegmentStore {
                 write_failed: false,
                 gate,
                 cursor,
+                observer: std::sync::Arc::new(()),
+                external_changes: 0,
             },
             recovery,
         ))
+    }
+
+    /// Observe a validated WAL tail without replaying unchanged segments.
+    pub fn wal_tail(&mut self, pg: PlacementGroupId) -> RsfResult<Option<WalTail>> {
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        self.wal_tail_owned(pg)
+    }
+
+    /// Detect writes, rotations, truncation, or compaction from another handle.
+    /// Own successful appends keep the validated physical cursor current.
+    pub fn revision(&mut self) -> RsfResult<SegmentStoreRevision> {
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        self.wal_tail_owned(PlacementGroupId(0))?;
+        Ok(SegmentStoreRevision {
+            manifest: self.manifest.clone(),
+            observer: self.observer.clone(),
+            external_changes: self.external_changes,
+            stamp: self
+                .cursor
+                .as_ref()
+                .expect("validated cursor")
+                .stamp
+                .clone(),
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -651,6 +712,12 @@ impl SegmentStore {
             .as_ref()
             .is_none_or(|cursor| cursor.stamp != stamp)
         {
+            self.external_changes = self.external_changes.checked_add(1).ok_or_else(|| {
+                RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "store observer revision exhausted",
+                )
+            })?;
             let recovered = self.recover_owned()?;
             self.cursor = Some(WalCursor {
                 tails: recovered.recovery.pg_tails,
@@ -1034,12 +1101,13 @@ fn recover_manifest_or_quarantine(
     recover_manifest_with_handler(root, manifest, Some(quarantine_segment))
 }
 
+type CorruptSegmentHandler =
+    fn(&Path, &SegmentDescriptor, &RsfError) -> RsfResult<QuarantineReport>;
+
 fn recover_manifest_with_handler(
     root: &Path,
     manifest: &SegmentManifest,
-    on_corrupt_segment: Option<
-        fn(&Path, &SegmentDescriptor, &RsfError) -> RsfResult<QuarantineReport>,
-    >,
+    on_corrupt_segment: Option<CorruptSegmentHandler>,
 ) -> RsfResult<SegmentStoreRecovery> {
     let mut records = Vec::new();
     let mut wal_records = Vec::new();
@@ -1490,11 +1558,7 @@ mod tests {
             ),
             (
                 1,
-                format!(
-                    "{}base 1 1 1 {}\n",
-                    segment(1),
-                    format!("aé{}", "a".repeat(61))
-                ),
+                format!("{}base 1 1 1 aé{}\n", segment(1), "a".repeat(61)),
             ),
         ] {
             let text = format!("rsf-segment-manifest 1\nactive {active}\n{body}");
@@ -2424,5 +2488,51 @@ mod tests {
         let checksum = crate::DEFAULT_CHECKSUM_ALGORITHM.checksum(payload);
         bytes[16..24].copy_from_slice(&checksum.to_le_bytes());
         fs::write(path, bytes).unwrap();
+    }
+    #[test]
+    fn observed_revisions_distinguish_own_appends_foreign_writes_and_corruption() {
+        let root = test_root("observed-revisions");
+        let mut first = SegmentStore::open(&root).unwrap();
+        let initial = first.revision().unwrap();
+        first
+            .append_next_wal(PlacementGroupId(1), Epoch(1), WalRecordKind::Commit, b"own")
+            .unwrap();
+        let own = first.revision().unwrap();
+        assert_ne!(initial, own);
+        assert!(own.same_writer_epoch(&initial));
+        let mut second = SegmentStore::open(&root).unwrap();
+        second
+            .append_next_wal(
+                PlacementGroupId(2),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"foreign",
+            )
+            .unwrap();
+        let foreign = first.revision().unwrap();
+        assert!(!foreign.same_writer_epoch(&own));
+        assert_eq!(
+            first.wal_tail(PlacementGroupId(1)).unwrap().unwrap().index,
+            LogIndex(1)
+        );
+        let path = root
+            .join(SEGMENT_DIR)
+            .join(&first.active_segment().file_name);
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+            .unwrap();
+        assert_eq!(
+            first.revision().unwrap_err().code,
+            ErrorCode::CorruptionDetected
+        );
+        drop(first);
+        drop(second);
+        fs::remove_dir_all(root).unwrap();
     }
 }
