@@ -114,6 +114,71 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             )
         })
         .collect::<Vec<_>>();
+    // Acknowledged session state survives primary data loss while its rows and
+    // schema remain uncommitted. The replacement must resume the same token.
+    let begin_context = rsf_sql::SqlSessionContext {
+        name: "takeover".into(),
+        transaction: None,
+    };
+    let begin_body = begin_context.encode().unwrap();
+    let begin_reply = must_execute(
+        addresses[primary as usize],
+        Sql,
+        "BEGIN",
+        "session-begin",
+        &begin_body,
+    );
+    let token = begin_reply
+        .split("session=")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+    let session = rsf_sql::SqlSessionContext {
+        name: "takeover".into(),
+        transaction: Some(token),
+    };
+    let session_body = session.encode().unwrap();
+    let staged = [
+        (
+            "CREATE TABLE session_rows(id PRIMARY KEY, name)",
+            "session-table",
+        ),
+        (
+            "INSERT INTO session_rows (id, name) VALUES (1, durable)",
+            "session-insert",
+        ),
+        ("SAVEPOINT keep", "session-savepoint"),
+        (
+            "UPDATE session_rows SET name=discarded WHERE id=1",
+            "session-update",
+        ),
+    ];
+    let staged_replies = staged
+        .iter()
+        .map(|(statement, id)| {
+            must_execute(
+                addresses[primary as usize],
+                Sql,
+                statement,
+                id,
+                &session_body,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(staged_replies[1].contains("staged=true"));
+    assert!(
+        surface_request(
+            addresses[primary as usize],
+            Sql,
+            "SELECT * FROM session_rows",
+            "session-invisible",
+            b""
+        )
+        .starts_with("RSF/1 rejected")
+    );
     // Object-internal protocol pins must not become a user blob value when the
     // resident materializer advances its complete-command cursor.
     let internal = rsf_core::blob::ContentId::for_bytes(b"object before failover");
@@ -252,6 +317,47 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         };
         assert_eq!(retry, expected);
     }
+    let resumed = must_execute(
+        address,
+        Sql,
+        "SELECT * FROM session_rows",
+        "session-resume",
+        &session_body,
+    );
+    assert!(resumed.contains(&hex(b"discarded")), "{resumed}");
+    must_execute(
+        address,
+        Sql,
+        "ROLLBACK TO keep",
+        "session-rollback-to",
+        &session_body,
+    );
+    let committed = must_execute(address, Sql, "COMMIT", "session-commit", &session_body);
+    let read = must_execute(
+        address,
+        Sql,
+        "SELECT * FROM session_rows",
+        "session-visible",
+        b"",
+    );
+    assert!(
+        read.contains(&hex(b"durable")) && !read.contains(&hex(b"discarded")),
+        "{read}"
+    );
+    assert_eq!(
+        must_execute(address, Sql, "BEGIN", "session-begin", &begin_body),
+        begin_reply.replace("replayed=false", "replayed=true")
+    );
+    for ((statement, id), reply) in staged.iter().zip(&staged_replies) {
+        assert_eq!(
+            must_execute(address, Sql, statement, id, &session_body),
+            reply.replace("replayed=false", "replayed=true")
+        );
+    }
+    assert_eq!(
+        must_execute(address, Sql, "COMMIT", "session-commit", &session_body),
+        committed.replace("replayed=false", "replayed=true")
+    );
     for (protocol, operation, expected) in [
         (Kv, "GET client/key", b"kv before failover".as_slice()),
         (Object, "GET media/key", b"object before failover"),
@@ -317,6 +423,10 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
     );
     let read = must_execute(address, Sql, "SELECT * FROM users", "after-select", b"");
     assert!(read.contains(&hex(b"grace")), "{read}");
+    assert_eq!(
+        must_execute(address, Sql, "COMMIT", "session-commit", &session_body),
+        committed.replace("replayed=false", "replayed=true")
+    );
     let id = rsf_core::blob::ContentId::for_bytes(b"new blob");
     let read = must_execute(
         address,
@@ -340,6 +450,17 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
     must_execute(address, Kv, "GET client/after", "restored", b"");
     drop(processes);
     for node in survivors {
+        let mut sql = rsf_sql::DurableSqlEngine::open_replicated(
+            crate_namespace(&state(&root, node)).join("sql"),
+            "app",
+        )
+        .unwrap();
+        let result = sql.read_snapshot("SELECT * FROM session_rows").unwrap();
+        let rsf_sql::SqlOutcome::Selected { rows } = result.outcome else {
+            panic!("session rows");
+        };
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].columns["name"], "durable");
         let kv = rsf_kv::DurableKvEngine::open_replicated(
             crate_namespace(&state(&root, node)).join("kv"),
             Epoch(1),
@@ -382,6 +503,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "requests_without_acknowledgement":32-acknowledged,"retried_requests":32,
             "history_growth_ms":history_growth_ms,"verified_logical_kv_writes":162,"history_growth_writes":128,"surviving_replicas_checked":2,
             "primary_state_deleted":true,"replacement_restarts":1,"surface_count":4,
+            "active_sql_session_resumed":true,"sql_session_original_results_replayed":true,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"
         })

@@ -177,6 +177,7 @@ fn legacy_checkpoint(sql: &DurableSqlEngine) -> String {
         namespace: sql.namespace.clone(),
         commands: sql.commands.clone(),
         journal: None,
+        sessions: sql.sessions.clone(),
     })
     .unwrap()
 }
@@ -299,6 +300,7 @@ fn journal_writer_process() {
             .find(|command| command.request == ClientRequestId::new("insert", 0))
             .unwrap();
         PendingRequest {
+            session: None,
             client: "insert".into(),
             statement: INSERT.into(),
             pg: PG,

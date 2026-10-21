@@ -6,18 +6,33 @@ pub(crate) fn sql<T: VsrTransport>(
     router: &mut VsrBackedFabricRouter<T>,
     sql: &mut DurableSqlEngine,
 ) -> RsfResult<DataPlaneResponse> {
-    ensure_empty_body(&envelope.body, "sql")?;
+    let context = if envelope.body.is_empty() {
+        None
+    } else {
+        Some(rsf_sql::SqlSessionContext::decode(&envelope.body)?)
+    };
     let request_client = sql_request_client_from_envelope(envelope)?;
 
     if envelope.operation_kind == WireOperationKind::Read {
         router.confirm_read_quorum()?;
     }
-    let execution = sql.execute(
-        router,
-        PlacementGroupId(1),
-        &envelope.operation,
-        request_client,
-    )?;
+    let execution = if let Some(context) = &context {
+        sql.execute_session(
+            router,
+            PlacementGroupId(1),
+            &envelope.principal,
+            context,
+            &envelope.operation,
+            request_client,
+        )?
+    } else {
+        sql.execute(
+            router,
+            PlacementGroupId(1),
+            &envelope.operation,
+            request_client,
+        )?
+    };
     let payload = match &execution.outcome {
         SqlOutcome::Selected { rows } => {
             serde_json::to_vec(&rows.iter().map(|row| &row.columns).collect::<Vec<_>>())

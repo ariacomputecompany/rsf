@@ -7814,6 +7814,11 @@ impl SqlTransactionService {
 
     fn record_engine_outcome(trace: &mut Trace, phase: &str, outcome: SqlOutcome) {
         match outcome {
+            SqlOutcome::SchemaStaged { session_id, snapshot, table, item } => trace.push(
+                "sqltxn-engine",
+                phase,
+                format!("staged schema session={session_id} snapshot={} table={table} item={item}", snapshot.0),
+            ),
             SqlOutcome::TransactionBegan {
                 session_id,
                 snapshot,

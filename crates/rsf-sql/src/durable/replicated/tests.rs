@@ -241,7 +241,15 @@ impl FabricRouterPort for Interrupt {
         op: FabricOperation,
         app: ApplicationPayload,
     ) -> RsfResult<RequestCommitEvidence> {
-        let is_row = matches!(op, FabricOperation::RelationalMutation { .. });
+        let is_session_commit = app.bytes.strip_prefix(SESSION_MAGIC).is_some_and(|bytes| {
+            let text = std::str::from_utf8(bytes).unwrap();
+            let pending = PendingRequest::decode(&text.split('\t').collect::<Vec<_>>()).unwrap();
+            matches!(
+                parse_statement(&pending.statement).unwrap(),
+                ParsedStatement::Commit
+            )
+        });
+        let is_row = matches!(op, FabricOperation::RelationalMutation { .. }) || is_session_commit;
         let result = self
             .inner
             .commit_application_request(pg, request, mode, op, app)?;
@@ -275,6 +283,124 @@ fn interrupted_writer_process() {
     let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
     execute(&mut sql, &mut router, CREATE, "create").unwrap();
     execute(&mut sql, &mut router, INSERT, "insert").unwrap();
+}
+
+#[test]
+fn interrupted_session_commit_process() {
+    let Some(root) = std::env::var_os("RSF_SQL_SESSION_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let mut router = Interrupt {
+        inner: router(&root),
+        stop: true,
+        fail_journal_head: None,
+    };
+    let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
+    let mut context = crate::SqlSessionContext {
+        name: "work".into(),
+        transaction: None,
+    };
+    let result = sql
+        .execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            "BEGIN",
+            "begin",
+        )
+        .unwrap();
+    let SqlOutcome::TransactionBegan { session_id, .. } = result.outcome else {
+        panic!("BEGIN");
+    };
+    context.transaction = Some(session_id);
+    for (statement, id) in [(CREATE, "create"), (INSERT, "insert"), ("COMMIT", "commit")] {
+        sql.execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            statement,
+            id,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn killed_session_commit_recovers_atomic_rows_schema_and_original_receipt() {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+    let root = root("session-kill");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "durable::replicated::tests::interrupted_session_commit_process",
+            "--nocapture",
+        ])
+        .env("RSF_SQL_SESSION_ROOT", &root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            if line.unwrap().contains("SQL_COMMAND_DURABLE") {
+                let _ = send.send(());
+                return;
+            }
+        }
+    });
+    let arrived = receive.recv_timeout(std::time::Duration::from_secs(15));
+    let _ = child.kill();
+    child.wait().unwrap();
+    reader.join().unwrap();
+    arrived.unwrap();
+    let mut router = router(&root);
+    let mut sql = DurableSqlEngine::open(root.join("sql")).unwrap();
+    assert!(
+        sql.read_snapshot(READ).is_err(),
+        "unpublished commit must not expose partial schema"
+    );
+    let context = crate::SqlSessionContext {
+        name: "work".into(),
+        transaction: Some(sql.sessions.values().next().unwrap().token.clone()),
+    };
+    assert_eq!(sql.reconcile(&mut router).unwrap(), 1);
+    assert_eq!(sql.read_snapshot(READ).unwrap().rows, 1);
+    assert!(sql.sessions.is_empty());
+    let retry = sql
+        .execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            "COMMIT",
+            "commit",
+        )
+        .unwrap();
+    assert!(retry.replayed);
+    assert!(matches!(
+        retry.outcome,
+        SqlOutcome::TransactionCommitted { mutations: 2, .. }
+    ));
+    drop(sql);
+    let mut sql = DurableSqlEngine::open(root.join("sql")).unwrap();
+    let again = sql
+        .execute_session(
+            &mut router,
+            PlacementGroupId(1),
+            "alice",
+            &context,
+            "COMMIT",
+            "commit",
+        )
+        .unwrap();
+    assert_eq!(again.outcome, retry.outcome);
+    assert_eq!(router.committed_application_commands().len(), 4);
 }
 
 #[test]

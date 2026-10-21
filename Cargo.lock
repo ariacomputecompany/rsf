@@ -968,6 +968,8 @@ dependencies = [
  "rsf-tuple",
  "rsf-vacuum",
  "rsf-wal",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

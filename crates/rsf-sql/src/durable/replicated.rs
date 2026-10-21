@@ -6,8 +6,32 @@ use rsf_protocol::{
     ReplicatedFabricCommand,
 };
 
-mod plan;
+pub(super) mod plan;
 const MAGIC: &[u8] = b"RSFSC1";
+const SESSION_MAGIC: &[u8] = b"RSFSC2";
+pub(super) struct PreparedSql {
+    engine: SqlEngine,
+    session: Option<(String, Option<session::SessionState>)>,
+}
+fn operation(engine: &SqlEngine, request: &PendingRequest) -> RsfResult<FabricOperation> {
+    if let Some(proposal) = &request.session {
+        proposal.operation()
+    } else {
+        plan::operation(engine, &request.statement)
+    }
+}
+fn receipt_execution(
+    receipt: &RequestReceipt,
+    engine: &SqlEngine,
+    replayed: bool,
+) -> RsfResult<DurableSqlExecution> {
+    let mut result = execution(receipt.outcome(engine)?, replayed);
+    if receipt.request.session.is_some() {
+        result.version = Some(receipt.evidence.version);
+        result.persisted = true;
+    }
+    Ok(result)
+}
 fn invalid(message: impl Into<String>) -> RsfError {
     RsfError::new(ErrorCode::InvalidInput, message)
 }
@@ -20,16 +44,24 @@ pub(super) fn validate_namespace(namespace: &str) -> RsfResult<()> {
     }
     Ok(())
 }
-fn application(namespace: &str, request: &PendingRequest) -> ApplicationPayload {
-    let mut bytes = MAGIC.to_vec();
-    bytes.extend_from_slice(request.encode().as_bytes());
-    ApplicationPayload {
+fn application(namespace: &str, request: &PendingRequest) -> RsfResult<ApplicationPayload> {
+    let mut bytes = if request.session.is_some() {
+        SESSION_MAGIC
+    } else {
+        MAGIC
+    }
+    .to_vec();
+    bytes.extend_from_slice(request.encode()?.as_bytes());
+    Ok(ApplicationPayload {
         namespace: namespace.into(),
         surface: ApplicationSurface::Sql,
         bytes,
-    }
+    })
 }
-fn decode_request(command: &ReplicatedFabricCommand, namespace: &str) -> RsfResult<PendingRequest> {
+pub(super) fn decode_request(
+    command: &ReplicatedFabricCommand,
+    namespace: &str,
+) -> RsfResult<PendingRequest> {
     command.encode()?;
     if command.application.namespace != namespace
         || command.application.surface != ApplicationSurface::Sql
@@ -39,13 +71,18 @@ fn decode_request(command: &ReplicatedFabricCommand, namespace: &str) -> RsfResu
             "SQL command targets a different namespace, surface or consistency mode",
         ));
     }
-    let text = command
-        .application
-        .bytes
-        .strip_prefix(MAGIC)
-        .ok_or_else(|| corrupt("unknown SQL command format"))?;
+    let (text, is_session) = if let Some(bytes) = command.application.bytes.strip_prefix(MAGIC) {
+        (bytes, false)
+    } else if let Some(bytes) = command.application.bytes.strip_prefix(SESSION_MAGIC) {
+        (bytes, true)
+    } else {
+        return Err(corrupt("unknown SQL command format"));
+    };
     let text = std::str::from_utf8(text).map_err(|_| corrupt("SQL command is not UTF-8"))?;
     let request = PendingRequest::decode(&text.split('\t').collect::<Vec<_>>())?;
+    if is_session != request.session.is_some() {
+        return Err(corrupt("SQL command format differs from its session body"));
+    }
     if command.request != ClientRequestId::new(request.client.clone(), 0)
         || command.commit.pg != request.pg
     {
@@ -77,7 +114,7 @@ pub(super) fn validate_checkpoint_commands(
         let receipt = receipts
             .get(&request.client)
             .ok_or_else(|| corrupt("SQL command has no receipt"))?;
-        receipt.request.matches(request.pg, &request.statement)?;
+        receipt.request.matches_request(&request)?;
         if receipt.evidence != crate::commit_evidence(command.certificate())
             || !versions.insert(command.commit.version)
         {
@@ -95,7 +132,7 @@ pub(super) fn validate_recovered_operations(
 ) -> RsfResult<()> {
     for command in commands.values() {
         let request = decode_request(command, &command.application.namespace)?;
-        if plan::operation(engine, &request.statement)? != command.commit.operation {
+        if operation(engine, &request)? != command.commit.operation {
             return Err(corrupt(
                 "SQL checkpoint command differs from recovered relational operation",
             ));
@@ -210,16 +247,14 @@ impl DurableSqlEngine {
         }
         self.reconcile(router)?;
         let request = PendingRequest {
+            session: None,
             client,
             statement: statement.into(),
             pg,
         };
         if self.receipts.contains_key(&request.client) {
             self.confirm_retry(router, &request)?;
-            return Ok(execution(
-                self.receipts[&request.client].outcome(&self.engine)?,
-                true,
-            ));
+            return self.execute_receipt(&self.receipts[&request.client], true);
         }
         if matches!(parse_statement(statement)?, ParsedStatement::Select { .. }) {
             return self.read_snapshot(statement);
@@ -233,17 +268,17 @@ impl DurableSqlEngine {
         self.submit_planned(router, candidate, command)
     }
 
-    fn prepare_replicated(
+    pub(super) fn prepare_replicated(
         &self,
         router: &mut impl FabricRouterPort,
         pending: &PendingRequest,
-    ) -> RsfResult<(SqlEngine, ReplicatedFabricCommand)> {
+    ) -> RsfResult<(PreparedSql, ReplicatedFabricCommand)> {
         let namespace = self
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("SQL planning requires a bound namespace"))?;
-        let operation = plan::operation(&self.engine, &pending.statement)?;
-        let application = application(namespace, pending);
+        let operation = operation(&self.engine, pending)?;
+        let application = application(namespace, pending)?;
         let request = ClientRequestId::new(pending.client.clone(), 0);
         let commit = router.preview_application_request(
             pending.pg,
@@ -264,19 +299,14 @@ impl DurableSqlEngine {
         if command.commit.version <= self.highest_command() {
             return Err(corrupt("SQL command reorders applied history"));
         }
-        let candidate = plan::prepare(
-            &self.engine,
-            &pending.statement,
-            pending.pg,
-            command.commit.version,
-        )?;
+        let candidate = self.prepare_request(pending, command.commit.version)?;
         Ok((candidate, command))
     }
 
-    fn submit_planned(
+    pub(super) fn submit_planned(
         &mut self,
         router: &mut impl FabricRouterPort,
-        candidate: SqlEngine,
+        candidate: PreparedSql,
         command: ReplicatedFabricCommand,
     ) -> RsfResult<DurableSqlExecution> {
         let result = router.commit_application_request(
@@ -302,7 +332,7 @@ impl DurableSqlEngine {
         self.publish_command(candidate, command, receipt.replayed)
     }
 
-    fn confirm_retry(
+    pub(super) fn confirm_retry(
         &self,
         router: &mut impl FabricRouterPort,
         request: &PendingRequest,
@@ -311,7 +341,7 @@ impl DurableSqlEngine {
             .receipts
             .get(&request.client)
             .ok_or_else(|| corrupt("SQL retry has no receipt"))?;
-        receipt.request.matches(request.pg, &request.statement)?;
+        receipt.request.matches_request(request)?;
         let id = ClientRequestId::new(request.client.clone(), 0);
         let command = self
             .commands
@@ -358,13 +388,10 @@ impl DurableSqlEngine {
             if let Some(pending) = &self.pending
                 && pending.client == request.client
             {
-                pending.matches(request.pg, &request.statement)?;
+                pending.matches_request(&request)?;
                 self.clear_pending()?;
             }
-            return Ok(execution(
-                self.receipts[&request.client].outcome(&self.engine)?,
-                true,
-            ));
+            return self.execute_receipt(&self.receipts[&request.client], true);
         }
         if self
             .pending
@@ -377,18 +404,13 @@ impl DurableSqlEngine {
         }
         if command.commit.version <= self.highest_command()
             || self.receipts.contains_key(&request.client)
-            || plan::operation(&self.engine, &request.statement)? != command.commit.operation
+            || operation(&self.engine, &request)? != command.commit.operation
         {
             return Err(corrupt(
                 "SQL replay operation conflicts with applied history",
             ));
         }
-        let candidate = plan::prepare(
-            &self.engine,
-            &request.statement,
-            request.pg,
-            command.commit.version,
-        )?;
+        let candidate = self.prepare_request(&request, command.commit.version)?;
         self.publish_command(candidate, command.clone(), false)
     }
 
@@ -406,24 +428,19 @@ impl DurableSqlEngine {
         if self.commands.contains_key(&command.request)
             || self.receipts.contains_key(&request.client)
             || command.commit.version <= self.highest_command()
-            || plan::operation(&self.engine, &request.statement)? != command.commit.operation
+            || operation(&self.engine, &request)? != command.commit.operation
         {
             return Err(corrupt(
                 "SQL journal command conflicts with recovered history",
             ));
         }
-        let candidate = plan::prepare(
-            &self.engine,
-            &request.statement,
-            request.pg,
-            command.commit.version,
-        )?;
+        let candidate = self.prepare_request(&request, command.commit.version)?;
         let receipt = RequestReceipt {
             request: request.clone(),
             evidence: crate::commit_evidence(command.certificate()),
         };
-        receipt.outcome(&candidate)?;
-        self.engine = candidate;
+        receipt.outcome(&candidate.engine)?;
+        self.install_candidate(candidate);
         self.commands
             .insert(command.request.clone(), command.clone());
         self.receipts.insert(request.client, receipt);
@@ -432,7 +449,7 @@ impl DurableSqlEngine {
 
     fn publish_command(
         &mut self,
-        candidate: SqlEngine,
+        candidate: PreparedSql,
         command: ReplicatedFabricCommand,
         replayed: bool,
     ) -> RsfResult<DurableSqlExecution> {
@@ -445,8 +462,8 @@ impl DurableSqlEngine {
             request: request.clone(),
             evidence: crate::commit_evidence(command.certificate()),
         };
-        let outcome = match receipt.outcome(&candidate) {
-            Ok(outcome) => outcome,
+        let response = match receipt_execution(&receipt, &candidate.engine, replayed) {
+            Ok(response) => response,
             Err(err) => {
                 self.persistence_failed = true;
                 return Err(err);
@@ -461,7 +478,7 @@ impl DurableSqlEngine {
             self.persistence_failed = true;
             return Err(err);
         }
-        self.engine = candidate;
+        self.install_candidate(candidate);
         self.commands.insert(command.request.clone(), command);
         self.receipts.insert(request.client, receipt);
         if self
@@ -476,7 +493,43 @@ impl DurableSqlEngine {
         if self.pending.is_some() {
             self.clear_pending()?;
         }
-        Ok(execution(outcome, replayed))
+        Ok(response)
+    }
+
+    fn prepare_request(
+        &self,
+        request: &PendingRequest,
+        version: CommitVersion,
+    ) -> RsfResult<PreparedSql> {
+        if let Some(proposal) = &request.session {
+            let prepared = session::prepare(self, proposal, version)?;
+            Ok(PreparedSql {
+                engine: prepared.engine,
+                session: Some((prepared.key, prepared.after)),
+            })
+        } else {
+            Ok(PreparedSql {
+                engine: plan::prepare(&self.engine, &request.statement, request.pg, version)?,
+                session: None,
+            })
+        }
+    }
+    fn install_candidate(&mut self, prepared: PreparedSql) {
+        self.engine = prepared.engine;
+        if let Some((key, state)) = prepared.session {
+            if let Some(state) = state {
+                self.sessions.insert(key, state);
+            } else {
+                self.sessions.remove(&key);
+            }
+        }
+    }
+    pub(super) fn execute_receipt(
+        &self,
+        receipt: &RequestReceipt,
+        replayed: bool,
+    ) -> RsfResult<DurableSqlExecution> {
+        receipt_execution(receipt, &self.engine, replayed)
     }
 }
 

@@ -208,7 +208,7 @@ impl DataPlaneExecutor {
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_sql_runtime(namespace)?;
         let response = execution::sql(&envelope, &mut runtime.router, &mut runtime.sql);
-        self.remember(namespace, Runtime::Sql(runtime));
+        self.remember(namespace, Runtime::Sql(Box::new(runtime)));
         response
     }
 
@@ -219,7 +219,7 @@ impl DataPlaneExecutor {
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_kv_runtime(namespace)?;
         let response = execution::kv(&envelope, &mut runtime.router, &mut runtime.kv);
-        self.remember(namespace, Runtime::Kv(runtime));
+        self.remember(namespace, Runtime::Kv(Box::new(runtime)));
         response
     }
 
@@ -230,7 +230,7 @@ impl DataPlaneExecutor {
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_blob_runtime(namespace)?;
         let response = execution::blob(&envelope, &mut runtime.router, &mut runtime.blobs);
-        self.remember(namespace, Runtime::Blob(runtime));
+        self.remember(namespace, Runtime::Blob(Box::new(runtime)));
         response
     }
 
@@ -241,7 +241,7 @@ impl DataPlaneExecutor {
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_object_runtime(namespace)?;
         let response = execution::object(&envelope, &mut runtime.router, &mut runtime.objects);
-        self.remember(namespace, Runtime::Object(runtime));
+        self.remember(namespace, Runtime::Object(Box::new(runtime)));
         response
     }
 
@@ -249,7 +249,7 @@ impl DataPlaneExecutor {
         if let Some(Runtime::Kv(runtime)) =
             self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Kv)?
         {
-            return Ok(runtime);
+            return Ok(*runtime);
         }
         let (mut router, epoch) = self.open_router()?;
         let mut kv = DurableKvEngine::open_replicated(
@@ -272,7 +272,7 @@ impl DataPlaneExecutor {
         if let Some(Runtime::Sql(runtime)) =
             self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Sql)?
         {
-            return Ok(runtime);
+            return Ok(*runtime);
         }
         let (mut router, _) = self.open_router()?;
         let mut sql = DurableSqlEngine::open_replicated(
@@ -294,7 +294,7 @@ impl DataPlaneExecutor {
         if let Some(Runtime::Blob(runtime)) =
             self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Blob)?
         {
-            return Ok(runtime);
+            return Ok(*runtime);
         }
         let (router, _) = self.open_router()?;
         let mut blobs = DurableBlobEngine::open_replicated(
@@ -315,7 +315,7 @@ impl DataPlaneExecutor {
         if let Some(Runtime::Object(runtime)) =
             self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Object)?
         {
-            return Ok(runtime);
+            return Ok(*runtime);
         }
         let (mut router, _) = self.open_router()?;
         let mut objects = DurableObjectStore::open_replicated(
@@ -437,10 +437,10 @@ struct CachedRuntime {
 
 #[derive(Debug)]
 enum Runtime {
-    Kv(KvRuntime),
-    Sql(SqlRuntime),
-    Blob(BlobRuntime),
-    Object(ObjectRuntime),
+    Kv(Box<KvRuntime>),
+    Sql(Box<SqlRuntime>),
+    Blob(Box<BlobRuntime>),
+    Object(Box<ObjectRuntime>),
 }
 
 impl Runtime {
@@ -870,6 +870,15 @@ fn operation_kind_label(kind: WireOperationKind) -> &'static str {
 
 fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
     match outcome {
+        SqlOutcome::SchemaStaged {
+            session_id,
+            snapshot,
+            table,
+            item,
+        } => format!(
+            "schema_staged session={} snapshot={} table={} item={}",
+            session_id, snapshot.0, table, item
+        ),
         SqlOutcome::TableCreated {
             table, evidence, ..
         } => format!(
@@ -886,17 +895,19 @@ fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
             table, column, evidence.placement_group.0, evidence.log_index.0
         ),
         SqlOutcome::Inserted { row, evidence } => {
-            let evidence = committed_sql_evidence(evidence);
             format!(
-                "insert table={} primary_key={} placement_group={} log_index={}",
-                row.table, row.primary_key, evidence.placement_group.0, evidence.log_index.0
+                "insert table={} primary_key={} {}",
+                row.table,
+                row.primary_key,
+                sql_mutation_detail(evidence)
             )
         }
         SqlOutcome::Updated { row, evidence } => {
-            let evidence = committed_sql_evidence(evidence);
             format!(
-                "update table={} primary_key={} placement_group={} log_index={}",
-                row.table, row.primary_key, evidence.placement_group.0, evidence.log_index.0
+                "update table={} primary_key={} {}",
+                row.table,
+                row.primary_key,
+                sql_mutation_detail(evidence)
             )
         }
         SqlOutcome::Deleted {
@@ -904,10 +915,11 @@ fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
             primary_key,
             evidence,
         } => {
-            let evidence = committed_sql_evidence(evidence);
             format!(
-                "delete table={} primary_key={} placement_group={} log_index={}",
-                table, primary_key, evidence.placement_group.0, evidence.log_index.0
+                "delete table={} primary_key={} {}",
+                table,
+                primary_key,
+                sql_mutation_detail(evidence)
             )
         }
         SqlOutcome::Selected { rows } => format!("select rows={}", rows.len()),
@@ -946,8 +958,17 @@ fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
     }
 }
 
-fn committed_sql_evidence(evidence: &SqlMutationEvidence) -> &rsf_core::CommitEvidence {
-    evidence.expect_committed("daemon sql data-plane autocommit")
+fn sql_mutation_detail(evidence: &SqlMutationEvidence) -> String {
+    match evidence {
+        SqlMutationEvidence::Committed(evidence) => format!(
+            "placement_group={} log_index={}",
+            evidence.placement_group.0, evidence.log_index.0
+        ),
+        SqlMutationEvidence::Staged {
+            session_id,
+            snapshot,
+        } => format!("staged=true session={} snapshot={}", session_id, snapshot.0),
+    }
 }
 
 fn single_line(value: &str) -> String {

@@ -1,8 +1,10 @@
 mod journal;
 mod replicated;
 mod requests;
+mod session;
 pub use journal::SqlPersistenceStats;
 use journal::{JournalFence, SqlJournal};
+pub use session::SqlSessionContext;
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -26,7 +28,8 @@ use crate::{
 const STATE_FILE: &str = "sql.state";
 const TMP_FILE: &str = "sql.state.tmp";
 const FORMAT: &str = "RSF_SQL_STATE_V4";
-const JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V5";
+const JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V6";
+const LEGACY_JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V5";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableSqlExecution {
@@ -58,6 +61,7 @@ pub struct DurableSqlEngine {
     namespace: Option<String>,
     commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
     journal: Option<SqlJournal>,
+    sessions: BTreeMap<String, session::SessionState>,
 }
 
 impl DurableSqlEngine {
@@ -137,6 +141,7 @@ impl DurableSqlEngine {
                 namespace: None,
                 commands: BTreeMap::new(),
                 journal: None,
+                sessions: BTreeMap::new(),
                 recovery: DurableSqlRecovery {
                     tables: 0,
                     row_versions: 0,
@@ -192,8 +197,10 @@ impl DurableSqlEngine {
             namespace: checkpoint.namespace,
             commands: checkpoint.commands,
             journal: None,
+            sessions: checkpoint.sessions,
         };
         if sql.namespace.is_some() {
+            session::validate_recovered(&sql)?;
             sql.recover_journal(journal_fence)?;
         }
         Ok(sql)
@@ -241,6 +248,7 @@ impl DurableSqlEngine {
             return Ok(execution(outcome, false));
         }
         let pending = PendingRequest {
+            session: None,
             client,
             statement: statement.to_string(),
             pg,
@@ -337,6 +345,7 @@ impl DurableSqlEngine {
             namespace: self.namespace.clone(),
             commands: self.commands.clone(),
             journal: self.journal.as_ref().map(|journal| journal.tail()),
+            sessions: self.sessions.clone(),
         };
         let encoded = encode_checkpoint(&checkpoint)?;
         atomic_write(&self.root, STATE_FILE, TMP_FILE, &encoded)
@@ -402,6 +411,7 @@ struct SqlCheckpoint {
     namespace: Option<String>,
     commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
     journal: Option<JournalFence>,
+    sessions: BTreeMap<String, session::SessionState>,
 }
 
 fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
@@ -440,6 +450,13 @@ fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
     }
     if let Some(namespace) = &checkpoint.namespace {
         out.push_str(&format!("namespace\t{}\n", hex_bytes(namespace.as_bytes())));
+    }
+    for (key, state) in &checkpoint.sessions {
+        out.push_str(&format!(
+            "session\t{}\t{}\n",
+            hex_bytes(key.as_bytes()),
+            hex_bytes(&state.encode()?)
+        ));
     }
     for command in checkpoint.commands.values() {
         out.push_str(&format!("application\t{}\n", hex_bytes(&command.encode()?)));
@@ -488,7 +505,7 @@ fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
         }
     }
     for receipt in checkpoint.receipts.values() {
-        out.push_str(&receipt.encode());
+        out.push_str(&receipt.encode()?);
     }
     append_checksum(&mut out);
     Ok(out)
@@ -525,10 +542,11 @@ fn verify_checksum(text: &str) -> RsfResult<&str> {
 fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     let text = verify_checksum(text)?;
     let mut lines = text.lines();
-    let (replicated_format, journaled_format) = match lines.next() {
-        Some(JOURNALED_FORMAT) => (true, true),
-        Some(FORMAT) => (true, false),
-        Some("RSF_SQL_STATE_V3") => (false, false),
+    let (replicated_format, journaled_format, session_format) = match lines.next() {
+        Some(JOURNALED_FORMAT) => (true, true, true),
+        Some(LEGACY_JOURNALED_FORMAT) => (true, true, false),
+        Some(FORMAT) => (true, false, false),
+        Some("RSF_SQL_STATE_V3") => (false, false, false),
         _ => {
             return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
@@ -538,6 +556,7 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     };
 
     let mut receipts = BTreeMap::new();
+    let mut sessions = BTreeMap::new();
     let mut journal = None;
     let mut namespace = None;
     let mut commands = BTreeMap::new();
@@ -549,6 +568,18 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
         }
         let fields = line.split('\t').collect::<Vec<_>>();
         match fields.as_slice() {
+            ["session", key, state] if session_format => {
+                let key = decode_string(key, "SQL session key")?;
+                let state = session::SessionState::decode(&hex_decode(state)?)?;
+                if sessions.insert(key, state).is_some()
+                    || sessions.len() > session::MAX_ACTIVE_SQL_SESSIONS
+                {
+                    return Err(corrupt_line(
+                        line_number,
+                        "duplicate or excessive SQL sessions",
+                    ));
+                }
+            }
             ["journal", ..] if journaled_format => {
                 let fence = JournalFence::decode(&fields)?;
                 if journal.replace(fence).is_some() {
@@ -688,6 +719,7 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     }
     Ok(SqlCheckpoint {
         journal,
+        sessions,
         namespace,
         commands,
         tables: tables
@@ -766,7 +798,7 @@ fn reject_transaction_control(statement: &str) -> RsfResult<()> {
     ) {
         return Err(RsfError::new(
             ErrorCode::InvalidInput,
-            "daemon durable SQL data-plane requires autocommit statements until durable SQL session transaction recovery is wired",
+            "durable SQL transaction controls require an explicit SQL session context",
         ));
     }
     Ok(())
@@ -1057,6 +1089,7 @@ mod tests {
             )
             .unwrap();
             let request = PendingRequest {
+                session: None,
                 client: "insert".to_string(),
                 statement: "INSERT INTO users (id, name) VALUES (1, ada)".to_string(),
                 pg: PlacementGroupId(1),
@@ -1127,6 +1160,7 @@ mod tests {
         );
         assert!(!path.join(INTENT_FILE).exists());
         let request = PendingRequest {
+            session: None,
             client: "create".to_string(),
             statement: "CREATE TABLE users(id PRIMARY KEY)".to_string(),
             pg: PlacementGroupId(1),
@@ -1164,7 +1198,10 @@ mod tests {
                 .execute(&mut router, PlacementGroupId(1), statement, "request")
                 .expect_err(statement);
             assert_eq!(err.code, ErrorCode::InvalidInput);
-            assert!(err.message.contains("autocommit"), "{statement}: {err:?}");
+            assert!(
+                err.message.contains("explicit SQL session context"),
+                "{statement}: {err:?}"
+            );
             assert!(sql.engine.transaction.is_none());
             drop(sql);
             fs::remove_dir_all(path).unwrap();
@@ -1353,6 +1390,7 @@ mod tests {
             namespace: None,
             commands: BTreeMap::new(),
             journal: None,
+            sessions: BTreeMap::new(),
         })
         .unwrap();
         for end in 0..checkpoint.len() {
@@ -1409,9 +1447,9 @@ mod tests {
 
         let err = recovered
             .execute(&mut router, PlacementGroupId(1), "BEGIN", "sql-test-begin")
-            .expect_err("transaction control rejected until durable session recovery exists");
+            .expect_err("transaction control requires an explicit session");
         assert_eq!(err.code, ErrorCode::InvalidInput);
-        assert!(err.message.contains("autocommit"));
+        assert!(err.message.contains("explicit SQL session context"));
 
         let _ = fs::remove_dir_all(&path);
     }

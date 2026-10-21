@@ -320,6 +320,7 @@ impl DurableSqlEngine {
         for receipt in self.receipts.values() {
             receipt.outcome(&self.engine)?;
         }
+        session::validate_recovered(self)?;
         let (engine, report) = SqlEngine::recover_from_committed_kv(
             self.engine.kv.clone(),
             self.engine.recovered_tables_for_checkpoint(),

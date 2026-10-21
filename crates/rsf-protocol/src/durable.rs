@@ -1910,7 +1910,7 @@ fn fabric_to_vsr_operation(operation: &FabricOperation, operation_id: OperationI
             namespace: namespace.clone(),
             item: item.clone(),
         },
-        FabricOperation::TransactionCommit { .. } => {
+        FabricOperation::TransactionCommit { .. } | FabricOperation::SqlSession { .. } => {
             VsrOperation::ProtocolOperation { operation_id }
         }
         FabricOperation::RelationalCatalog { table, item } => VsrOperation::CatalogMutation {
@@ -1976,6 +1976,9 @@ fn operation_bytes(operation: &FabricOperation) -> u32 {
             namespace.len().saturating_add(item.len())
         }
         FabricOperation::TransactionCommit { transaction } => transaction.len(),
+        FabricOperation::SqlSession { owner, session, .. } => {
+            owner.len().saturating_add(session.len()).saturating_add(32)
+        }
         FabricOperation::RelationalCatalog { table, item } => {
             table.len().saturating_add(item.len())
         }

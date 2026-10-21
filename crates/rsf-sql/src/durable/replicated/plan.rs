@@ -2,7 +2,10 @@
 //! are not certificates; the copy is published only after matching commit evidence.
 use super::*;
 
-pub(super) fn operation(engine: &SqlEngine, statement: &str) -> RsfResult<FabricOperation> {
+pub(in crate::durable) fn operation(
+    engine: &SqlEngine,
+    statement: &str,
+) -> RsfResult<FabricOperation> {
     let mutation = |table: String, key: String| FabricOperation::RelationalMutation {
         key: crate::logical_row_key(&table, &key),
         table,
@@ -35,7 +38,7 @@ pub(super) fn operation(engine: &SqlEngine, statement: &str) -> RsfResult<Fabric
     })
 }
 
-pub(super) fn prepare(
+pub(in crate::durable) fn prepare(
     engine: &SqlEngine,
     statement: &str,
     pg: PlacementGroupId,

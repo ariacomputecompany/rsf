@@ -41,7 +41,10 @@ use rsf_tuple::{TupleDecision, TupleKey, TupleStore, TupleVersion};
 use rsf_vacuum::{VacuumDecision, VacuumPlanner, VacuumPolicy};
 use rsf_wal::{FlushRequest, WalDecision, WalGate, WalPolicy};
 
-pub use durable::{DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery, SqlPersistenceStats};
+pub use durable::{
+    DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery, SqlPersistenceStats,
+    SqlSessionContext,
+};
 
 const DEFAULT_PAGE_SIZE: u32 = 4096;
 
@@ -142,6 +145,12 @@ impl SqlMutationEvidence {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SqlOutcome {
+    SchemaStaged {
+        session_id: String,
+        snapshot: CommitVersion,
+        table: String,
+        item: String,
+    },
     TableCreated {
         table: String,
         version: CommitVersion,
@@ -3854,7 +3863,8 @@ fn outcome_row_count(outcome: &SqlOutcome) -> usize {
     match outcome {
         SqlOutcome::Selected { rows } => rows.len(),
         SqlOutcome::Inserted { .. } | SqlOutcome::Updated { .. } | SqlOutcome::Deleted { .. } => 1,
-        SqlOutcome::TableCreated { .. }
+        SqlOutcome::SchemaStaged { .. }
+        | SqlOutcome::TableCreated { .. }
         | SqlOutcome::IndexCreated { .. }
         | SqlOutcome::TransactionBegan { .. }
         | SqlOutcome::SavepointCreated { .. }

@@ -91,12 +91,23 @@ fn application_codec_preserves_every_operation_and_rejects_malformed_bytes() {
             key: "hero".into(),
         },
         FabricOperation::BlobPin { digest: [8; 32] },
+        FabricOperation::SqlSession {
+            owner: "principal".into(),
+            session: "work".into(),
+            digest: [9; 32],
+        },
     ];
     for operation in operations {
         command.commit.operation_id = operation.operation_id();
         command.commit.operation = operation;
         let bytes = command.encode().unwrap();
         assert_eq!(ReplicatedFabricCommand::decode(&bytes).unwrap(), command);
+        let mut availability = command.clone();
+        availability.commit.mode = ConsistencyMode::AvailabilityFirst;
+        assert_eq!(
+            availability.encode().is_err(),
+            command.commit.operation.requires_strict()
+        );
         for length in 0..bytes.len() {
             assert!(ReplicatedFabricCommand::decode(&bytes[..length]).is_err());
         }

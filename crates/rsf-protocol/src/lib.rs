@@ -83,6 +83,12 @@ pub enum FabricOperation {
     TransactionCommit {
         transaction: [u8; 16],
     },
+    /// A complete SQL session transition, including its deterministic effects.
+    SqlSession {
+        owner: String,
+        session: String,
+        digest: [u8; 32],
+    },
     RelationalCatalog {
         table: String,
         item: String,
@@ -130,6 +136,7 @@ impl FabricOperation {
             Self::BlobPin { .. } => false,
             Self::CatalogMutation { .. }
             | Self::TransactionCommit { .. }
+            | Self::SqlSession { .. }
             | Self::RelationalCatalog { .. }
             | Self::RelationalMutation { .. }
             | Self::KvMutation { .. }
@@ -153,6 +160,16 @@ impl FabricOperation {
             Self::TransactionCommit { transaction } => {
                 hash_str(&mut hash, "txn");
                 hash_bytes(&mut hash, transaction);
+            }
+            Self::SqlSession {
+                owner,
+                session,
+                digest,
+            } => {
+                hash_str(&mut hash, "sql-session");
+                hash_str(&mut hash, owner);
+                hash_str(&mut hash, session);
+                hash_bytes(&mut hash, digest);
             }
             Self::RelationalCatalog { table, item } => {
                 hash_str(&mut hash, "relcat");

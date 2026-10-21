@@ -137,6 +137,16 @@ pub(in crate::durable) fn encode_operation(
             out.push(12);
             out.extend_from_slice(digest);
         }
+        FabricOperation::SqlSession {
+            owner,
+            session,
+            digest,
+        } => {
+            out.push(13);
+            field(out, owner.as_bytes())?;
+            field(out, session.as_bytes())?;
+            out.extend_from_slice(digest);
+        }
     }
     Ok(())
 }
@@ -234,6 +244,11 @@ impl<'a> Reader<'a> {
                 key: self.string()?,
             },
             12 => FabricOperation::BlobPin {
+                digest: self.take(32)?.try_into().unwrap(),
+            },
+            13 => FabricOperation::SqlSession {
+                owner: self.string()?,
+                session: self.string()?,
                 digest: self.take(32)?.try_into().unwrap(),
             },
             _ => return Err(corrupt("unknown application operation tag")),

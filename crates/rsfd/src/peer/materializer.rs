@@ -10,32 +10,30 @@ const MAX_OPEN_STORES: usize = 64;
 
 #[derive(Debug)]
 enum Store {
-    Kv(rsf_kv::DurableKvEngine),
-    Sql(rsf_sql::DurableSqlEngine),
-    Object(rsf_object::DurableObjectStore),
-    Blob(rsf_blob::DurableBlobEngine),
+    Kv(Box<rsf_kv::DurableKvEngine>),
+    Sql(Box<rsf_sql::DurableSqlEngine>),
+    Object(Box<rsf_object::DurableObjectStore>),
+    Blob(Box<rsf_blob::DurableBlobEngine>),
 }
 
 impl Store {
     fn open(root: &Path, namespace: &str, surface: ApplicationSurface) -> RsfResult<Self> {
         let root = crate::security::namespace_root(root, namespace);
         Ok(match surface {
-            ApplicationSurface::Kv => Self::Kv(rsf_kv::DurableKvEngine::open_replicated(
+            ApplicationSurface::Kv => Self::Kv(Box::new(rsf_kv::DurableKvEngine::open_replicated(
                 root.join("kv"),
                 Epoch(1),
                 namespace,
-            )?),
-            ApplicationSurface::Sql => Self::Sql(rsf_sql::DurableSqlEngine::open_replicated(
-                root.join("sql"),
-                namespace,
-            )?),
-            ApplicationSurface::Object => Self::Object(
+            )?)),
+            ApplicationSurface::Sql => Self::Sql(Box::new(
+                rsf_sql::DurableSqlEngine::open_replicated(root.join("sql"), namespace)?,
+            )),
+            ApplicationSurface::Object => Self::Object(Box::new(
                 rsf_object::DurableObjectStore::open_replicated(root.join("object"), namespace)?,
-            ),
-            ApplicationSurface::Blob => Self::Blob(rsf_blob::DurableBlobEngine::open_replicated(
-                root.join("blob"),
-                namespace,
-            )?),
+            )),
+            ApplicationSurface::Blob => Self::Blob(Box::new(
+                rsf_blob::DurableBlobEngine::open_replicated(root.join("blob"), namespace)?,
+            )),
         })
     }
 

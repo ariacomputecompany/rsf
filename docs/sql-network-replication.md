@@ -27,8 +27,8 @@ logical state before applying a new statement. This prevents different live
 page/tombstone histories from changing capacity decisions after restart. It is
 currently full-state work; journal persistence does not remove that planning cost.
 
-Namespace-bound stores use a checksummed `RSF_SQL_STATE_V5` checkpoint containing
-schema, committed MVCC rows, complete commands, receipts and a journal index/hash.
+Namespace-bound stores use a checksummed `RSF_SQL_STATE_V6` checkpoint containing
+schema, committed MVCC rows, complete commands, receipts, active sessions and a journal index/hash.
 Ordinary mutations append their complete command to `sql.journal` using the
 storage hash chain and synced data, then atomically publish and sync
 `sql.journal.head`. Only then may they clear the pending intent and acknowledge.
@@ -51,8 +51,10 @@ namespace and nonempty legacy stores that need explicit migration. Legacy V3
 checkpoints remain readable through the unbound library contract. Refusing
 migration preserves the old data. Existing namespace-bound V4 stores upgrade
 under the writer lock. A journal header binds namespace and the exact V4 base
-checksum before publishing V5; interrupted header/head publication can resume.
-Older readers reject the V5 format instead of silently ignoring its journal.
+checksum before publishing the current format; interrupted header/head publication can resume.
+V5 checkpoints remain readable and upgrade on the next checkpoint. Older readers
+reject V6 checkpoints and the new session command/operation instead of silently
+ignoring transaction state. Upgrade every voter before enabling sessions.
 Unbound V3/V4 stores retain their existing full-checkpoint contract.
 
 Recovery validates checkpoint and acknowledged-head hashes against retained
@@ -82,6 +84,41 @@ Native SELECT confirms primary quorum before reading. The library's
 `read_snapshot` method inspects only local materialized state and provides no
 leader-freshness guarantee; it is useful for offline follower recovery inspection.
 
+## Durable SQL sessions
+
+Native requests with an empty body retain autocommit behavior. To use a session,
+send `SqlSessionContext::encode()` as the SQL request body. Its canonical encoding
+is `RSF_SQL_SESSION_V1\n` followed by JSON such as
+`{"name":"import","transaction":null}` for BEGIN. Subsequent requests use the
+64-character transaction token returned in BEGIN's `session=` result. The owner
+comes from the authenticated principal, not the body. Session names are isolated
+by namespace and principal. Transaction controls require namespace-write access;
+SELECT requires namespace-read access. Current authorization is rechecked for
+every native request, including retries.
+
+BEGIN, staged DDL/DML, SAVEPOINT, ROLLBACK TO, COMMIT and ROLLBACK each carry a
+complete `RSFSC2` command through the strict quorum protocol. Their acknowledgements
+make session state durable, while staged rows and schema remain invisible outside
+the session. Session SELECT uses the BEGIN snapshot plus its own staged statements.
+COMMIT publishes all final row effects, schema changes and session closure at one
+certified version. Transaction tokens prevent a stale request from committing a
+new transaction after reuse of a name. Exact retries retain their original results,
+including staged results after COMMIT; they never reopen the old transaction.
+The pending intent contains the complete proposal, preserving an uncertain COMMIT
+through process death. Recovery checks the transition chain, original results,
+row effects, catalog history and active-session inventory.
+
+Isolation is snapshot isolation with write/write conflict detection. It does not
+provide serializable predicate validation: disjoint writes based on a shared
+snapshot can exhibit write skew. A concurrent catalog change invalidates the
+transaction; ROLLBACK remains available. The transaction is pinned to its original
+placement group. Limits per namespace are 128 active sessions, 64 staged mutation
+statements per transaction, 32 savepoints, 64 KiB of canonical session state and
+384 KiB of canonical transition payload. Limit failures occur before intent or
+protocol submission and preserve the transaction for rollback. There is no
+automatic expiry; clients must close abandoned transactions. Session reads and
+planning reconstruct retained snapshot history and are not capacity-qualified.
+
 ## Verification and limits
 
 SQL tests cover schema, index, row and tombstone replay, restart after every
@@ -110,7 +147,7 @@ attempts remain recorded in the scoped journal report; later transport and
 installation fixes are covered by the current full source hash. This is local
 loopback TLS/fsync evidence, not full production qualification.
 
-Durable SQL sessions, bounded result streaming, bounded receipt retention,
+Bounded result streaming, serializable SQL session isolation, bounded receipt retention,
 incremental physical planning and growing-table capacity qualification remain
 release work. Multiple pages and atomic row relocation are implemented. Native
 frames are limited to 64 KiB and complete commands to 1 MiB. Certified network
