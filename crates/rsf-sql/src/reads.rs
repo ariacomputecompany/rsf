@@ -90,6 +90,13 @@ impl SqlEngine {
             }
             _ => None,
         };
+        let secondary = match access {
+            AccessPath::SecondaryIndexLookup { column, .. } => Some((
+                column.clone(),
+                equality_text_value(logical.predicate.as_ref(), column),
+            )),
+            _ => None,
+        };
         let mut point =
             point.map(|key| key.and_then(|key| self.read_query_point(table, &key).transpose()));
         let mut committed = self.kv.iter_prefix(prefix).peekable();
@@ -101,9 +108,7 @@ impl SqlEngine {
             .peekable();
         Ok(std::iter::from_fn(move || {
             if let Some(point) = &mut point {
-                return point
-                    .take()
-                    .map(|row| row.and_then(|row| query_row_from_row(table, &row)));
+                return point.take();
             }
             loop {
                 let primary = match committed.peek() {
@@ -126,33 +131,40 @@ impl SqlEngine {
                     match mutation {
                         SqlTransactionMutation::Delete => continue,
                         SqlTransactionMutation::Set(columns) => {
-                            return Some(query_row_from_row(
-                                table,
-                                &Row {
-                                    table: table.name.clone(),
-                                    primary_key: key.clone(),
-                                    columns: columns.clone(),
-                                    version: self
-                                        .transaction
-                                        .as_ref()
-                                        .expect("staged transaction")
-                                        .snapshot,
-                                },
-                            ));
+                            return Some(Ok(Row {
+                                table: table.name.clone(),
+                                primary_key: key.clone(),
+                                columns: columns.clone(),
+                                version: self
+                                    .transaction
+                                    .as_ref()
+                                    .expect("staged transaction")
+                                    .snapshot,
+                            }));
                         }
                     }
                 }
                 let (_, value) = committed.next()?;
-                return Some(
-                    self.row_from_physical_bytes(
-                        table,
-                        &primary.expect("committed primary"),
-                        &value.value,
-                        value.version,
-                    )
-                    .and_then(|row| query_row_from_row(table, &row)),
-                );
+                return Some(self.row_from_physical_bytes(
+                    table,
+                    &primary.expect("committed primary"),
+                    &value.value,
+                    value.version,
+                ));
             }
+        })
+        .filter_map(move |row| match row {
+            Ok(row)
+                if secondary.as_ref().is_some_and(|(column, value)| {
+                    value
+                        .as_ref()
+                        .is_none_or(|value| row.columns.get(column) != Some(value))
+                }) =>
+            {
+                None
+            }
+            Ok(row) => Some(query_row_from_row(table, &row)),
+            Err(error) => Some(Err(error)),
         }))
     }
 
@@ -248,6 +260,50 @@ mod tests {
                 .is_err()
         );
     }
+    #[test]
+    fn sql_pull_index_filter_skips_nonmatching_nullable_rows_before_projection() {
+        let (mut sql, mut router) = setup(&[
+            "CREATE TABLE users(id PRIMARY KEY, name)",
+            "INSERT INTO users (id, name) VALUES (1, first)",
+            "INSERT INTO users (id) VALUES (2)",
+            "CREATE INDEX users_name ON users(name)",
+        ]);
+        let rows = sql
+            .execute_select(
+                "users",
+                Projection::All,
+                Some(Predicate::Eq {
+                    column: "name".into(),
+                    value: QueryValue::Text("first".into()),
+                }),
+                None,
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].primary_key, "1");
+        sql.execute(&mut router, PlacementGroupId(1), "BEGIN")
+            .unwrap();
+        sql.execute(
+            &mut router,
+            PlacementGroupId(1),
+            "INSERT INTO users (id) VALUES (3)",
+        )
+        .unwrap();
+        let rows = sql
+            .execute_select(
+                "users",
+                Projection::All,
+                Some(Predicate::Eq {
+                    column: "name".into(),
+                    value: QueryValue::Text("first".into()),
+                }),
+                None,
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].primary_key, "1");
+    }
+
     #[test]
     fn sql_pull_merges_ordered_overlay_and_retains_only_latest_report() {
         let (mut sql, mut router) = setup(&[

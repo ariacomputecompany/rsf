@@ -295,12 +295,21 @@ queries to streaming. Session result admission checks its existing 24 KiB bound
 as rows are produced. The cumulative socket I/O budget includes stream writes
 while excluding application CPU; blocked clients cannot renew the deadline.
 
-Targeted qualification passes 29 KV, 10 query, 92 SQL, 13 wire and 68 daemon unit
+Targeted qualification passes 29 KV, 10 query, 93 SQL, 13 wire and 68 daemon unit
 tests. Strict Clippy passes for KV/query/SQL/wire/daemon all-targets, no-deps with
 warnings denied. The real TLS workload streams all 128 rows and 264,960 JSON
 bytes, checks projection/empty results/buffered overflow and rejects quorum loss.
 The full Fozzy gate is expanded to 19 domains, debug/release streaming workloads,
-replacement-primary streaming and nine required named workspace regressions. Its
+replacement-primary streaming and ten required named workspace regressions. Its
 final outcome will be recorded separately from the tested implementation push.
 See `docs/sql-result-streaming.md`; retained histories, cold/session snapshot
 reconstruction, incremental planning and independent-host capacity remain open.
+
+Streaming qualification review caught and reproduced an indexed nullable-row
+compatibility regression after the initial implementation push. Stopped attempt
+`artifacts/verification.m0Qt5Z` is incomplete and cannot qualify the source.
+The lazy iterator now applies the secondary predicate before typed projection,
+including staged rows, preserving the prior behavior without collecting candidates.
+The new named regression is required by the full gate; the failing baseline is
+`artifacts/sql-stream-index-filter-baseline.log`. The final expanded gate will
+restart on the corrected, frozen source.

@@ -233,6 +233,7 @@ stream_regressions = [
     "pull_execution_stops_at_limit_and_sink_failure_without_reading_ahead",
     "sql_pull_limit_does_not_decode_later_rows_and_sink_failure_stops",
     "sql_pull_merges_ordered_overlay_and_retains_only_latest_report",
+    "sql_pull_index_filter_skips_nonmatching_nullable_rows_before_projection",
     "sql_stream_decoder_requires_complete_ordered_bounded_results",
     "sql_row_chunks_bound_frames_and_preserve_escaped_json",
     "sql_stream_sink_failure_never_publishes_completion",

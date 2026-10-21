@@ -87,5 +87,5 @@ checks every value and row order, and covers projection/LIMIT, empty results,
 buffered overflow, invalid operations and missing quorum. Both debug/release
 profiles are required by the new SQL streaming Fozzy domain. Automatic takeover
 also requires a streamed read from the replacement after old-primary data loss.
-The workspace gate requires all nine pull/stream/deadline regressions. Current
+The workspace gate requires all ten pull/stream/deadline regressions. Current
 full reports remain historical until the expanded unchanged-source gate passes.
