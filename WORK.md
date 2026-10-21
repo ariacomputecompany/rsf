@@ -254,3 +254,21 @@ Implementation ce39bc8 is pushed to remote main. Complete evidence is saved in
 `docs/sql-key-identity-verification-2026-10-21.json` and the current full report.
 This remains single-host loopback evidence; the remaining release blockers above
 are open, including explicit legacy key migration.
+
+## Shared KV atomicity milestone (qualification running)
+
+A baseline regression proved that a late rejection in the public committed-batch
+API left an earlier mutation in MVCC state. The API now validates all mutations
+before publishing values, tombstones or change events, with idempotent exact
+replay and rejection of conflicting duplicate keys. No full-store clone is used.
+The durable journal already validates its complete batch before persistence; its
+encoding and receipt contract remain unchanged. Two regressions cover late
+version conflicts, duplicate conflicts, every rejection position, existing
+tombstones, binary keys, empty batches and exact replay.
+
+Targeted qualification passes 28 KV, 13 session-transaction and 90 SQL tests.
+Strict Clippy passes for those three packages with all targets and no dependencies;
+four existing KV style findings were corrected without changing their behavior.
+The full immutable-source Fozzy gate is running and now requires both atomicity
+regressions in the actual workspace host output. The prior complete report remains
+the last full qualification until this run finishes.

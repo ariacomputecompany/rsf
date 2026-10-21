@@ -291,12 +291,26 @@ impl KvEngine {
         });
     }
 
+    /// Apply a batch atomically after validating all key versions and mutations.
+    /// Rejection leaves MVCC history and change delivery unchanged. Identical
+    /// same-version mutations (including duplicates within a batch) are no-ops.
     pub fn apply_committed_batch(
         &mut self,
         version: CommitVersion,
         mutations: Vec<KvMutation>,
     ) -> RsfResult<()> {
-        for mutation in mutations {
+        // Validate the whole batch against the unchanged base before publishing
+        // either MVCC versions or change events. Only borrowed keys are retained.
+        let mut proposed = BTreeMap::new();
+        for mutation in &mutations {
+            if let Some(previous) = proposed.insert(mutation.key(), mutation)
+                && previous != mutation
+            {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "committed kv batch contains conflicting mutations for one key",
+                ));
+            }
             if let Some(value) = self.latest_any(mutation.key()) {
                 if value.version > version {
                     return Err(RsfError::new(
@@ -304,17 +318,21 @@ impl KvEngine {
                         "cannot apply committed kv mutation below latest key version",
                     ));
                 }
-                if value.version == version {
-                    if mutation_matches_value(&mutation, value) {
-                        continue;
-                    }
+                if value.version == version && !mutation_matches_value(mutation, value) {
                     return Err(RsfError::new(
                         ErrorCode::CorruptionDetected,
                         "committed kv mutation conflicts with existing value at same version",
                     ));
                 }
             }
-
+        }
+        for mutation in mutations {
+            if self
+                .latest_any(mutation.key())
+                .is_some_and(|value| value.version == version)
+            {
+                continue;
+            }
             match mutation {
                 KvMutation::Set { key, value } => self.apply_committed_set(key, value, version),
                 KvMutation::Clear { key } => self.apply_committed_clear(key, version),
@@ -381,10 +399,10 @@ impl KvEngine {
 
         for (key, versions) in &self.data {
             let mut retained = BTreeMap::<CommitVersion, KvVersionedValue>::new();
-            if let Some(latest) = versions.last() {
-                if !latest.deleted || latest.version > gc_before {
-                    retained.insert(latest.version, latest.clone());
-                }
+            if let Some(latest) = versions.last()
+                && (!latest.deleted || latest.version > gc_before)
+            {
+                retained.insert(latest.version, latest.clone());
             }
             for snapshot in active_snapshots {
                 if let Some(value) = versions
@@ -903,6 +921,125 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
+    fn rejected_committed_batches_preserve_all_values_versions_and_changes() {
+        let mut kv = KvEngine::default();
+        kv.apply_committed_set(b"existing".to_vec(), b"original".to_vec(), CommitVersion(5));
+        for (version, last) in [
+            (
+                CommitVersion(4),
+                KvMutation::Clear {
+                    key: b"existing".to_vec(),
+                },
+            ),
+            (
+                CommitVersion(5),
+                KvMutation::Set {
+                    key: b"existing".to_vec(),
+                    value: b"changed".to_vec(),
+                },
+            ),
+            (
+                CommitVersion(6),
+                KvMutation::Clear {
+                    key: b"fresh".to_vec(),
+                },
+            ),
+        ] {
+            let before_data = kv.data.clone();
+            let before_changes = kv.changes.clone();
+            assert!(
+                kv.apply_committed_batch(
+                    version,
+                    vec![
+                        KvMutation::Set {
+                            key: b"fresh".to_vec(),
+                            value: b"partial".to_vec()
+                        },
+                        last,
+                    ]
+                )
+                .is_err()
+            );
+            assert_eq!(kv.data, before_data, "rejected batch changed MVCC state");
+            assert_eq!(
+                kv.changes, before_changes,
+                "rejected batch published change events"
+            );
+        }
+        let batch = vec![
+            KvMutation::Set {
+                key: b"fresh".to_vec(),
+                value: b"complete".to_vec(),
+            },
+            KvMutation::Clear {
+                key: b"existing".to_vec(),
+            },
+        ];
+        kv.apply_committed_batch(CommitVersion(6), batch.clone())
+            .unwrap();
+        let before = (kv.data.clone(), kv.changes.clone());
+        kv.apply_committed_batch(CommitVersion(6), batch).unwrap();
+        assert_eq!(
+            (kv.data.clone(), kv.changes.clone()),
+            before,
+            "exact replay duplicated state"
+        );
+        assert_eq!(kv.get(b"fresh").unwrap().value, b"complete");
+        assert!(kv.get(b"existing").is_none());
+    }
+
+    #[test]
+    fn committed_batch_preflight_covers_order_tombstones_and_duplicate_replay() {
+        for failing_position in 0..=2 {
+            for initial_deleted in [false, true] {
+                let mut kv = KvEngine::default();
+                if initial_deleted {
+                    kv.apply_committed_clear(b"conflict".to_vec(), CommitVersion(9));
+                } else {
+                    kv.apply_committed_set(b"conflict".to_vec(), b"old".to_vec(), CommitVersion(9));
+                }
+                kv.apply_committed_set(b"cleared".to_vec(), b"keep".to_vec(), CommitVersion(8));
+                let before = (kv.data.clone(), kv.changes.clone());
+                let mut batch = vec![
+                    KvMutation::Clear {
+                        key: b"cleared".to_vec(),
+                    },
+                    KvMutation::Set {
+                        key: vec![0, 255],
+                        value: b"new".to_vec(),
+                    },
+                ];
+                batch.insert(
+                    failing_position,
+                    KvMutation::Set {
+                        key: b"conflict".to_vec(),
+                        value: b"wrong".to_vec(),
+                    },
+                );
+                assert!(kv.apply_committed_batch(CommitVersion(9), batch).is_err());
+                assert_eq!((kv.data, kv.changes), before);
+            }
+        }
+        let mut kv = KvEngine::default();
+        let set = KvMutation::Set {
+            key: vec![0, 255],
+            value: b"value".to_vec(),
+        };
+        let clear = KvMutation::Clear {
+            key: b"absent".to_vec(),
+        };
+        let batch = vec![set.clone(), clear.clone(), set, clear];
+        kv.apply_committed_batch(CommitVersion(10), batch.clone())
+            .unwrap();
+        assert_eq!(kv.version_count(), 2);
+        assert_eq!(kv.changes_since(CommitVersion(0)).len(), 2);
+        let before = (kv.data.clone(), kv.changes.clone());
+        kv.apply_committed_batch(CommitVersion(10), batch).unwrap();
+        kv.apply_committed_batch(CommitVersion(11), vec![]).unwrap();
+        assert_eq!((kv.data, kv.changes), before);
+    }
+
+    #[test]
     fn writes_through_protocol_router() {
         let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
         let mut kv = KvEngine::default();
@@ -1004,7 +1141,7 @@ mod tests {
                 .expect("first durable batch");
             assert_eq!(first.version, CommitVersion(1));
             assert_eq!(first.evidence.log_index, LogIndex(1));
-            assert_eq!(first.replayed, false);
+            assert!(!first.replayed);
 
             snapshot_after_first = kv.snapshot(&router);
             kv.commit_batch(
@@ -1109,7 +1246,7 @@ mod tests {
 
             assert_eq!(first.version, CommitVersion(1));
             assert_eq!(replay.version, first.version);
-            assert_eq!(replay.replayed, true);
+            assert!(replay.replayed);
             assert_eq!(kv.changes_since(CommitVersion(0)).len(), 1);
         }
 

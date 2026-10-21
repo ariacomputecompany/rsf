@@ -160,10 +160,10 @@ impl DurableKvEngine {
             return Err(invalid("reserved internal KV client identity"));
         }
         if let Some(request) = &batch.client_request {
-            if let Some(pending) = self.journal.pending.get(request) {
-                if pending.pg != pg || pending.mutations != batch.mutations {
-                    return Err(invalid("KV retry differs from its durable intent"));
-                }
+            if let Some(pending) = self.journal.pending.get(request)
+                && (pending.pg != pg || pending.mutations != batch.mutations)
+            {
+                return Err(invalid("KV retry differs from its durable intent"));
             }
             if let Some(applied) = self.receipt(request) {
                 self.verify_replicated_retry(router, request, pg, &batch.mutations, applied)?;

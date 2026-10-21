@@ -104,3 +104,20 @@ real host processes, then verify, replay and CI-check their recorded traces.
 
 These checks cover process failure, not machine power loss or complete multi-surface
 production failover.
+
+## Shared committed-batch publication
+
+`KvEngine::apply_committed_batch`, used by SQL recovery and transaction
+materialization, validates every mutation against the unchanged MVCC base before
+publishing any value, tombstone or change event. A stale version, a changed value
+at an existing version, or conflicting same-key mutations reject the whole batch.
+Exact same-version replay and identical duplicates do not append another version
+or change event. Empty batches retain their no-op behavior. Preflight retains
+borrowed key/mutation references rather than cloning the complete database.
+
+The durable KV journal separately validates unique-key batches, commit evidence
+and receipt ordering before persistence. Its wire format and durable retry
+contract are unchanged. The shared API's regression cases include failures at
+each batch position, existing values/tombstones, binary keys, clear/set conflicts,
+and repeat application. Full workspace qualification requires both named
+atomicity regressions in the recorded host output.

@@ -217,8 +217,17 @@ session_evidence = {
     for name in session_regressions
 }
 sessions_valid = all(session_evidence.values())
+kv_batch_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in (
+        "rejected_committed_batches_preserve_all_values_versions_and_changes",
+        "committed_batch_preflight_covers_order_tombstones_and_duplicate_replay",
+    )
+}
+kv_batches_valid = all(kv_batch_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -230,6 +239,8 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "kv_atomic_batch_evidence_valid": kv_batches_valid,
+    "kv_atomic_batch_regressions": kv_batch_evidence,
     "sql_session_evidence_valid": sessions_valid,
     "sql_session_regressions": session_evidence,
     "coverage_per_passing_domain": [
