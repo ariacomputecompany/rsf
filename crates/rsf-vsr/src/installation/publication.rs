@@ -144,6 +144,11 @@ impl DurableVsrCell {
         hook: &mut impl FnMut(Boundary) -> RsfResult<()>,
     ) -> RsfResult<()> {
         self.ensure_healthy()?;
+        if self.membership_fence.is_some() {
+            return Err(invalid_input(
+                "ordinary installation cannot replace a membership transition",
+            ));
+        }
         if self.installed_plan.is_some()
             && self.cell.view == plan.request.target_view
             && self.cell.primary == plan.request.candidate
@@ -297,6 +302,7 @@ impl DurableVsrCell {
         self.cell = recovered.0;
         self.history = recovered.1;
         self.view_change = recovered.2;
+        self.membership_fence = recovered.3;
         self.installed_plan = Some(plan.id);
         self.reclaim_inactive_views()?;
         Ok(())

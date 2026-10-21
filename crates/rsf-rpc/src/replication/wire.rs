@@ -24,6 +24,9 @@ pub(super) const REPLICA_STATUS: u8 = 14;
 pub(super) const HEARTBEAT: u8 = 15;
 pub(super) const INSTALL_BATCH: u8 = 16;
 pub(super) const VIEW_CHANGE_BATCH: u8 = 17;
+pub(super) const MEMBERSHIP_BEGIN: u8 = 18;
+pub(super) const MEMBERSHIP_SNAPSHOT: u8 = 19;
+pub(super) const MEMBERSHIP_BATCH: u8 = 20;
 
 pub(super) fn cluster_digest(cluster: &ClusterId) -> [u8; 32] {
     Sha256::digest(cluster.as_str().as_bytes()).into()

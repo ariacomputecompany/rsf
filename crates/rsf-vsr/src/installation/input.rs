@@ -105,6 +105,11 @@ impl DurableVsrCell {
         descriptor: VsrInstallationInput,
     ) -> RsfResult<u64> {
         self.ensure_healthy()?;
+        if self.membership_fence.is_some() {
+            return Err(invalid_input(
+                "ordinary installation input cannot replace a membership transition",
+            ));
+        }
         let request = descriptor.request();
         descriptor.encode()?;
         if request.pg != self.cell.pg

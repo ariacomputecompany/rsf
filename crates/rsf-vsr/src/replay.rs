@@ -12,16 +12,23 @@ pub(super) type Recovered = (
     VsrCell,
     history::ConfigurationHistory,
     Option<VsrViewChangeRequest>,
+    Option<VsrMembershipProposal>,
 );
 
 pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Recovered> {
     let pg = cell.pg;
     let mut history = history::ConfigurationHistory::new(&cell);
     let mut view_change: Option<VsrViewChangeRequest> = None;
+    let mut membership_fence: Option<VsrMembershipProposal> = None;
     let mut delta_start = None;
     let mut installed_authority = false;
     for (position, record) in records.iter().enumerate() {
         if record.kind == WalRecordKind::ViewInstallation {
+            if membership_fence.is_some() {
+                return Err(corrupt(
+                    "ordinary view installation cannot discard a membership fence",
+                ));
+            }
             installation::replay_installation(
                 &mut cell,
                 &mut history,
@@ -38,6 +45,34 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
         if delta_start.is_some() {
             return Err(corrupt(
                 "installation deltas interrupted before activation marker",
+            ));
+        }
+        if record.kind == WalRecordKind::MembershipPromise
+            || record.payload.starts_with(membership::MAGIC)
+        {
+            let proposal = VsrMembershipProposal::decode(record.payload)?;
+            if record.kind != WalRecordKind::MembershipPromise || record.epoch != cell.view {
+                return Err(corrupt("invalid membership promise envelope"));
+            }
+            proposal
+                .validate_cell(&cell)
+                .map_err(|error| corrupt(error.message))?;
+            if membership_fence
+                .as_ref()
+                .is_some_and(|previous| previous != &proposal)
+                || (membership_fence.is_none() && view_change.is_some())
+            {
+                return Err(corrupt(
+                    "membership promise conflicts with durable authority fence",
+                ));
+            }
+            view_change = Some(proposal.election.clone());
+            membership_fence = Some(proposal);
+            continue;
+        }
+        if membership_fence.is_some() {
+            return Err(corrupt(
+                "VSR history mutates a fenced membership transition",
             ));
         }
         if record.kind == WalRecordKind::ViewPromise
@@ -251,5 +286,5 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
     if delta_start.is_some() {
         return Err(corrupt("incomplete installation delta sequence"));
     }
-    Ok((cell, history, view_change))
+    Ok((cell, history, view_change, membership_fence))
 }

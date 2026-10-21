@@ -347,3 +347,27 @@ See `docs/sql-index-candidates.md` and
 
 Full-state write planning, cold/session snapshot reconstruction, history/receipt
 retention and independent-host workload qualification remain open.
+
+## Durable membership approval milestone (qualification running)
+
+Added exact old-configuration membership proposals, synced old-voter fences and
+replay-checked majority approval over full accepted/committed histories and client
+mappings. The new fence survives restart and cannot be discarded by ordinary
+elections, local authority shortcuts or ordinary view installation. New voters
+remain non-voting; approval never grants client readiness. WAL tag 41 and history
+tag 6 preserve this distinct control state.
+
+New authenticated peer RPCs initiate proposals only from the old primary and let
+old voters recover existing frozen reports/history after initiator loss. Exact
+recovery retries are idempotent; configured learners are rejected. Targeted tests
+pass 20 core, 57 storage, 95 VSR, 33 RPC and 57 protocol checks. Strict Clippy passes
+for core/storage/VSR/RPC/protocol/daemon all-targets/no-deps with warnings denied.
+Evidence includes a process killed after fence sync before acknowledgement and
+real TLS peer restart/recovery after deleting the initiating primary's store.
+The unchanged-source 19-domain full gate is running and now requires all six
+meaningful approval regressions in recorded workspace output.
+
+This is the old-quorum approval phase, not completed membership. New-quorum
+activation, partial-proposal abort/completion, replacement-coordinator lifecycle,
+learner promotion, control metadata and client admission remain unfinished. No
+operator membership-change command is enabled. See `docs/certified-membership.md`.

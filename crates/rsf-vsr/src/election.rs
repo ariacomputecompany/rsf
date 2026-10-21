@@ -190,6 +190,11 @@ impl DurableVsrCell {
         request: VsrViewChangeRequest,
     ) -> RsfResult<VsrViewChangeSnapshot> {
         self.ensure_healthy()?;
+        if self.membership_fence.is_some() {
+            return Err(invalid_input(
+                "complete the durable membership transition before an ordinary election",
+            ));
+        }
         request.validate_cell(&self.cell)?;
         if sender != request.candidate || !self.cell.replicas.contains(&replica) {
             return Err(invalid_input(
@@ -223,6 +228,12 @@ impl DurableVsrCell {
         request: &VsrViewChangeRequest,
     ) -> RsfResult<VsrViewChangeSnapshot> {
         self.ensure_healthy()?;
+        if self.membership_fence.is_some() {
+            return Err(invalid_input(
+                "membership transitions require membership recovery reports",
+            ));
+        }
+
         if self.view_change.as_ref() != Some(request) || !self.cell.replicas.contains(&replica) {
             return Err(invalid_input("requested view-change promise is not active"));
         }
@@ -242,6 +253,16 @@ impl DurableVsrCell {
 
     pub(super) fn ensure_active_view(&self) -> RsfResult<()> {
         self.ensure_healthy()?;
+        if let Some(proposal) = &self.membership_fence {
+            return Err(RsfError::new(
+                ErrorCode::QuorumUnavailable,
+                format!(
+                    "VSR membership transition from view {} to {} is fenced; old-quorum approval does not activate proposed voters",
+                    proposal.election.previous_view.0, proposal.election.target_view.0
+                ),
+            ));
+        }
+
         if let Some(promise) = &self.view_change {
             return Err(RsfError::new(
                 ErrorCode::QuorumUnavailable,

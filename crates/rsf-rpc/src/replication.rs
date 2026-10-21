@@ -3,6 +3,7 @@
 //! cluster, sender, destination, and protocol version before touching storage.
 mod control;
 mod election;
+mod membership;
 pub use control::{PeerElectionProgress, PeerElectionTiming, PeerElectionUpdate};
 mod history;
 mod installation;
@@ -227,6 +228,7 @@ pub struct PeerReplicaServer {
     timeout: Duration,
     learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
     election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
+    membership_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrMembershipSnapshot>,
     learner_materialized: BTreeMap<PlacementGroupId, [u8; 32]>,
     installation_pending: BTreeSet<PlacementGroupId>,
     control_transport: NetworkVsrTransport,
@@ -334,6 +336,7 @@ impl PeerReplicaServer {
             timeout,
             learners,
             election_snapshots: BTreeMap::new(),
+            membership_snapshots: BTreeMap::new(),
             learner_materialized: BTreeMap::new(),
         })
     }
@@ -391,7 +394,12 @@ impl PeerReplicaServer {
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
         self.pending_contact = None;
-        let response = if kind == REPLICA_STATUS {
+        let response = if matches!(
+            kind,
+            MEMBERSHIP_BEGIN | MEMBERSHIP_SNAPSHOT | MEMBERSHIP_BATCH
+        ) {
+            self.dispatch_membership(sender, kind, payload)
+        } else if kind == REPLICA_STATUS {
             self.dispatch_status(sender, payload)
         } else if kind == HEARTBEAT {
             self.dispatch_heartbeat(sender, payload, apply)

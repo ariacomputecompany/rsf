@@ -283,8 +283,22 @@ indexed_evidence = {
     for name in indexed_names
 }
 indexed_valid = all(indexed_evidence.values())
+membership_approval_names = [
+    "membership_proposal_codec_binds_old_authority_new_voters_and_target",
+    "membership_fence_survives_restart_preserves_prefix_and_blocks_authority_shortcuts",
+    "membership_old_quorum_approval_rejects_mixed_duplicate_and_tampered_histories",
+    "malformed_membership_fence_envelopes_fail_repeated_recovery_without_rewrite",
+    "killed_membership_writer_recovers_synced_fence_before_acknowledgement",
+    "membership_approval_recovers_from_real_old_voters_after_primary_loss",
+]
+membership_approval_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in membership_approval_names
+}
+membership_approval_valid = all(membership_approval_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -296,6 +310,9 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "membership_approval_evidence_valid": membership_approval_valid,
+    "membership_approval_regressions": membership_approval_evidence,
+    "membership_approval_scope": "old-quorum approval only; new-quorum activation, learner promotion and complete membership qualification remain unfinished",
     "sql_index_evidence_valid": indexed_valid,
     "sql_index_regressions": indexed_evidence,
     "sql_stream_evidence_valid": streams_valid,

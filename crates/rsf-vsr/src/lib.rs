@@ -1,6 +1,10 @@
 mod election;
 mod installation;
+mod membership;
 pub use installation::{VsrInstallationInput, VsrViewInstallation};
+pub use membership::{
+    VsrMembershipApproval, VsrMembershipProposal, VsrMembershipReport, VsrMembershipSnapshot,
+};
 mod replay;
 pub use election::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
 mod history;
@@ -359,6 +363,7 @@ pub struct DurableVsrCell {
     store: SegmentStore,
     durability_failure: std::sync::Mutex<Option<String>>,
     view_change: Option<VsrViewChangeRequest>,
+    membership_fence: Option<VsrMembershipProposal>,
     _writer_lock: rsf_storage::ExclusiveFileLock,
 }
 
@@ -797,7 +802,7 @@ impl DurableVsrCell {
                 payload: &record.payload,
             })
             .collect::<Vec<_>>();
-        let (cell, history, view_change) = replay::recover(cell, &replay)?;
+        let (cell, history, view_change, membership_fence) = replay::recover(cell, &replay)?;
 
         let mut durable = Self {
             state_identity: std::sync::Arc::new(()),
@@ -813,6 +818,7 @@ impl DurableVsrCell {
             store,
             durability_failure: std::sync::Mutex::new(None),
             view_change,
+            membership_fence,
             _writer_lock: writer_lock,
         };
         if records.is_empty() {

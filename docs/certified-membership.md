@@ -1,6 +1,8 @@
 # Certified membership installation
 
-Status: not implemented. Current network operation uses a fixed admitted voter
+Status: durable old-quorum approval and report recovery are implemented.
+New-quorum activation, learner promotion and control-metadata publication remain
+unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
 Local configuration methods and reachability probes do not install network
 membership. Installed histories reject local authority shortcuts both live and
@@ -79,3 +81,48 @@ host failures. Exhaustive small-set quorum checks supplement these executions;
 they cannot stand in for persisted transitions, authenticated transfer, or restart
 behavior. The normal production gate must require actual workload evidence and
 recorded host traces before this blocker can be marked complete.
+
+## Implemented old-quorum approval phase
+
+`VsrMembershipProposal` binds the exact old view, primary and sorted voter set,
+target view/primary and complete proposed voter set. Canonical encoding and a
+BLAKE3 identity distinguish proposals. The target primary must belong to both
+sets. The current old primary alone can initiate a new proposal; a stored exact
+retry does not append another vote. Old voters persist a `MembershipPromise`
+record (WAL tag 41, transferred-history tag 6) before acknowledging.
+
+The same authoritative replay used on open restores the membership fence. Normal
+prepares, commits, primary probes, local reconfiguration, ordinary election
+promises and ordinary view installations cannot discard it. The old cell's voter
+set remains unchanged; the proposal does not promote any node. Malformed fence
+envelopes fail repeated opens without rewriting the retained WAL.
+
+`VsrMembershipSnapshot` binds the fence to its entire immutable accepted and
+committed history and client mappings. `VsrMembershipApproval` requires distinct
+old voters forming a majority, independently replayed histories, matching
+proposal/old authority/bootstrap, compatible accepted prefixes and client maps.
+Authenticate every report's node and cluster before using this library evidence;
+node IDs and WAL records are not independent signatures.
+
+Authenticated peer RPCs expose BEGIN (18), existing SNAPSHOT (19) and bounded
+history BATCH (20). The current old primary initiates BEGIN. Any authenticated
+old voter can recover an existing proposal and full reports from surviving old
+voters after loss of the initiator. Configured learners cannot use these voting
+recovery RPCs. Exact immutable recovery exchanges may retry one lost reply;
+normal voting traffic retains its existing deadline/retry contract.
+
+The approval API returns old-quorum input, never an installed epoch or readiness.
+It is not exposed as an operator membership-change command. Pending minority
+fences do not yet have an abort or replacement-coordinator completion protocol.
+Recovered approval does not activate the new quorum or resume application
+service. Those lifecycle states, sealed membership installation, voter/learner
+role changes and atomic control-metadata admission remain required work under
+the contract above.
+
+Targeted evidence covers codec bounds and identity, exact retries, restart fences,
+accepted/committed prefixes and original request mapping, rejection of conflicting
+or tampered reports, ordinary-installation shortcut rejection, malformed WAL
+recovery, a real process kill after synced fence before acknowledgement, and
+old-quorum recovery from real TLS peers after deleting the initiator's store.
+The full gate now requires these six named regressions; its report is pending.
+This phase is not complete production membership qualification.

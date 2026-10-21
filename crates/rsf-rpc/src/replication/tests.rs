@@ -104,10 +104,17 @@ struct PeerProcess {
 }
 impl PeerProcess {
     fn spawn(root: &Path, node: u64) -> Self {
+        Self::spawn_with_learner(root, node, false)
+    }
+    fn spawn_with_learner(root: &Path, node: u64, include_learner: bool) -> Self {
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "replication::tests::peer_process", "--nocapture"])
             .env("RSF_RPC_TEST_ROOT", root)
             .env("RSF_RPC_TEST_NODE", node.to_string())
+            .env(
+                "RSF_RPC_TEST_INCLUDE_LEARNER",
+                if include_learner { "1" } else { "0" },
+            )
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -152,11 +159,22 @@ fn peer_process() {
         .parse::<u64>()
         .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut peers = endpoints(&root);
+    if std::env::var("RSF_RPC_TEST_INCLUDE_LEARNER").as_deref() == Ok("1") {
+        peers.insert(
+            NodeId(3),
+            PeerEndpoint {
+                address: "127.0.0.1:1".parse().unwrap(),
+                server_name: "localhost".into(),
+                fingerprint: identity(&root, 3).fingerprint,
+            },
+        );
+    }
     let mut server = PeerReplicaServer::new(
         NodeId(node),
         &cluster(),
         identity(&root, node),
-        endpoints(&root),
+        peers,
         [(PlacementGroupId(1), cell(&root, node))].into(),
         Duration::from_millis(800),
     )
@@ -1738,3 +1756,6 @@ fn network_router_cannot_change_authority_with_or_without_a_live_quorum() {
     drop(first);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[path = "tests/membership.rs"]
+mod membership;

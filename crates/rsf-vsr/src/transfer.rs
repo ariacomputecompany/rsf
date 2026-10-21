@@ -20,6 +20,7 @@ impl VsrHistoryRecord {
             WalRecordKind::Membership => 3,
             WalRecordKind::ViewPromise => 4,
             WalRecordKind::ViewInstallation => 5,
+            WalRecordKind::MembershipPromise => 6,
             _ => return Err(invalid_input("unsupported VSR history record kind")),
         };
         if self.payload.len() > MAX_HISTORY_RECORD_BYTES {
@@ -51,6 +52,7 @@ impl VsrHistoryRecord {
                 3 => WalRecordKind::Membership,
                 4 => WalRecordKind::ViewPromise,
                 5 => WalRecordKind::ViewInstallation,
+                6 => WalRecordKind::MembershipPromise,
                 _ => return Err(corrupt("unknown VSR history kind")),
             },
             payload: bytes[18..].to_vec(),

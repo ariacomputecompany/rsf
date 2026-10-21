@@ -427,6 +427,7 @@ impl SegmentStore {
                     | WalRecordKind::Membership
                     | WalRecordKind::ViewPromise
                     | WalRecordKind::ViewInstallation
+                    | WalRecordKind::MembershipPromise
             ) {
                 latest_commit.insert(
                     record.pg,
