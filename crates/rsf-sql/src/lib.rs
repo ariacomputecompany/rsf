@@ -41,7 +41,7 @@ use rsf_tuple::{TupleDecision, TupleKey, TupleStore, TupleVersion};
 use rsf_vacuum::{VacuumDecision, VacuumPlanner, VacuumPolicy};
 use rsf_wal::{FlushRequest, WalDecision, WalGate, WalPolicy};
 
-pub use durable::{DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery};
+pub use durable::{DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery, SqlPersistenceStats};
 
 const DEFAULT_PAGE_SIZE: u32 = 4096;
 

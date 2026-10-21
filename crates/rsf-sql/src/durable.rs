@@ -1,5 +1,8 @@
+mod journal;
 mod replicated;
 mod requests;
+pub use journal::SqlPersistenceStats;
+use journal::{JournalFence, SqlJournal};
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -23,6 +26,7 @@ use crate::{
 const STATE_FILE: &str = "sql.state";
 const TMP_FILE: &str = "sql.state.tmp";
 const FORMAT: &str = "RSF_SQL_STATE_V4";
+const JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V5";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableSqlExecution {
@@ -53,6 +57,7 @@ pub struct DurableSqlEngine {
     receipts: BTreeMap<String, RequestReceipt>,
     namespace: Option<String>,
     commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
+    journal: Option<SqlJournal>,
 }
 
 impl DurableSqlEngine {
@@ -116,6 +121,12 @@ impl DurableSqlEngine {
                 format!("cannot inspect SQL checkpoint: {err}"),
             )
         })? {
+            if root.join(journal::DIRECTORY).exists() || root.join(journal::HEAD_FILE).exists() {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "SQL journal exists without its checkpoint",
+                ));
+            }
             return Ok(Self {
                 root,
                 _writer_lock: writer_lock,
@@ -125,6 +136,7 @@ impl DurableSqlEngine {
                 receipts: BTreeMap::new(),
                 namespace: None,
                 commands: BTreeMap::new(),
+                journal: None,
                 recovery: DurableSqlRecovery {
                     tables: 0,
                     row_versions: 0,
@@ -135,6 +147,15 @@ impl DurableSqlEngine {
         }
 
         let checkpoint = read_checkpoint(&path)?;
+        let journal_fence = checkpoint.journal;
+        if checkpoint.namespace.is_none()
+            && (root.join(journal::DIRECTORY).exists() || root.join(journal::HEAD_FILE).exists())
+        {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "unbound SQL checkpoint cannot own a replicated journal",
+            ));
+        }
         let mut kv = KvEngine::default();
         for (key, versions) in checkpoint.kv {
             for version in versions {
@@ -160,7 +181,7 @@ impl DurableSqlEngine {
             live_rows: report.live_rows,
             tombstones: report.tombstones,
         };
-        Ok(Self {
+        let mut sql = Self {
             root,
             _writer_lock: writer_lock,
             engine,
@@ -170,7 +191,12 @@ impl DurableSqlEngine {
             receipts: checkpoint.receipts,
             namespace: checkpoint.namespace,
             commands: checkpoint.commands,
-        })
+            journal: None,
+        };
+        if sql.namespace.is_some() {
+            sql.recover_journal(journal_fence)?;
+        }
+        Ok(sql)
     }
 
     pub fn execute(
@@ -310,6 +336,7 @@ impl DurableSqlEngine {
             receipts: self.receipts.clone(),
             namespace: self.namespace.clone(),
             commands: self.commands.clone(),
+            journal: self.journal.as_ref().map(|journal| journal.tail()),
         };
         let encoded = encode_checkpoint(&checkpoint)?;
         atomic_write(&self.root, STATE_FILE, TMP_FILE, &encoded)
@@ -374,6 +401,7 @@ struct SqlCheckpoint {
     receipts: BTreeMap<String, RequestReceipt>,
     namespace: Option<String>,
     commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
+    journal: Option<JournalFence>,
 }
 
 fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
@@ -401,8 +429,15 @@ fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
 
 fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
     let mut out = String::new();
-    out.push_str(FORMAT);
+    out.push_str(if checkpoint.journal.is_some() {
+        JOURNALED_FORMAT
+    } else {
+        FORMAT
+    });
     out.push('\n');
+    if let Some(fence) = checkpoint.journal {
+        out.push_str(&fence.line());
+    }
     if let Some(namespace) = &checkpoint.namespace {
         out.push_str(&format!("namespace\t{}\n", hex_bytes(namespace.as_bytes())));
     }
@@ -490,9 +525,10 @@ fn verify_checksum(text: &str) -> RsfResult<&str> {
 fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     let text = verify_checksum(text)?;
     let mut lines = text.lines();
-    let replicated_format = match lines.next() {
-        Some(FORMAT) => true,
-        Some("RSF_SQL_STATE_V3") => false,
+    let (replicated_format, journaled_format) = match lines.next() {
+        Some(JOURNALED_FORMAT) => (true, true),
+        Some(FORMAT) => (true, false),
+        Some("RSF_SQL_STATE_V3") => (false, false),
         _ => {
             return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
@@ -502,6 +538,7 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     };
 
     let mut receipts = BTreeMap::new();
+    let mut journal = None;
     let mut namespace = None;
     let mut commands = BTreeMap::new();
     let mut tables = BTreeMap::<String, PendingTable>::new();
@@ -512,6 +549,12 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
         }
         let fields = line.split('\t').collect::<Vec<_>>();
         match fields.as_slice() {
+            ["journal", ..] if journaled_format => {
+                let fence = JournalFence::decode(&fields)?;
+                if journal.replace(fence).is_some() {
+                    return Err(corrupt_line(line_number, "duplicate journal fence"));
+                }
+            }
             ["namespace", encoded] if replicated_format => {
                 let value = decode_string(encoded, "SQL namespace")?;
                 replicated::validate_namespace(&value)?;
@@ -637,7 +680,14 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     }
 
     replicated::validate_checkpoint_commands(namespace.as_deref(), &commands, &receipts)?;
+    if journaled_format != journal.is_some() || (journaled_format && namespace.is_none()) {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            "journaled SQL checkpoint requires namespace and journal fence",
+        ));
+    }
     Ok(SqlCheckpoint {
+        journal,
         namespace,
         commands,
         tables: tables
@@ -1302,6 +1352,7 @@ mod tests {
             receipts: BTreeMap::new(),
             namespace: None,
             commands: BTreeMap::new(),
+            journal: None,
         })
         .unwrap();
         for end in 0..checkpoint.len() {

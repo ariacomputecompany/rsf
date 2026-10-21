@@ -126,9 +126,10 @@ impl DurableSqlEngine {
         }
         sql.namespace = Some(namespace.into());
         sql.persist()?;
+        sql.recover_journal(None)?;
         Ok(sql)
     }
-    fn ensure_healthy(&self) -> RsfResult<()> {
+    pub(super) fn ensure_healthy(&self) -> RsfResult<()> {
         if self.persistence_failed {
             Err(corrupt(
                 "durable SQL state failed; reopen before further operations",
@@ -391,6 +392,44 @@ impl DurableSqlEngine {
         self.publish_command(candidate, command.clone(), false)
     }
 
+    // Journal recovery must not publish again or compare historical commands
+    // with the one pending intent left by the interrupted writer.
+    pub(super) fn replay_journal_command(
+        &mut self,
+        command: &ReplicatedFabricCommand,
+    ) -> RsfResult<()> {
+        let namespace = self
+            .namespace
+            .as_deref()
+            .ok_or_else(|| corrupt("SQL journal has no namespace"))?;
+        let request = decode_request(command, namespace)?;
+        if self.commands.contains_key(&command.request)
+            || self.receipts.contains_key(&request.client)
+            || command.commit.version <= self.highest_command()
+            || plan::operation(&self.engine, &request.statement)? != command.commit.operation
+        {
+            return Err(corrupt(
+                "SQL journal command conflicts with recovered history",
+            ));
+        }
+        let candidate = plan::prepare(
+            &self.engine,
+            &request.statement,
+            request.pg,
+            command.commit.version,
+        )?;
+        let receipt = RequestReceipt {
+            request: request.clone(),
+            evidence: crate::commit_evidence(command.certificate()),
+        };
+        receipt.outcome(&candidate)?;
+        self.engine = candidate;
+        self.commands
+            .insert(command.request.clone(), command.clone());
+        self.receipts.insert(request.client, receipt);
+        Ok(())
+    }
+
     fn publish_command(
         &mut self,
         candidate: SqlEngine,
@@ -413,10 +452,24 @@ impl DurableSqlEngine {
                 return Err(err);
             }
         };
+        let append = self
+            .journal
+            .as_mut()
+            .ok_or_else(|| corrupt("SQL writer has no journal"))
+            .and_then(|journal| journal.append(&self.root, &command));
+        if let Err(err) = append {
+            self.persistence_failed = true;
+            return Err(err);
+        }
         self.engine = candidate;
         self.commands.insert(command.request.clone(), command);
         self.receipts.insert(request.client, receipt);
-        if let Err(err) = self.persist() {
+        if self
+            .journal
+            .as_ref()
+            .is_some_and(SqlJournal::checkpoint_due)
+            && let Err(err) = self.checkpoint()
+        {
             self.persistence_failed = true;
             return Err(err);
         }

@@ -182,7 +182,7 @@ fn invalid_plans_do_not_create_intents_or_committed_commands() {
 struct Interrupt {
     inner: VsrBackedFabricRouter,
     stop: bool,
-    fail_checkpoint: Option<PathBuf>,
+    fail_journal_head: Option<PathBuf>,
 }
 impl FabricRouterPort for Interrupt {
     fn route_operation(&self, op: &FabricOperation) -> Option<PlacementGroupId> {
@@ -253,8 +253,8 @@ impl FabricRouterPort for Interrupt {
                     std::thread::park_timeout(std::time::Duration::from_secs(1));
                 }
             }
-            if let Some(path) = self.fail_checkpoint.take() {
-                fs::create_dir(path.join(TMP_FILE)).unwrap();
+            if let Some(path) = self.fail_journal_head.take() {
+                fs::create_dir(path.join("sql.journal.head.tmp")).unwrap();
             }
         }
         Ok(result)
@@ -270,7 +270,7 @@ fn interrupted_writer_process() {
     let mut router = Interrupt {
         inner: router(&root),
         stop: true,
-        fail_checkpoint: None,
+        fail_journal_head: None,
     };
     let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
     execute(&mut sql, &mut router, CREATE, "create").unwrap();
@@ -324,20 +324,20 @@ fn killed_writer_recovers_authoritative_statement_before_local_checkpoint() {
 }
 
 #[test]
-fn checkpoint_failure_fences_serving_and_replays_exact_command_after_reopen() {
+fn journal_head_failure_fences_serving_and_replays_exact_command_after_reopen() {
     let root = root("checkpoint-failure");
     let sql_root = root.join("sql");
     let mut router = Interrupt {
         inner: router(&root),
         stop: false,
-        fail_checkpoint: Some(sql_root.clone()),
+        fail_journal_head: Some(sql_root.clone()),
     };
     let mut sql = DurableSqlEngine::open_replicated(&sql_root, "tenant").unwrap();
     execute(&mut sql, &mut router, CREATE, "create").unwrap();
     assert!(execute(&mut sql, &mut router, INSERT, "insert").is_err());
     assert!(execute(&mut sql, &mut router, READ, "read").is_err());
     drop(sql);
-    fs::remove_dir(sql_root.join(TMP_FILE)).unwrap();
+    fs::remove_dir(sql_root.join("sql.journal.head.tmp")).unwrap();
     let mut sql = DurableSqlEngine::open(&sql_root).unwrap();
     for command in router.inner.committed_application_commands() {
         sql.apply_application_command(&command).unwrap();

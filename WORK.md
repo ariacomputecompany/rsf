@@ -125,7 +125,17 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Latest verification (2026-10-21): `artifacts/verification.kcOVwm/summary.json`
+Current SQL milestone verification (2026-10-21):
+`docs/sql-journal-verification-2026-10-21.json` records 66 passing SQL tests,
+passing native SQL network integration and strict recorded host trace checks,
+and passing SQL Clippy. The complete gate in `artifacts/verification.4rk14a`
+failed daemon, automatic-client and debug-stress domains: listener collision,
+RPC timeouts and election convergence failures. The isolated automatic-client
+run also failed after completing 128 history-growth writes. The gate was stopped
+during release compilation; later domains and the workspace were not completed.
+These failures remain unassigned and open. Current source is not fully qualified.
+
+Last complete successful verification, for the earlier source (2026-10-21): `artifacts/verification.kcOVwm/summary.json`
 passes all 18 domains against unchanged executable sources (SHA-256
 `524e5e8a93732c31c41e880cf5fa5ece4688a36c1827a0a8b5f8a710809bd654`). Includes 86 VSR tests, 57 protocol tests,
 29 peer RPC tests, 57 storage tests, the full daemon/workspace suites, and
@@ -161,7 +171,7 @@ including the cold materializer and election fixtures in the full workspace run.
 
 Source scope remains single-host loopback TLS with fsync. Retained coordination
 is not a durable checkpoint or authority lease. Cold startup/elections, per-namespace
-reopen, retained payload memory, segment metadata checks, and SQL persistence still
+reopen, retained payload memory, segment metadata checks, and SQL physical planning still
 need checkpoint/retention work and capacity qualification. Installed/network
 states reject unilateral authority shortcuts; certified voter changes, learner
 promotion, independent-group routing, and distributed control metadata remain open.
@@ -172,9 +182,9 @@ See `docs/primary-failover.md`, `docs/peer-replication.md`, and
 
 - Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and durable checkpoint/recovery cursors. Retained client replay cursors are implemented; cold recovery and elections still load complete histories. Complete quorum-certified configuration changes and learner promotion, independent-group client routing, distributed control metadata, and production qualification of automatic takeover. Installed-cell coordinator recovery and four-surface recovery/write integration are implemented; the daemon now optionally schedules peer elections, repairs stale voters, and serves client listeners through scoped installed-cell recovery with shared application writers and primary redirects. Independent-group routing and distributed control metadata remain unfinished. Mixed-view selection, atomic generation installation, and authenticated resumable remote view installation are implemented. Authenticated non-voting history catch-up does not install membership. Prove end-to-end quorum durability under machine failure.
 - Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. Establish the purpose and payload history of old unmarked immutable pins before adopting them as dependencies. The secured daemon currently rejects shared top-level surface directories.
-- Add durable SQL sessions, incremental persistence, and bounded result streaming; current autocommit checkpoints rewrite the full state and replicated planning rebuilds canonical page placement per mutation. Multi-page tables and atomic row relocation are implemented; growing-table capacity and throughput still need qualification.
+- Add durable SQL sessions and bounded result streaming. Namespace-bound autocommit now appends complete commands and synced acknowledged-history heads, then periodically checkpoints and reclaims covered journal records; unbound legacy persistence still rewrites full state. Replicated planning still rebuilds canonical page placement per mutation. Checkpoint MVCC/receipts and maintenance metadata remain unbounded; growing-table capacity and throughput still need qualification.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.
-- Exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
+- Resolve the current listener collision, RPC deadline and automatic failover convergence failures recorded in the SQL milestone qualification report, including the isolated takeover failure. Then exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
 - Qualify primary request latency and growing-history behavior against the deployment workload. Bounded primary runtime batches and resident peer materializers reduce repeated replay, and the opt-in peer client now retains coordination across scoped requests. Legacy listeners still reconstruct history between batches, and cold recovery/elections still load full histories. Both `tests/stress-host.pass.fozzy.json` and the larger optimized workload in `tests/stress-release-host.pass.fozzy.json` are required release checks. Loopback results alone cannot establish independent-host capacity or machine-failure readiness.
 
 ## Custom Protocol Target
