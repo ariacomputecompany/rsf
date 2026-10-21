@@ -1,6 +1,9 @@
 //! Authenticated peer RPCs for durable VSR logs. TLS authenticates the leaf;
 //! the configured fingerprint binds it to a node, and each frame binds the
 //! cluster, sender, destination, and protocol version before touching storage.
+mod election;
+mod history;
+mod installation;
 mod tls;
 mod wire;
 
@@ -70,6 +73,14 @@ impl NetworkVsrTransport {
     }
 
     fn request_io(&self, replica: NodeId, kind: u8, payload: &[u8]) -> io::Result<u64> {
+        let payload = self.exchange_io(replica, kind, payload)?;
+        if payload.len() != 8 {
+            return Err(invalid("peer acknowledgement has wrong size"));
+        }
+        u64_at(&payload, 0)
+    }
+
+    fn exchange_io(&self, replica: NodeId, kind: u8, payload: &[u8]) -> io::Result<Vec<u8>> {
         let peer = self
             .peers
             .get(&replica)
@@ -111,10 +122,10 @@ impl NetworkVsrTransport {
                 String::from_utf8_lossy(payload)
             )));
         }
-        if response_kind != kind || payload.len() != 8 {
-            return Err(invalid("peer acknowledgement has wrong type or size"));
+        if response_kind != kind {
+            return Err(invalid("peer acknowledgement has wrong type"));
         }
-        u64_at(payload, 0)
+        Ok(payload.to_vec())
     }
 
     fn expect_index(
@@ -207,6 +218,9 @@ pub struct PeerReplicaServer {
     nodes: BTreeMap<[u8; 32], NodeId>,
     cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
     timeout: Duration,
+    learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
+    election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
+    installation_pending: BTreeSet<PlacementGroupId>,
 }
 
 impl PeerReplicaServer {
@@ -218,8 +232,28 @@ impl PeerReplicaServer {
         cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
         timeout: Duration,
     ) -> Result<Self, String> {
+        Self::with_learners(
+            local,
+            cluster,
+            identity,
+            peers,
+            cells,
+            BTreeMap::new(),
+            timeout,
+        )
+    }
+
+    pub fn with_learners(
+        local: NodeId,
+        cluster: &ClusterId,
+        identity: PeerIdentity,
+        peers: BTreeMap<NodeId, PeerEndpoint>,
+        cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
+        learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
+        timeout: Duration,
+    ) -> Result<Self, String> {
         validate_configuration(local, &identity, &peers, timeout)?;
-        if cells.is_empty()
+        if (cells.is_empty() && learners.is_empty())
             || cells.values().any(|cell| {
                 !cell.contains_replica(local)
                     || cell.replicas().iter().any(|node| !peers.contains_key(node))
@@ -229,16 +263,31 @@ impl PeerReplicaServer {
                 "peer server requires mapped local membership and endpoints for every voter".into(),
             );
         }
+        if learners.iter().any(|(pg, learner)| {
+            cells.contains_key(pg)
+                || learner.placement_group() != *pg
+                || learner.local() != local
+                || !peers.contains_key(&learner.source())
+        }) {
+            return Err("learner requires a mapped remote source, matching identity, and no voting cell for its group".into());
+        }
+        let installation_pending = cells
+            .iter()
+            .filter_map(|(pg, cell)| cell.has_installed_view().then_some(*pg))
+            .collect();
         Ok(Self {
             local,
             cluster: cluster_digest(cluster),
             identity,
+            installation_pending,
             nodes: peers
                 .into_iter()
                 .map(|(node, peer)| (peer.fingerprint, node))
                 .collect(),
             cells,
             timeout,
+            learners,
+            election_snapshots: BTreeMap::new(),
         })
     }
 
@@ -263,6 +312,9 @@ impl PeerReplicaServer {
         let mut entries = Vec::new();
         for cell in self.cells.values() {
             entries.extend(cell.committed_prefix().map_err(|err| err.message)?);
+        }
+        for learner in self.learners.values() {
+            entries.extend(learner.committed_entries().map_err(|err| err.message)?);
         }
         Ok(entries)
     }
@@ -291,16 +343,18 @@ impl PeerReplicaServer {
             .ok_or_else(|| invalid("client certificate is not bound to a peer node"))?;
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
-        match self.dispatch(sender, kind, payload, apply) {
-            Ok(index) => write_frame(
+        let response = if matches!(kind, INSTALL_BEGIN | INSTALL_RECORD | INSTALL_FINISH) {
+            self.dispatch_installation(sender, kind, payload, apply)
+        } else if matches!(kind, VIEW_CHANGE_BEGIN | VIEW_CHANGE_RECORD) {
+            self.dispatch_election(sender, kind, payload)
+        } else {
+            self.dispatch(sender, kind, payload, apply)
+                .map(|index| index.0.to_le_bytes().to_vec())
+        };
+        match response {
+            Ok(payload) => write_frame(
                 &mut stream,
-                &frame(
-                    &self.cluster,
-                    self.local,
-                    sender,
-                    kind,
-                    &index.0.to_le_bytes(),
-                )?,
+                &frame(&self.cluster, self.local, sender, kind, &payload)?,
             ),
             Err(err) => {
                 let message = err.to_string();
@@ -314,7 +368,12 @@ impl PeerReplicaServer {
         }
     }
 
-    fn cell(&mut self, sender: NodeId, pg: PlacementGroupId) -> io::Result<&mut DurableVsrCell> {
+    fn cell(
+        &mut self,
+        sender: NodeId,
+        pg: PlacementGroupId,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+    ) -> io::Result<&mut DurableVsrCell> {
         let local = self.local;
         let cell = self
             .cells
@@ -322,6 +381,15 @@ impl PeerReplicaServer {
             .ok_or_else(|| invalid("placement group is not hosted here"))?;
         if sender == local || sender != cell.primary() || !cell.contains_replica(sender) {
             return Err(invalid("sender is not the active remote primary"));
+        }
+        if self.installation_pending.contains(&pg) {
+            for entry in cell
+                .committed_prefix()
+                .map_err(|err| invalid(err.message))?
+            {
+                apply(&entry).map_err(invalid)?;
+            }
+            self.installation_pending.remove(&pg);
         }
         Ok(cell)
     }
@@ -336,11 +404,14 @@ impl PeerReplicaServer {
         let local = self.local;
         let rsf = |err: rsf_core::RsfError| invalid(err.message);
         match kind {
+            HISTORY_BEGIN | HISTORY_RECORD | HISTORY_FINISH => {
+                self.dispatch_history(sender, kind, payload, apply)
+            }
             PRIMARY_PROBE => {
                 // Comparison with the complete canonical encoding rejects wrong
                 // views, membership, tips, malformed fields and trailing bytes.
                 let pg = PlacementGroupId(u64_at(payload, 5)?);
-                let probe = self.cell(sender, pg)?.primary_probe().map_err(rsf)?;
+                let probe = self.cell(sender, pg, apply)?.primary_probe().map_err(rsf)?;
                 if payload != probe.encode().map_err(rsf)? {
                     return Err(invalid(
                         "primary probe differs from current view, membership or committed tip",
@@ -351,7 +422,7 @@ impl PeerReplicaServer {
             PREPARE => {
                 let prepare = VsrPrepare::decode(payload).map_err(rsf)?;
                 let index = prepare.index;
-                self.cell(sender, prepare.pg)?
+                self.cell(sender, prepare.pg, apply)?
                     .receive_prepare(local, sender, prepare)
                     .map_err(rsf)?;
                 Ok(index)
@@ -359,7 +430,7 @@ impl PeerReplicaServer {
             COMMIT => {
                 let commit = VsrCommit::decode(payload).map_err(rsf)?;
                 let index = commit.index;
-                let cell = self.cell(sender, commit.pg)?;
+                let cell = self.cell(sender, commit.pg, apply)?;
                 cell.receive_commit(local, sender, commit.clone())
                     .map_err(rsf)?;
                 let prepare = cell
@@ -370,7 +441,7 @@ impl PeerReplicaServer {
                 Ok(index)
             }
             TAIL if payload.len() == 8 => Ok(self
-                .cell(sender, PlacementGroupId(u64_at(payload, 0)?))?
+                .cell(sender, PlacementGroupId(u64_at(payload, 0)?), apply)?
                 .committed_tail()),
             TRANSFER => {
                 let length = payload
@@ -393,7 +464,7 @@ impl PeerReplicaServer {
                 .map_err(rsf)?;
                 let index = prepare.index;
                 let entry = VsrCommittedEntry { prepare, commit };
-                self.cell(sender, entry.prepare.pg)?
+                self.cell(sender, entry.prepare.pg, apply)?
                     .catch_up_from(std::slice::from_ref(&entry))
                     .map_err(rsf)?;
                 apply(&entry).map_err(invalid)?;

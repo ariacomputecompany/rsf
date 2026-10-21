@@ -1,5 +1,8 @@
 mod application;
+mod command;
+mod handoff;
 pub use application::{ApplicationPayload, ApplicationSurface, ReplicatedFabricCommand};
+pub use command::ReplicatedProtocolCommand;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -471,19 +474,8 @@ pub(crate) fn append_placement_map_with_options(
 ) -> RsfResult<()> {
     let path = path.as_ref();
     let mut store = SegmentStore::open_with_options(path, options)?;
-    let recovery = store.recover_current()?.recovery;
-    let tail = recovery.pg_tail(METADATA_PG);
-    let previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-    let index = LogIndex(tail.map_or(1, |tail| tail.index.0 + 1));
     let payload = map.encode()?;
-    store.append_wal(WalAppend {
-        pg: METADATA_PG,
-        epoch,
-        index,
-        kind: WalRecordKind::Membership,
-        previous_hash,
-        payload: &payload,
-    })?;
+    store.append_next_wal(METADATA_PG, epoch, WalRecordKind::Membership, &payload)?;
     Ok(())
 }
 
@@ -659,19 +651,8 @@ pub(crate) fn append_protocol_policy_with_options(
 ) -> RsfResult<()> {
     let path = path.as_ref();
     let mut store = SegmentStore::open_with_options(path, options)?;
-    let recovery = store.recover_current()?.recovery;
-    let tail = recovery.pg_tail(METADATA_PG);
-    let previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-    let index = LogIndex(tail.map_or(1, |tail| tail.index.0 + 1));
     let payload = policy.encode()?;
-    store.append_wal(WalAppend {
-        pg: METADATA_PG,
-        epoch,
-        index,
-        kind: WalRecordKind::Membership,
-        previous_hash,
-        payload: &payload,
-    })?;
+    store.append_next_wal(METADATA_PG, epoch, WalRecordKind::Membership, &payload)?;
     Ok(())
 }
 
@@ -976,7 +957,9 @@ pub struct VsrBackedFabricRouter<T: VsrTransport = LocalVsrTransport> {
     replicas: Vec<NodeId>,
     transport: T,
     application_commands: BTreeMap<ClientRequestId, ReplicatedFabricCommand>,
+    protocol_commands: BTreeMap<CommitVersion, ReplicatedProtocolCommand>,
     application_failure: Option<String>,
+    provision_local_cells: bool,
 }
 
 impl VsrBackedFabricRouter<LocalVsrTransport> {
@@ -1032,7 +1015,9 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             replicas: replicas_vec,
             transport,
             application_commands: BTreeMap::new(),
+            protocol_commands: BTreeMap::new(),
             application_failure: None,
+            provision_local_cells: true,
         };
         router.recover_application_commands()?;
         Ok(router)
@@ -1040,6 +1025,19 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
 
     pub fn transport_mut(&mut self) -> &mut T {
         &mut self.transport
+    }
+
+    /// A caller retaining a live router across requests must notice control
+    /// metadata published by another local administrative operation.
+    pub fn control_metadata_matches_disk(&self) -> RsfResult<bool> {
+        Ok(
+            recover_placement_map(&self.path)?.as_ref() == Some(&self.placement)
+                && recover_protocol_policy(&self.path)?.as_ref() == Some(&self.policy),
+        )
+    }
+
+    pub fn coordination_epoch(&self) -> Epoch {
+        self.epoch
     }
 
     pub fn placement_map(&self) -> &PlacementMap {
@@ -1079,11 +1077,31 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         operation: FabricOperation,
     ) -> RsfResult<FabricCommit> {
         self.policy.validate_commit(mode, &operation)?;
+        let pending_retry = self
+            .protocol_commands
+            .values()
+            .find(|command| {
+                command.request.is_none()
+                    && command.commit.pg == pg
+                    && command.commit.mode == mode
+                    && command.commit.operation == operation
+                    && self
+                        .router
+                        .next_indexes
+                        .get(&pg)
+                        .is_none_or(|next| *next <= command.commit.index.0)
+            })
+            .cloned();
         self.reconcile_application_commands()?;
+        if let Some(command) = pending_retry {
+            return Ok(command.commit);
+        }
         let preview = self.router.next_commit(pg, mode, operation)?;
-        self.require_vsr_commit(&preview)?;
-        self.sync_protocol_epoch(pg)?;
-        self.router.append_existing_commit(preview)
+        self.finish_protocol_command(&ReplicatedProtocolCommand {
+            commit: preview.clone(),
+            request: None,
+        })?;
+        Ok(preview)
     }
 
     pub fn commit_request(
@@ -1093,6 +1111,14 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         mode: ConsistencyMode,
         operation: FabricOperation,
     ) -> RsfResult<DurableRequestCommit> {
+        let completed_here = self.protocol_commands.values().any(|command| {
+            command.request.as_ref() == Some(&request)
+                && self
+                    .router
+                    .next_indexes
+                    .get(&command.commit.pg)
+                    .is_none_or(|next| *next <= command.commit.index.0)
+        });
         self.reconcile_application_commands()?;
         if self.application_commands.contains_key(&request) {
             return Err(RsfError::new(
@@ -1103,24 +1129,25 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         if let Some(certificate) = self.router.request_certificate(&request) {
             return Ok(DurableRequestCommit {
                 certificate,
-                replayed: true,
+                replayed: !completed_here,
             });
         }
         self.policy.validate_commit(mode, &operation)?;
 
         let vsr_request = VsrClientRequestId::new(request.client.0.clone(), request.request.0);
-        if let Some(index) = self.vsr_request_commit(pg, &vsr_request)? {
-            let commit = self.router.next_commit_at(pg, index, mode, operation)?;
-            self.require_vsr_commit(&commit)?;
-            self.sync_protocol_epoch(pg)?;
-            return self.router.append_existing_request(commit, request);
-        }
-
-        let commit = self.router.next_commit(pg, mode, operation)?;
-        self.require_vsr_commit(&commit)?;
-        self.remember_vsr_request(pg, vsr_request, commit.index)?;
-        self.sync_protocol_epoch(pg)?;
-        self.router.append_existing_request(commit, request)
+        let commit = if let Some(index) = self.vsr_request_commit(pg, &vsr_request)? {
+            self.router.next_commit_at(pg, index, mode, operation)?
+        } else {
+            self.router.next_commit(pg, mode, operation)?
+        };
+        self.finish_protocol_command(&ReplicatedProtocolCommand {
+            commit: commit.clone(),
+            request: Some(request),
+        })?;
+        Ok(DurableRequestCommit {
+            certificate: CommitCertificate::from(&commit),
+            replayed: false,
+        })
     }
 
     pub fn commit_request_routed(
@@ -1153,6 +1180,13 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     ) -> RsfResult<PlacementMap> {
         let next = PlacementMap::new(self.placement.version + 1, groups)?;
         self.policy.validate_placement_map(&next)?;
+        if !self.provision_local_cells && next.groups.iter().any(|pg| !self.cells.contains_key(pg))
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "placement expansion requires an explicitly installed voting cell",
+            ));
+        }
         if self
             .application_commands
             .values()
@@ -1281,7 +1315,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         operation: FabricOperation,
     ) -> RsfResult<FabricCommit> {
         let commit = self.router.next_commit(pg, mode, operation)?;
-        self.require_vsr_commit(&commit)?;
+        self.require_vsr_commit(&commit, Some(request.clone()))?;
         self.remember_vsr_request_for_test(pg, request, commit.index)?;
         Ok(commit)
     }
@@ -1296,8 +1330,39 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         self.router.set_group_epoch(pg, cell.view())
     }
 
-    fn require_vsr_commit(&mut self, commit: &FabricCommit) -> RsfResult<()> {
-        let expected = fabric_to_vsr_operation(&commit.operation, commit.operation_id);
+    fn require_vsr_commit(
+        &mut self,
+        commit: &FabricCommit,
+        request: Option<ClientRequestId>,
+    ) -> RsfResult<()> {
+        let command = ReplicatedProtocolCommand {
+            commit: commit.clone(),
+            request,
+        };
+        let full = command.vsr_operation()?;
+        let legacy = fabric_to_vsr_operation(&commit.operation, commit.operation_id);
+        let existing = self
+            .cells
+            .get(&commit.pg)
+            .and_then(|cell| cell.prepared(commit.index));
+        // Existing legacy entries remain immutable. Only the exact original
+        // operation can retry; all new entries carry the complete command.
+        let expected = if existing.is_some_and(|p| p.operation == legacy) {
+            legacy
+        } else {
+            if self
+                .protocol_commands
+                .get(&commit.version)
+                .is_some_and(|old| old != &command)
+            {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "protocol command reuses a commit version",
+                ));
+            }
+            self.protocol_commands.insert(commit.version, command);
+            full
+        };
         self.sync_replicas_from_pg(commit.pg);
         let Some(cell) = self.cells.get_mut(&commit.pg) else {
             return Err(RsfError::new(
@@ -1353,6 +1418,12 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     fn ensure_cell(&mut self, pg: PlacementGroupId) -> RsfResult<()> {
         if self.cells.contains_key(&pg) {
             return Ok(());
+        }
+        if !self.provision_local_cells {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "cannot bootstrap a missing cell during installed-state recovery",
+            ));
         }
         self.cells.insert(
             pg,
@@ -1458,16 +1529,15 @@ impl<T: VsrTransport> FabricRouterPort for VsrBackedFabricRouter<T> {
                 "metadata request cannot replace a complete application command",
             ));
         }
-        if let Some(certificate) = self.router.request_certificate(request) {
-            if certificate.pg != pg
+        if let Some(certificate) = self.router.request_certificate(request)
+            && (certificate.pg != pg
                 || certificate.mode != mode
-                || certificate.operation_id != operation.operation_id()
-            {
-                return Err(RsfError::new(
-                    ErrorCode::InvalidInput,
-                    "metadata request differs from its original certificate",
-                ));
-            }
+                || certificate.operation_id != operation.operation_id())
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "metadata request differs from its original certificate",
+            ));
         }
         Ok(())
     }
@@ -1567,7 +1637,18 @@ fn prepare_vsr_operation(
     commit: &FabricCommit,
     expected: VsrOperation,
 ) -> RsfResult<VsrPrepare> {
-    match cell.prepare(primary, expected, operation_bytes(&commit.operation))? {
+    let bytes = match &expected {
+        VsrOperation::ReplicatedCommand { payload, .. } => {
+            u32::try_from(payload.len()).map_err(|_| {
+                RsfError::new(
+                    ErrorCode::InvalidInput,
+                    "replicated command length exceeds prepare limit",
+                )
+            })?
+        }
+        _ => operation_bytes(&commit.operation),
+    };
+    match cell.prepare(primary, expected, bytes)? {
         VsrDecision::Prepared(prepare) if prepare.index == commit.index => Ok(prepare),
         VsrDecision::Prepared(prepare) => Err(RsfError::new(
             ErrorCode::CorruptionDetected,

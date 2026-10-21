@@ -12,7 +12,8 @@ use rsf_core::{
 pub use durable::{
     ApplicationPayload, ApplicationSurface, DurableFabricRouter, DurableProtocolCommit,
     DurableRequestCommit, PlacementMap, ProtocolCommitRecord, ProtocolPolicy, ProtocolWal,
-    RecoveredProtocolCommit, ReplicatedFabricCommand, VsrBackedFabricRouter,
+    RecoveredProtocolCommit, ReplicatedFabricCommand, ReplicatedProtocolCommand,
+    VsrBackedFabricRouter,
 };
 pub use profile::{
     BorrowedProtocolPart, CustomProtocolProfile, ProtocolSpine, custom_protocol_profile,
@@ -1105,12 +1106,11 @@ mod tests {
         assert_eq!(commit.index, LogIndex(1));
         assert!(std::fs::metadata(&path).unwrap().is_dir());
         assert!(
-            SegmentStore::recover(&path)
+            !SegmentStore::recover(&path)
                 .expect("recover split protocol store")
                 .recovery
                 .wal_records
-                .len()
-                >= 1
+                .is_empty()
         );
         let vsr_store_path = path.with_extension("vsr").join("pg-1");
         assert!(std::fs::metadata(&vsr_store_path).unwrap().is_dir());
@@ -1589,6 +1589,14 @@ mod tests {
             rsf_vsr::VsrDecision::MembershipChanged { .. }
         ));
 
+        let pg2_commit = router
+            .commit(
+                PlacementGroupId(2),
+                FabricOperation::KvMutation {
+                    key: b"tenant/pg2-still-available".to_vec(),
+                },
+            )
+            .expect("pg2 uses its own primary and quorum state");
         let pg1_err = router
             .commit(
                 PlacementGroupId(1),
@@ -1599,14 +1607,18 @@ mod tests {
             .expect_err("pg1 cannot certify without its new quorum");
         assert_eq!(pg1_err.code, ErrorCode::QuorumUnavailable);
 
-        let pg2_commit = router
+        // A durable uncertain command reserves its original global version.
+        // Until it is resolved another group cannot reuse that version. This
+        // barrier remains until cross-group closed-version scheduling exists.
+        let blocked = router
             .commit(
                 PlacementGroupId(2),
                 FabricOperation::KvMutation {
-                    key: b"tenant/pg2-still-available".to_vec(),
+                    key: b"tenant/pg2-after-uncertain-command".to_vec(),
                 },
             )
-            .expect("pg2 uses its own primary and quorum state");
+            .expect_err("unresolved global version must not be reused");
+        assert_eq!(blocked.code, ErrorCode::QuorumUnavailable);
         assert_eq!(pg2_commit.pg, PlacementGroupId(2));
         assert_eq!(pg2_commit.index, LogIndex(1));
         assert_eq!(
@@ -1624,7 +1636,7 @@ mod tests {
         );
         drop(router);
 
-        let recovered = VsrBackedFabricRouter::open(
+        let mut recovered = VsrBackedFabricRouter::open(
             &path,
             [PlacementGroupId(1), PlacementGroupId(2)],
             Epoch(1),
@@ -1645,6 +1657,22 @@ mod tests {
                 .expect("recovered pg2 certificates"),
             vec![CommitCertificate::from(&pg2_commit)]
         );
+
+        assert_eq!(recovered.reconcile_application_commands().unwrap(), 1);
+        let resolved = recovered
+            .recovered_certificates(PlacementGroupId(1))
+            .unwrap();
+        assert_eq!(resolved[0].version, CommitVersion(2));
+        let after = recovered
+            .commit(
+                PlacementGroupId(2),
+                FabricOperation::KvMutation {
+                    key: b"tenant/pg2-after-recovery".to_vec(),
+                },
+            )
+            .unwrap();
+        assert_eq!(after.index, LogIndex(2));
+        assert_eq!(after.version, CommitVersion(3));
 
         let _ = std::fs::remove_file(path);
     }
@@ -2017,6 +2045,37 @@ mod tests {
         assert_eq!(first.certificate, replay.certificate);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_retained_router_detects_administrative_control_metadata_changes() {
+        let path = test_path("retained-control-metadata");
+        let router = VsrBackedFabricRouter::open(
+            &path,
+            [PlacementGroupId(1)],
+            Epoch(1),
+            NodeId(0),
+            [NodeId(0)],
+        )
+        .unwrap();
+        assert!(router.control_metadata_matches_disk().unwrap());
+        let mut policy = router.policy().clone();
+        policy.version += 1;
+        append_protocol_policy_with_options(&path, Epoch(1), &policy, Default::default()).unwrap();
+        assert!(!router.control_metadata_matches_disk().unwrap());
+        drop(router);
+        let router = VsrBackedFabricRouter::open(
+            &path,
+            [PlacementGroupId(1)],
+            Epoch(1),
+            NodeId(0),
+            [NodeId(0)],
+        )
+        .unwrap();
+        assert_eq!(router.policy(), &policy);
+        assert!(router.control_metadata_matches_disk().unwrap());
+        drop(router);
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     fn test_path(name: &str) -> std::path::PathBuf {

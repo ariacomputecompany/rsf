@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod durable;
+mod pages;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -264,7 +265,8 @@ pub struct SqlEngine {
     pages: PageServer,
     wal: WalGate,
     buffer: BufferPool,
-    table_pages: BTreeMap<String, PageId>,
+    table_pages: BTreeMap<String, BTreeSet<PageId>>,
+    row_pages: BTreeMap<Vec<u8>, PageId>,
     page_wal_base_images: BTreeMap<PageId, Vec<u8>>,
     page_wal_redo_records: Vec<Vec<u8>>,
     layout_decisions: BTreeMap<String, SqlLayoutDecision>,
@@ -292,6 +294,7 @@ impl Default for SqlEngine {
             wal: WalGate::new(WalPolicy::new(1024 * 1024, true).expect("valid wal policy")),
             buffer: BufferPool::new(128).expect("valid buffer capacity"),
             table_pages: BTreeMap::new(),
+            row_pages: BTreeMap::new(),
             page_wal_base_images: BTreeMap::new(),
             page_wal_redo_records: Vec::new(),
             layout_decisions: BTreeMap::new(),
@@ -602,7 +605,6 @@ impl SqlEngine {
                 &row.table,
                 RedoOperation::InsertRow,
                 row.version,
-                1,
                 checked_len_i32(&payload)?,
                 key,
                 Some(payload),
@@ -826,6 +828,7 @@ impl SqlEngine {
         let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
         let request_payload =
             self.encode_row_payload(table, &primary_key, &columns, CommitVersion(0))?;
+        self.validate_page_payload(table, &logical_key, &request_payload)?;
         let evidence = commit_sql_request(
             router,
             pg,
@@ -887,6 +890,7 @@ impl SqlEngine {
         let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
         let request_payload =
             self.encode_row_payload(table, primary_key, &columns, CommitVersion(0))?;
+        self.validate_page_payload(table, &logical_key, &request_payload)?;
         let evidence = commit_sql_request(
             router,
             pg,
@@ -1602,7 +1606,6 @@ impl SqlEngine {
             table,
             RedoOperation::InsertRow,
             version,
-            1,
             checked_len_i32(&row_payload)?,
             logical_key.clone(),
             Some(row_payload.clone()),
@@ -1649,7 +1652,6 @@ impl SqlEngine {
             table,
             RedoOperation::UpdateRow,
             version,
-            0,
             checked_len_i32(&row_payload)? - checked_usize_i32(previous_bytes)?,
             logical_key.clone(),
             Some(row_payload.clone()),
@@ -1693,7 +1695,6 @@ impl SqlEngine {
             table,
             RedoOperation::DeleteRow,
             version,
-            -1,
             -checked_usize_i32(previous_bytes)?,
             logical_key.clone(),
             None,
@@ -2013,18 +2014,43 @@ impl SqlEngine {
         let (pages, report) =
             PageServer::recover_with_report(&snapshot.page_images, &snapshot.redo_records)
                 .map_err(page_replay_error)?;
-        let mut table_pages = BTreeMap::new();
+        let mut table_pages: BTreeMap<String, BTreeSet<PageId>> = BTreeMap::new();
+        let mut row_pages = BTreeMap::new();
         for page in pages.page_ids() {
-            if table_pages.insert(page.table.clone(), page).is_some() {
-                return Err(RsfError::new(
-                    ErrorCode::InvalidInput,
-                    "recovered page WAL contains more than one page for a SQL table",
-                ));
+            self.table_record(&page.table)?;
+            let image = pages
+                .read_image(&page, CommitVersion(0))
+                .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?;
+            let prefix = format!("table/{}/pk/", page.table).into_bytes();
+            for slot in image
+                .slots()
+                .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?
+            {
+                if !slot.row_key.starts_with(&prefix) {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "foreign row key in recovered SQL page",
+                    ));
+                }
+                if !slot.deleted && row_pages.insert(slot.row_key, page.clone()).is_some() {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "duplicate live row in recovered SQL pages",
+                    ));
+                }
             }
+            table_pages
+                .entry(page.table.clone())
+                .or_default()
+                .insert(page);
         }
-        self.pages = pages;
-        self.table_pages = table_pages;
-        self.page_wal_base_images = snapshot
+        let next_page_lsn = report.high_lsn.0.checked_add(1).ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "recovered SQL page LSN exhausted",
+            )
+        })?;
+        let base_images = snapshot
             .page_images
             .iter()
             .map(|bytes| {
@@ -2033,9 +2059,14 @@ impl SqlEngine {
                 Ok((image.id, bytes.clone()))
             })
             .collect::<RsfResult<_>>()?;
+        self.pages = pages;
+        self.table_pages = table_pages;
+        self.row_pages = row_pages;
+        self.page_wal_base_images = base_images;
         self.page_wal_redo_records = snapshot.redo_records;
         self.buffer = BufferPool::new(128).expect("valid buffer capacity");
-        self.next_page_lsn = report.high_lsn.0.saturating_add(1);
+        self.wal = WalGate::new(WalPolicy::new(1024 * 1024, true).expect("valid wal policy"));
+        self.next_page_lsn = next_page_lsn;
         Ok(report)
     }
 
@@ -2044,18 +2075,58 @@ impl SqlEngine {
         table: &str,
         operation: RedoOperation,
         commit_version: CommitVersion,
-        row_delta: i16,
         byte_delta: i32,
         row_key: Vec<u8>,
         row_payload: Option<Vec<u8>>,
     ) -> RsfResult<Option<PageFrame>> {
+        if operation == RedoOperation::SplitPage {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "SQL page adapter requires row redo; use atomic relocation for page moves",
+            ));
+        }
         let decision = self.layout_decision_for_table(table)?;
         if decision.layout == SqlTableLayout::OrderedKv {
             return Ok(None);
         }
-        let page = self.ensure_table_page(table, decision.page_size)?;
+        if operation == RedoOperation::UpdateRow {
+            let page = self.row_page(&row_key)?;
+            let mut image = self
+                .pages
+                .read_image(&page, CommitVersion(0))
+                .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?;
+            let payload = row_payload.as_ref().ok_or_else(|| {
+                RsfError::new(ErrorCode::InvalidInput, "update requires row payload")
+            })?;
+            if image.update_row(row_key.clone(), payload.clone()).is_err() {
+                return self
+                    .move_page_row(
+                        table,
+                        commit_version,
+                        row_key,
+                        payload.clone(),
+                        decision.page_size,
+                    )
+                    .map(Some);
+            }
+        }
+        let page = if operation == RedoOperation::InsertRow {
+            self.insertion_page(
+                table,
+                &row_key,
+                row_payload.as_deref().ok_or_else(|| {
+                    RsfError::new(ErrorCode::InvalidInput, "insert requires row payload")
+                })?,
+                decision.page_size,
+                None,
+            )?
+        } else {
+            self.row_page(&row_key)?
+        };
+        let index_key = row_key.clone();
+        let deleted = operation == RedoOperation::DeleteRow;
         let current = self.read_page_frame(&page, CommitVersion(0))?;
-        let lsn = self.allocate_page_lsn(commit_version);
+        let lsn = self.allocate_page_lsn(commit_version)?;
         let redo_bytes = byte_delta.unsigned_abs().max(1);
         match self.wal.append(page.clone(), lsn, redo_bytes) {
             WalDecision::Appended(_) => {}
@@ -2111,14 +2182,9 @@ impl SqlEngine {
             RedoOperation::DeleteRow => {
                 RedoRecord::delete_row(page.clone(), current.lsn, lsn, row_key)
             }
-            RedoOperation::SplitPage => RedoRecord::new(
-                page.clone(),
-                current.lsn,
-                lsn,
-                RedoOperation::SplitPage,
-                row_delta,
-                byte_delta,
-            ),
+            RedoOperation::SplitPage => {
+                unreachable!("split operations are rejected before WAL append")
+            }
         };
         let encoded_redo = redo.encode().map_err(|reason| {
             RsfError::new(
@@ -2151,48 +2217,12 @@ impl SqlEngine {
             "flush",
         )?;
         expect_buffer_ok(self.buffer.unpin(&page), "unpin")?;
+        if deleted {
+            self.row_pages.remove(&index_key);
+        } else {
+            self.row_pages.insert(index_key, page);
+        }
         Ok(Some(applied))
-    }
-
-    fn ensure_table_page(&mut self, table: &str, page_size: u32) -> RsfResult<PageId> {
-        self.table_record(table)?;
-        if let Some(page) = self.table_pages.get(table) {
-            return Ok(page.clone());
-        }
-        let page = PageId::new(table, 1);
-        match self
-            .pages
-            .create_page(page.clone(), CommitVersion(0), page_size)
-        {
-            PageDecision::Applied(_) => {
-                let image = self
-                    .pages
-                    .read_image(&page, CommitVersion(0))
-                    .map_err(|reason| {
-                        RsfError::new(
-                            ErrorCode::CorruptionDetected,
-                            format!("created relational page image was unreadable: {reason}"),
-                        )
-                    })?;
-                let encoded = image.encode().map_err(|reason| {
-                    RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!("created relational page image was not encodable: {reason}"),
-                    )
-                })?;
-                self.page_wal_base_images.insert(page.clone(), encoded);
-                self.table_pages.insert(table.to_string(), page.clone());
-                Ok(page)
-            }
-            PageDecision::Rejected { reason, .. } => Err(RsfError::new(
-                ErrorCode::InvalidInput,
-                format!("relational page creation rejected: {reason}"),
-            )),
-            other => Err(RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!("unexpected relational page creation decision {other:?}"),
-            )),
-        }
     }
 
     fn layout_decision_for_table(&self, table: &str) -> RsfResult<SqlLayoutDecision> {
@@ -2218,10 +2248,12 @@ impl SqlEngine {
         }
     }
 
-    fn allocate_page_lsn(&mut self, commit_version: CommitVersion) -> CommitVersion {
+    fn allocate_page_lsn(&mut self, commit_version: CommitVersion) -> RsfResult<CommitVersion> {
         let lsn = self.next_page_lsn.max(commit_version.0);
-        self.next_page_lsn = lsn.saturating_add(1);
-        CommitVersion(lsn)
+        self.next_page_lsn = lsn
+            .checked_add(1)
+            .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, "SQL page LSN exhausted"))?;
+        Ok(CommitVersion(lsn))
     }
 
     fn rebuild_index(&mut self, table: &str, descriptor: &IndexDescriptor) -> RsfResult<()> {
@@ -4064,6 +4096,163 @@ mod tests {
         assert_eq!(report.page_wal_tables, 1);
         assert_eq!(report.checkpoint_live_rows, 0);
         assert_eq!(report.checkpoint_tombstones, 1);
+    }
+
+    #[test]
+    fn oversized_sql_rows_are_rejected_before_protocol_commit() {
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut sql = SqlEngine::default();
+        sql.create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        let before = router.latest_version();
+        assert!(
+            sql.insert(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                "1",
+                BTreeMap::from([("name".into(), "x".repeat(5000))])
+            )
+            .is_err()
+        );
+        assert_eq!(router.latest_version(), before);
+        assert_eq!(sql.page_wal_report().pages, 0);
+        sql.insert(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "1",
+            BTreeMap::from([("name".into(), "old".into())]),
+        )
+        .unwrap();
+        let before = router.latest_version();
+        assert!(
+            sql.update(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                "1",
+                BTreeMap::from([("name".into(), "x".repeat(5000))])
+            )
+            .is_err()
+        );
+        assert_eq!(router.latest_version(), before);
+        assert_eq!(sql.select_pk("users", "1").unwrap().columns["name"], "old");
+    }
+
+    #[test]
+    fn invalid_multipage_snapshot_does_not_replace_live_sql_state() {
+        let mut sql = SqlEngine::default();
+        sql.create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        sql.insert(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "1",
+            BTreeMap::from([("name".into(), "old".into())]),
+        )
+        .unwrap();
+        let before = sql.page_wal_snapshot();
+        let mut image =
+            rsf_page::PageImage::new(PageId::new("users", 2), CommitVersion(2), 4096).unwrap();
+        image
+            .insert_row(logical_row_key("users", "1"), b"duplicate".to_vec())
+            .unwrap();
+        let mut bad = sql.page_wal_snapshot();
+        bad.page_images.push(image.encode().unwrap());
+        assert!(sql.recover_page_wal_snapshot(bad).is_err());
+        assert_eq!(sql.page_wal_snapshot(), before);
+        assert_eq!(sql.select_pk("users", "1").unwrap().columns["name"], "old");
+    }
+
+    #[test]
+    fn sql_page_wal_grows_moves_rows_and_recovers_many_pages() {
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut sql = SqlEngine::default();
+        sql.create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        for n in 0..160 {
+            sql.insert(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                n.to_string(),
+                BTreeMap::from([("name".to_string(), "x".repeat(2048))]),
+            )
+            .unwrap();
+        }
+        assert_eq!(sql.page_wal_report().pages, 160);
+        assert!(sql.page_wal_report().buffer_resident <= 128);
+        // Fill the last page, then grow the small row until relocation is required.
+        sql.insert(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "small",
+            BTreeMap::from([("name".to_string(), "a".repeat(100))]),
+        )
+        .unwrap();
+        let small_key = logical_row_key("users", "small");
+        let old_page = sql.row_pages[&small_key].clone();
+        sql.update(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "small",
+            BTreeMap::from([("name".to_string(), "b".repeat(3000))]),
+        )
+        .unwrap();
+        assert_ne!(sql.row_pages[&small_key], old_page);
+        sql.delete(&mut router, PlacementGroupId(1), "users", "42")
+            .unwrap();
+        let snapshot = sql.page_wal_snapshot();
+        let mut restarted = SqlEngine::default();
+        restarted
+            .create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        restarted.recover_page_wal_snapshot(snapshot).unwrap();
+        assert_eq!(restarted.row_pages, sql.row_pages);
+        let (mut canonical, recovery) = SqlEngine::recover_from_committed_kv(
+            sql.committed_kv_for_recovery(),
+            sql.recovered_tables_for_checkpoint(),
+        )
+        .unwrap();
+        assert_eq!(recovery.live_rows, 160);
+        canonical
+            .update(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                "small",
+                BTreeMap::from([("name".into(), "after-restart".into())]),
+            )
+            .unwrap();
+        assert_eq!(
+            canonical.select_pk("users", "small").unwrap().columns["name"],
+            "after-restart"
+        );
+        assert_eq!(restarted.page_wal_report().checkpoint_live_rows, 160);
+        assert_eq!(
+            restarted
+                .pages
+                .read_image(&restarted.row_pages[&small_key], CommitVersion(0))
+                .unwrap(),
+            sql.pages
+                .read_image(&sql.row_pages[&small_key], CommitVersion(0))
+                .unwrap()
+        );
+        restarted
+            .apply_page_wal(
+                "users",
+                RedoOperation::UpdateRow,
+                CommitVersion(1000),
+                16,
+                small_key.clone(),
+                Some(b"physical-update".to_vec()),
+            )
+            .unwrap();
     }
 
     #[test]

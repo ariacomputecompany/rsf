@@ -89,6 +89,26 @@ connection carries one request and receives the `RSF/1` response followed by a
 TLS close notification. The protocol labels do not make this listener a
 PostgreSQL, HTTP, or S3 wire-compatible endpoint.
 
+## Failed requests and uncertain writes
+
+`RSF/1 executed` acknowledges a successful result. `RSF/1 rejected` means no
+success is being acknowledged; it does not by itself prove that a write aborted.
+The response includes `mutation=not-attempted` when the current request was
+rejected before mutation execution (or when a read failed), and
+`mutation=unknown` when an authorized mutating request entered execution and
+then failed. The latter is conservative: an intent or complete command may
+already be durable, even if the error happened during replication or fsync.
+Recovery can commit it once quorum is available. A validation error returned
+inside the mutating execution path may also be labeled unknown.
+
+After `mutation=unknown`, a disconnected client, or a timeout, retry with the
+same principal, namespace, surface, idempotency key, operation and payload.
+Do not substitute a new request key. A successful retry preserves the original
+commit version and log index and reports `replayed=true` when the result was
+already committed. A changed-payload retry cannot replace the original write.
+`mutation=not-attempted` describes only this attempt and never revokes a success
+from an earlier attempt using the same key.
+
 ## Revoke and rotate access
 
 ```sh

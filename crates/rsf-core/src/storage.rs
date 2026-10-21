@@ -52,6 +52,9 @@ pub enum WalRecordKind {
     Recovery,
     Range,
     Manifest,
+    /// A durable consensus promise must never be ignored by older readers.
+    ViewPromise,
+    ViewInstallation,
 }
 
 impl WalRecordKind {
@@ -95,6 +98,8 @@ impl WalRecordKind {
             Self::Recovery => 36,
             Self::Range => 37,
             Self::Manifest => 38,
+            Self::ViewPromise => 39,
+            Self::ViewInstallation => 40,
         }
     }
 
@@ -138,6 +143,8 @@ impl WalRecordKind {
             36 => Some(Self::Recovery),
             37 => Some(Self::Range),
             38 => Some(Self::Manifest),
+            39 => Some(Self::ViewPromise),
+            40 => Some(Self::ViewInstallation),
             _ => None,
         }
     }

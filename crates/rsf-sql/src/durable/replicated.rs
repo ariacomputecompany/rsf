@@ -202,10 +202,10 @@ impl DurableSqlEngine {
         if client.trim().is_empty() {
             return Err(invalid("SQL request client must not be empty"));
         }
-        if let Some(pending) = &self.pending {
-            if pending.client == client {
-                pending.matches(pg, statement)?;
-            }
+        if let Some(pending) = &self.pending
+            && pending.client == client
+        {
+            pending.matches(pg, statement)?;
         }
         self.reconcile(router)?;
         let request = PendingRequest {
@@ -354,11 +354,11 @@ impl DurableSqlEngine {
                     "SQL replay differs from its original complete command",
                 ));
             }
-            if let Some(pending) = &self.pending {
-                if pending.client == request.client {
-                    pending.matches(request.pg, &request.statement)?;
-                    self.clear_pending()?;
-                }
+            if let Some(pending) = &self.pending
+                && pending.client == request.client
+            {
+                pending.matches(request.pg, &request.statement)?;
+                self.clear_pending()?;
             }
             return Ok(execution(
                 self.receipts[&request.client].outcome(&self.engine)?,

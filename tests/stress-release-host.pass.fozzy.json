@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "rsfd-release-real-process-growing-history-stress",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "env",
+      "args": ["CARGO_BUILD_JOBS=2", "RSF_STRESS_WRITES_PER_CLIENT=64", "cargo", "test", "--release", "--locked", "-p", "rsfd", "--test", "peer_process", "native_kv_stress", "--", "--ignored", "--nocapture", "--test-threads=1"],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "env",
+      "args": ["CARGO_BUILD_JOBS=2", "RSF_STRESS_WRITES_PER_CLIENT=64", "cargo", "test", "--release", "--locked", "-p", "rsfd", "--test", "peer_process", "native_kv_stress", "--", "--ignored", "--nocapture", "--test-threads=1"],
+      "expect_exit": 0
+    }
+  ]
+}

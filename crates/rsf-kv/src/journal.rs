@@ -55,17 +55,15 @@ impl DurableKvEngine {
             .map_err(|err| corrupt(format!("cannot open KV ownership lock: {err}")))?;
         let lock = rsf_storage::ExclusiveFileLock::acquire(lock)
             .map_err(|err| invalid(format!("KV store already has a writer: {err}")))?;
-        let store = SegmentStore::open(path)?;
-        let scan = store.scan(SegmentScanFilter { pg: None })?;
+        let (store, recovered) = SegmentStore::open_recovered(path, Default::default())?;
         let mut durable = Self {
             engine: KvEngine::default(),
             store,
             epoch,
-            next_indexes: BTreeMap::new(),
             journal: Journal::default(),
             _writer_lock: lock,
         };
-        for record in scan.wal_records {
+        for record in recovered.recovery.wal_records {
             match record.kind {
                 WalRecordKind::KvMutation if record.payload.starts_with(NAMESPACE) => {
                     let namespace = std::str::from_utf8(&record.payload[NAMESPACE.len()..])
@@ -115,16 +113,6 @@ impl DurableKvEngine {
                 }
                 _ => continue,
             }
-            let next = record
-                .index
-                .0
-                .checked_add(1)
-                .ok_or_else(|| corrupt("KV physical log index exhausted"))?;
-            durable
-                .next_indexes
-                .entry(record.pg)
-                .and_modify(|value| *value = (*value).max(next))
-                .or_insert(next);
         }
         Ok(durable)
     }
@@ -512,26 +500,8 @@ impl DurableKvEngine {
     ) -> RsfResult<LogIndex> {
         self.ensure_healthy()?;
         let result: RsfResult<LogIndex> = (|| {
-            let index = *self.next_indexes.get(&pg).unwrap_or(&1);
-            let next = index
-                .checked_add(1)
-                .ok_or_else(|| corrupt("KV physical log index exhausted"))?;
-            let previous_hash = self
-                .store
-                .recover_current()?
-                .recovery
-                .pg_tail(pg)
-                .map_or([0; 32], |tail| tail.record_hash);
-            self.store.append_wal(WalAppend {
-                pg,
-                epoch: self.epoch,
-                index: LogIndex(index),
-                kind,
-                previous_hash,
-                payload,
-            })?;
-            self.next_indexes.insert(pg, next);
-            Ok(LogIndex(index))
+            let (_, _, record) = self.store.append_next_wal(pg, self.epoch, kind, payload)?;
+            Ok(record.index)
         })();
         if let Err(err) = &result {
             self.journal.failure = Some(err.message.clone());

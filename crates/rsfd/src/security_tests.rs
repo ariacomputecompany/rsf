@@ -102,6 +102,23 @@ fn unauthenticated_unregistered_and_spoofed_clients_never_open_data_storage() {
     )
     .unwrap();
     assert!(result.contains("not bound"), "{result}");
+    assert!(result.contains("mutation=not-attempted"), "{result}");
+    let denied_write = request(
+        &listener,
+        frame(
+            WireProtocol::Kv,
+            "app",
+            "SET secret",
+            "unauthorized-write",
+            b"denied",
+        ),
+        test_support::pki().unregistered.clone(),
+    )
+    .unwrap();
+    assert!(
+        denied_write.contains("mutation=not-attempted"),
+        "{denied_write}"
+    );
     let mut forged = get;
     forged.principal = "administrator".into();
     assert!(

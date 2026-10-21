@@ -13,6 +13,30 @@ pub struct VsrPrimaryProbe {
 }
 
 impl VsrPrimaryProbe {
+    pub fn decode(bytes: &[u8]) -> RsfResult<Self> {
+        if bytes.len() < 73 || &bytes[..5] != b"RSFV1" {
+            return Err(corrupt("invalid primary probe encoding"));
+        }
+        let count = u32::from_le_bytes(bytes[69..73].try_into().unwrap()) as usize;
+        if count > 4096 || bytes.len() != 73 + 8 * count {
+            return Err(corrupt("invalid primary probe voter count"));
+        }
+        let probe = Self {
+            pg: PlacementGroupId(read_u64(bytes, 5)?),
+            view: Epoch(read_u64(bytes, 13)?),
+            primary: NodeId(read_u64(bytes, 21)?),
+            committed_tail: LogIndex(read_u64(bytes, 29)?),
+            committed_tip: Digest::blake3(bytes[37..69].try_into().unwrap())?,
+            voters: (0..count)
+                .map(|i| read_u64(bytes, 73 + 8 * i).map(NodeId))
+                .collect::<RsfResult<_>>()?,
+        };
+        if probe.encode()? != bytes {
+            return Err(corrupt("noncanonical primary probe"));
+        }
+        Ok(probe)
+    }
+
     /// RSFV1 fixes BLAKE3 for the canonical committed-prepare digest. Membership
     /// is sorted and bounded; byte equality covers the entire probe contract.
     pub fn encode(&self) -> RsfResult<Vec<u8>> {
@@ -45,6 +69,11 @@ impl VsrPrimaryProbe {
 
 impl DurableVsrCell {
     pub fn primary_probe(&self) -> RsfResult<VsrPrimaryProbe> {
+        self.ensure_active_view()?;
+        self.recovery_probe()
+    }
+
+    pub(super) fn recovery_probe(&self) -> RsfResult<VsrPrimaryProbe> {
         self.ensure_healthy()?;
         let tail = self.committed_tail();
         let tip = if tail.0 == 0 {

@@ -1,6 +1,7 @@
 use crate::replication::ReplicationTransport;
 type DataRouter = VsrBackedFabricRouter<ReplicationTransport>;
 
+use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -18,12 +19,13 @@ use rsf_wire::{
 };
 
 const MAX_DATA_FRAME_BYTES: u32 = 64 * 1024;
+const MAX_DATA_REQUESTS_PER_TICK: usize = 64;
 
 pub struct DataPlaneListener {
     listener: TcpListener,
     codec: WireCodec,
     adapter: WireAdapter,
-    executor: DataPlaneExecutor,
+    state: PathBuf,
     tls: std::sync::Arc<rustls::ServerConfig>,
 }
 
@@ -40,7 +42,7 @@ impl DataPlaneListener {
             listener,
             codec: WireCodec,
             adapter: WireAdapter,
-            executor: DataPlaneExecutor::new(state),
+            state,
             tls,
         })
     }
@@ -52,6 +54,9 @@ impl DataPlaneListener {
     }
 
     pub fn serve_pending(&self, out: &mut impl Write) -> Result<usize, String> {
+        // The burst owns its writers. Dropping it before returning also releases
+        // them before the daemon samples health or another control operation.
+        let executor = DataPlaneExecutor::new(self.state.clone());
         let mut served = 0_usize;
         loop {
             match self.listener.accept() {
@@ -60,19 +65,40 @@ impl DataPlaneListener {
                         stream,
                         &self.codec,
                         &self.adapter,
-                        &self.executor,
+                        &executor,
                         self.tls.clone(),
                     )
                     .unwrap_or_else(|err| DataPlaneResponse::Rejected {
                         protocol: "tls",
-                        reason: format!("secure connection failed: {err}"),
+                        // This may be a response-write failure after execution,
+                        // not just a handshake/read failure before admission.
+                        mutation: MutationOutcome::Unknown,
+                        reason: format!("connection failed: {err}"),
                     });
                     emit_data_plane_response(out, peer, &response)?;
                     served = served.saturating_add(1);
+                    if served == MAX_DATA_REQUESTS_PER_TICK {
+                        return Ok(served);
+                    }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(served),
                 Err(err) => return Err(format!("failed to accept daemon data request: {err}")),
             }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MutationOutcome {
+    NotAttempted,
+    Unknown,
+}
+
+impl MutationOutcome {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotAttempted => "not-attempted",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -90,6 +116,7 @@ pub enum DataPlaneResponse {
     },
     Rejected {
         protocol: &'static str,
+        mutation: MutationOutcome,
         reason: String,
     },
     Corrupt {
@@ -97,15 +124,17 @@ pub enum DataPlaneResponse {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct DataPlaneExecutor {
     state: PathBuf,
+    cached: RefCell<Option<CachedRuntime>>,
 }
 
 impl DataPlaneExecutor {
     pub fn new(state: impl Into<PathBuf>) -> Self {
         Self {
             state: state.into(),
+            cached: RefCell::new(None),
         }
     }
 
@@ -113,55 +142,45 @@ impl DataPlaneExecutor {
         if let Err(err) = crate::security::authorize(&self.state, fingerprint, &envelope) {
             return DataPlaneResponse::Rejected {
                 protocol: envelope.protocol.as_str(),
+                mutation: MutationOutcome::NotAttempted,
                 reason: err.message,
             };
         }
-        match envelope.protocol {
-            WireProtocol::Sql => {
-                self.execute_sql(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Sql.as_str(),
-                        reason: err.message,
-                    })
-            }
-            WireProtocol::Kv => {
-                self.execute_kv(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Kv.as_str(),
-                        reason: err.message,
-                    })
-            }
-            WireProtocol::Blob => {
-                self.execute_blob(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Blob.as_str(),
-                        reason: err.message,
-                    })
-            }
-            WireProtocol::Object => {
-                self.execute_object(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Object.as_str(),
-                        reason: err.message,
-                    })
-            }
-            protocol => DataPlaneResponse::Rejected {
+        let protocol = envelope.protocol;
+        // Once an authorized mutation enters execution, storage/replication may
+        // have persisted an intent before an error. No generic error code can
+        // prove that it was rolled back, including an I/O error during fsync.
+        let mutation = match envelope.operation_kind {
+            WireOperationKind::Read => MutationOutcome::NotAttempted,
+            WireOperationKind::Write | WireOperationKind::Admin => MutationOutcome::Unknown,
+        };
+        let result = match protocol {
+            WireProtocol::Sql => self.execute_sql(envelope),
+            WireProtocol::Kv => self.execute_kv(envelope),
+            WireProtocol::Blob => self.execute_blob(envelope),
+            WireProtocol::Object => self.execute_object(envelope),
+            protocol => return DataPlaneResponse::Rejected {
                 protocol: protocol.as_str(),
+                mutation: MutationOutcome::NotAttempted,
                 reason: "data-plane execution handoff is currently available for sql, kv, blob, and object requests"
                     .to_string(),
             },
-        }
+        };
+        result.unwrap_or_else(|err| DataPlaneResponse::Rejected {
+            protocol: protocol.as_str(),
+            mutation,
+            reason: err.message,
+        })
     }
 
     fn execute_sql(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         ensure_empty_body(&envelope.body, "sql")?;
         let request_client = sql_request_client_from_envelope(&envelope)?;
-        let mut runtime = self.open_sql_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_sql_runtime(namespace)?;
         if envelope.operation_kind == WireOperationKind::Read
             && runtime.router.transport_mut().is_network()
         {
@@ -180,7 +199,7 @@ impl DataPlaneExecutor {
             }
             _ => Vec::new(),
         };
-        Ok(DataPlaneResponse::Executed {
+        let response = DataPlaneResponse::Executed {
             protocol: envelope.protocol.as_str(),
             operation_kind: operation_kind_label(envelope.operation_kind),
             surface: "sql",
@@ -192,22 +211,23 @@ impl DataPlaneExecutor {
                 sql_outcome_detail(&execution.outcome),
                 execution.replayed
             ),
-        })
+        };
+        self.remember(namespace, Runtime::Sql(runtime));
+        Ok(response)
     }
 
     fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         let command = parse_kv_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_kv_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_kv_runtime(namespace)?;
         if matches!(&command, KvCommand::Get { .. }) && runtime.router.transport_mut().is_network()
         {
             runtime.router.confirm_read_quorum()?;
         }
-        match command {
+        let response = match command {
             KvCommand::Get { key } => {
                 let value = runtime.kv.get(key.as_bytes());
                 Ok(DataPlaneResponse::Executed {
@@ -285,18 +305,19 @@ impl DataPlaneExecutor {
                     ),
                 })
             }
-        }
+        };
+        self.remember(namespace, Runtime::Kv(runtime));
+        response
     }
 
     fn execute_blob(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         let command = parse_blob_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_blob_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
-        match command {
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_blob_runtime(namespace)?;
+        let response = match command {
             BlobCommand::Put { name: _, bytes } => {
                 let record = runtime.blobs.put_request(
                     &mut runtime.router,
@@ -333,23 +354,24 @@ impl DataPlaneExecutor {
                     detail: format!("hit id=blake3:{}", hex_bytes(id.as_bytes())),
                 })
             }
-        }
+        };
+        self.remember(namespace, Runtime::Blob(runtime));
+        response
     }
 
     fn execute_object(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
         let command = parse_object_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_object_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_object_runtime(namespace)?;
         if matches!(&command, ObjectCommand::Get { .. })
             && runtime.router.transport_mut().is_network()
         {
             runtime.router.confirm_read_quorum()?;
         }
-        match command {
+        let response = match command {
             ObjectCommand::CreateBucket { bucket } => {
                 let record = runtime.objects.create_bucket_request(
                     &mut runtime.router,
@@ -423,10 +445,17 @@ impl DataPlaneExecutor {
                     ),
                 })
             }
-        }
+        };
+        self.remember(namespace, Runtime::Object(runtime));
+        response
     }
 
     fn open_kv_runtime(&self, namespace: &str) -> RsfResult<KvRuntime> {
+        if let Some(Runtime::Kv(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Kv)?
+        {
+            return Ok(runtime);
+        }
         let (mut router, epoch) = self.open_router()?;
         let mut kv = DurableKvEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("kv"),
@@ -445,6 +474,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_sql_runtime(&self, namespace: &str) -> RsfResult<SqlRuntime> {
+        if let Some(Runtime::Sql(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Sql)?
+        {
+            return Ok(runtime);
+        }
         let (mut router, _) = self.open_router()?;
         let mut sql = DurableSqlEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("sql"),
@@ -462,6 +496,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_blob_runtime(&self, namespace: &str) -> RsfResult<BlobRuntime> {
+        if let Some(Runtime::Blob(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Blob)?
+        {
+            return Ok(runtime);
+        }
         let (router, _) = self.open_router()?;
         let mut blobs = DurableBlobEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("blob"),
@@ -478,6 +517,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_object_runtime(&self, namespace: &str) -> RsfResult<ObjectRuntime> {
+        if let Some(Runtime::Object(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Object)?
+        {
+            return Ok(runtime);
+        }
         let (mut router, _) = self.open_router()?;
         let mut objects = DurableObjectStore::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("object"),
@@ -492,6 +536,58 @@ impl DataPlaneExecutor {
         }
         objects.reconcile(&mut router)?;
         Ok(ObjectRuntime { router, objects })
+    }
+
+    fn remember(&self, namespace: &str, runtime: Runtime) {
+        *self.cached.borrow_mut() = Some(CachedRuntime {
+            namespace: namespace.to_owned(),
+            runtime,
+        });
+    }
+
+    fn take_runtime(
+        &self,
+        namespace: &str,
+        surface: rsf_protocol::ApplicationSurface,
+    ) -> RsfResult<Option<Runtime>> {
+        let Some(mut cached) = self.cached.borrow_mut().take() else {
+            return Ok(None);
+        };
+        if cached.namespace != namespace || cached.runtime.surface() != surface {
+            return Ok(None);
+        }
+        let router = cached.runtime.router();
+        if !router.control_metadata_matches_disk()? {
+            return Ok(None);
+        }
+        // Authorization is still performed by execute for each request. The
+        // transport and admitted membership are also refreshed, so a live burst
+        // cannot bypass a revoked identity or changed endpoint configuration.
+        let admin = AdminPlane::recover(self.state.join("admin"))?;
+        let voters = admin
+            .membership_view()
+            .ok_or_else(|| invalid("missing promoted voters"))?
+            .voter_nodes();
+        let primary = *voters
+            .first()
+            .ok_or_else(|| invalid("missing promoted voter"))?;
+        if router.coordination_epoch() != Epoch(admin.cluster_map().epoch.0.max(1))
+            || !crate::protocol_membership_matches(router, &voters)
+            || router.placement_map().groups.iter().any(|pg| {
+                router
+                    .membership(*pg)
+                    .map_or(true, |(_, current, _)| current != primary)
+            })
+        {
+            return Ok(None);
+        }
+        *router.transport_mut() =
+            ReplicationTransport::load(&self.state, &admin, primary).map_err(invalid)?;
+        if router.reconcile_application_commands()? != 0 {
+            // An interrupted command needs full materializer reconciliation.
+            return Ok(None);
+        }
+        Ok(Some(cached.runtime))
     }
 
     fn open_router(&self) -> RsfResult<(DataRouter, Epoch)> {
@@ -538,21 +634,58 @@ impl DataPlaneExecutor {
     }
 }
 
+#[derive(Debug)]
+struct CachedRuntime {
+    namespace: String,
+    runtime: Runtime,
+}
+
+#[derive(Debug)]
+enum Runtime {
+    Kv(KvRuntime),
+    Sql(SqlRuntime),
+    Blob(BlobRuntime),
+    Object(ObjectRuntime),
+}
+
+impl Runtime {
+    fn surface(&self) -> rsf_protocol::ApplicationSurface {
+        match self {
+            Self::Kv(_) => rsf_protocol::ApplicationSurface::Kv,
+            Self::Sql(_) => rsf_protocol::ApplicationSurface::Sql,
+            Self::Blob(_) => rsf_protocol::ApplicationSurface::Blob,
+            Self::Object(_) => rsf_protocol::ApplicationSurface::Object,
+        }
+    }
+    fn router(&mut self) -> &mut DataRouter {
+        match self {
+            Self::Kv(runtime) => &mut runtime.router,
+            Self::Sql(runtime) => &mut runtime.router,
+            Self::Blob(runtime) => &mut runtime.router,
+            Self::Object(runtime) => &mut runtime.router,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct KvRuntime {
     router: DataRouter,
     kv: DurableKvEngine,
 }
 
+#[derive(Debug)]
 struct SqlRuntime {
     router: DataRouter,
     sql: DurableSqlEngine,
 }
 
+#[derive(Debug)]
 struct BlobRuntime {
     router: DataRouter,
     blobs: DurableBlobEngine,
 }
 
+#[derive(Debug)]
 struct ObjectRuntime {
     router: DataRouter,
     objects: DurableObjectStore,
@@ -597,6 +730,9 @@ fn serve_data_stream(
     stream
         .set_nonblocking(false)
         .map_err(|err| format!("failed to configure data socket: {err}"))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|err| format!("failed to configure data socket latency: {err}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|err| format!("failed to configure data read timeout: {err}"))?;
@@ -666,6 +802,7 @@ fn data_plane_response(
         WireDecision::Accepted(envelope) => executor.execute(envelope, fingerprint),
         WireDecision::Rejected { protocol, reason } => DataPlaneResponse::Rejected {
             protocol: protocol.as_str(),
+            mutation: MutationOutcome::NotAttempted,
             reason,
         },
     }
@@ -1051,10 +1188,15 @@ fn render_data_plane_response(response: &DataPlaneResponse) -> String {
             hex_bytes(payload),
             single_line(detail)
         ),
-        DataPlaneResponse::Rejected { protocol, reason } => {
+        DataPlaneResponse::Rejected {
+            protocol,
+            mutation,
+            reason,
+        } => {
             format!(
-                "RSF/1 rejected protocol={} reason={}\n",
+                "RSF/1 rejected protocol={} mutation={} reason={}\n",
                 protocol,
+                mutation.as_str(),
                 single_line(reason)
             )
         }
@@ -1089,10 +1231,10 @@ fn emit_data_plane_response(
             bytes,
             single_line(detail)
         ),
-        DataPlaneResponse::Rejected { protocol, reason } => writeln!(
+        DataPlaneResponse::Rejected { protocol, mutation, reason } => writeln!(
             out,
-            "daemon data peer={} status=rejected protocol={} reason={}",
-            peer, protocol, single_line(reason)
+            "daemon data peer={} status=rejected protocol={} mutation={} reason={}",
+            peer, protocol, mutation.as_str(), single_line(reason)
         ),
         DataPlaneResponse::Corrupt { reason } => {
             writeln!(
@@ -1109,6 +1251,59 @@ fn emit_data_plane_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_warm_runtime_rechecks_certificate_revocation_and_replication_configuration() {
+        let state = crate::tests::test_path("warm-runtime-security");
+        crate::tests::bootstrap_one_node(state.to_str().unwrap());
+        let executor = DataPlaneExecutor::new(&state);
+        let fingerprint = crate::test_support::pki().fingerprint;
+        let envelope = |key: &str| RequestEnvelope {
+            protocol: WireProtocol::Kv,
+            principal: "app-client".into(),
+            namespace: Some("app".into()),
+            operation: format!("SET {key}"),
+            operation_kind: WireOperationKind::Write,
+            idempotency_key: Some(key.into()),
+            body_bytes: 5,
+            body: b"value".to_vec(),
+        };
+        assert!(matches!(
+            executor.execute(envelope("first"), &fingerprint),
+            DataPlaneResponse::Executed { .. }
+        ));
+        let kv_path = crate::security::namespace_root(&state, "app").join("kv");
+        assert!(DurableKvEngine::open_replicated(&kv_path, Epoch(1), "app").is_err());
+
+        let mut auth = rsf_auth::DurableAuthEngine::open(state.join("auth"), Epoch(1)).unwrap();
+        auth.revoke_certificate(fingerprint).unwrap();
+        assert!(matches!(
+            executor.execute(envelope("denied"), &fingerprint),
+            DataPlaneResponse::Rejected {
+                mutation: MutationOutcome::NotAttempted,
+                ..
+            }
+        ));
+        auth.bind_certificate(fingerprint, rsf_auth::PrincipalId("app-client".into()))
+            .unwrap();
+        drop(auth);
+        std::fs::write(state.join("replication.json"), b"invalid configuration").unwrap();
+        assert!(matches!(
+            executor.execute(envelope("bad-config"), &fingerprint),
+            DataPlaneResponse::Rejected {
+                mutation: MutationOutcome::Unknown,
+                ..
+            }
+        ));
+        drop(executor);
+        let kv = DurableKvEngine::open_replicated(&kv_path, Epoch(1), "app").unwrap();
+        assert_eq!(kv.get(b"first").unwrap().value, b"value");
+        assert!(kv.get(b"denied").is_none());
+        assert!(kv.get(b"bad-config").is_none());
+        assert_eq!(kv.changes_since(rsf_core::CommitVersion(0)).len(), 1);
+        drop(kv);
+        std::fs::remove_dir_all(state).unwrap();
+    }
 
     #[test]
     fn sql_request_identity_separates_reads_and_delimiter_containing_scopes() {
@@ -1153,6 +1348,7 @@ mod tests {
         for response in [
             DataPlaneResponse::Rejected {
                 protocol: "sql-wire",
+                mutation: MutationOutcome::Unknown,
                 reason: "bad\ninput".to_string(),
             },
             DataPlaneResponse::Corrupt {

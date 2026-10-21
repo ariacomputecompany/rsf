@@ -1,0 +1,79 @@
+{
+  "all_pass": true,
+  "source_unchanged": true,
+  "source_sha256_before": "d535d2480c71187fbb525ddbe91ef7b6963f14269c8bd33962d3f9940bb659c1",
+  "source_sha256_after": "d535d2480c71187fbb525ddbe91ef7b6963f14269c8bd33962d3f9940bb659c1",
+  "seed": 20261021,
+  "passed_domains": [
+    "storage",
+    "vsr",
+    "membership",
+    "protocol",
+    "peer-rpc",
+    "kv-transactions",
+    "sql",
+    "authentication",
+    "tenancy",
+    "daemon",
+    "daemon-stress",
+    "release-stress",
+    "object-blob",
+    "recovery",
+    "policy",
+    "end-to-end",
+    "workspace"
+  ],
+  "failed_domains": [],
+  "trace_directory": "artifacts/verification.2pDtsY",
+  "workload_evidence_valid": true,
+  "workload_metrics": {
+    "daemon-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 198,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 12.683824622342424,
+      "elapsed_ms": 76555,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 623394,
+        "p50": 300757,
+        "p95": 388307,
+        "p99": 547407
+      },
+      "payload_bytes": 442587,
+      "profile": "debug",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    },
+    "release-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 774,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 21.999565107555387,
+      "elapsed_ms": 101876,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 388246,
+        "p50": 184895,
+        "p95": 233274,
+        "p99": 278143
+      },
+      "payload_bytes": 1769691,
+      "profile": "release",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    }
+  },
+  "coverage_per_passing_domain": [
+    "five-run doctor",
+    "strict deterministic test",
+    "real host recorded run",
+    "strict trace verification",
+    "replay",
+    "CI"
+  ]
+}

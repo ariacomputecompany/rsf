@@ -269,7 +269,10 @@ fn legacy_wal_preserves_data_and_requires_bootstrap_migration_before_topology_ch
     drop(store);
     let before = SegmentStore::recover(&legacy).unwrap().recovery.wal_records;
     let mut recovered = open(&legacy);
-    assert_eq!(recovered.committed_prefix().unwrap(), [entry.clone()]);
+    assert_eq!(
+        recovered.committed_prefix().unwrap().as_slice(),
+        std::slice::from_ref(&entry)
+    );
     for decision in [
         recovered.view_change(Epoch(2), NodeId(1)),
         recovered.timeout_election(),

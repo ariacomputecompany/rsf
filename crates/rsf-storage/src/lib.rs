@@ -242,13 +242,36 @@ impl SegmentLog {
         path: &Path,
         initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
     ) -> RsfResult<Recovery> {
+        Self::recover_file(path, initial_pg_tails, true, true)
+    }
+
+    // Manifest-referenced files are already published durable state. Creating
+    // an absent file here would conceal disk loss as an empty recovered log.
+    pub(crate) fn recover_existing_with_tails(
+        path: &Path,
+        initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
+        repair_tail: bool,
+    ) -> RsfResult<Recovery> {
+        Self::recover_file(path, initial_pg_tails, false, repair_tail)
+    }
+
+    fn recover_file(
+        path: &Path,
+        initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
+        create: bool,
+        repair_tail: bool,
+    ) -> RsfResult<Recovery> {
         let mut file = OpenOptions::new()
-            .create(true)
+            .create(create)
             .read(true)
             .write(true)
             .truncate(false)
             .open(path)
             .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        let file_len = file
+            .metadata()
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+            .len();
 
         let mut offset = 0_u64;
         let mut records = Vec::new();
@@ -261,8 +284,7 @@ impl SegmentLog {
             match file.read_exact(&mut header) {
                 Ok(()) => {}
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    file.set_len(offset)
-                        .map_err(|err| storage_error(StorageIoOperation::Truncate, err))?;
+                    truncate_recovery_tail(&file, offset, repair_tail)?;
                     return Ok(Recovery {
                         records,
                         wal_records,
@@ -305,6 +327,23 @@ impl SegmentLog {
             let len = u64::from_le_bytes(header[8..16].try_into().expect("slice length"));
             let expected_checksum =
                 u64::from_le_bytes(header[16..24].try_into().expect("slice length"));
+            // A corrupt or torn length header must not allocate untrusted
+            // quantities of memory before discovering the missing payload.
+            if len
+                > file_len
+                    .saturating_sub(offset)
+                    .saturating_sub(HEADER_LEN as u64)
+            {
+                truncate_recovery_tail(&file, offset, repair_tail)?;
+                return Ok(Recovery {
+                    records,
+                    wal_records,
+                    maintenance_records,
+                    pg_tails,
+                    compacted_prefixes: BTreeMap::new(),
+                    truncated_to: offset,
+                });
+            }
             let payload_len = usize::try_from(len).map_err(|_| {
                 RsfError::new(
                     ErrorCode::CorruptionDetected,
@@ -316,8 +355,7 @@ impl SegmentLog {
             match file.read_exact(&mut payload) {
                 Ok(()) => {}
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    file.set_len(offset)
-                        .map_err(|err| storage_error(StorageIoOperation::Truncate, err))?;
+                    truncate_recovery_tail(&file, offset, repair_tail)?;
                     return Ok(Recovery {
                         records,
                         wal_records,
@@ -1122,6 +1160,28 @@ pub enum StorageIoOperation {
     Truncate,
 }
 
+fn truncate_recovery_tail(file: &File, offset: u64, repair_tail: bool) -> RsfResult<()> {
+    let length = file
+        .metadata()
+        .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+        .len();
+    if length == offset {
+        return Ok(());
+    }
+    if !repair_tail {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            format!(
+                "torn record in sealed segment at offset {offset}; refusing to truncate durable history"
+            ),
+        ));
+    }
+    file.set_len(offset)
+        .map_err(|err| storage_error(StorageIoOperation::Truncate, err))?;
+    file.sync_all()
+        .map_err(|err| storage_error(StorageIoOperation::Sync, err))
+}
+
 fn storage_error(operation: StorageIoOperation, err: io::Error) -> RsfError {
     let code = match err.kind() {
         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof | io::ErrorKind::WriteZero => {
@@ -1209,6 +1269,25 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn recovery_checks_payload_length_before_allocating_from_a_torn_header() {
+        let path = test_path("untrusted_record_length");
+        let mut log = SegmentLog::open(&path).unwrap();
+        log.append(b"stable").unwrap();
+        drop(log);
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        write_segment_header(&mut file, u64::MAX, 0).unwrap();
+        drop(file);
+        let recovery = SegmentLog::recover(&path).unwrap();
+        assert_eq!(recovery.records.len(), 1);
+        assert_eq!(recovery.records[0].payload, b"stable");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            recovery.truncated_to
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

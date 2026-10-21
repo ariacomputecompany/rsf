@@ -19,6 +19,22 @@ buckets and mutable heads, and [SQL replication](sql-network-replication.md) cov
 autocommit statements. Automatic membership and failover are still unfinished. Admin/policy paths still use the in-process transport in places;
 `LocalVsrTransport` itself remains a simulation with no remote disk durability.
 
+Peer services retain up to 64 recently used namespace/surface application
+writers. A hot store keeps its recovered state and exclusive writer ownership
+across commits. Eviction releases that ownership before opening another store;
+reopening and process restart use normal durable recovery. Application failures
+are still returned before any successful acknowledgement, and a resident writer
+that has fenced itself after a durability failure remains fenced.
+
+The native primary reuses one namespace/surface runtime within a batch of at
+most 64 accepted data requests. It releases the runtime before health sampling
+or an idle return. Every request still checks current authorization; reuse also
+rechecks admitted membership, coordination epoch, control metadata and current
+replication configuration. A switch of namespace/surface or an execution error
+requires recovery again. This bounds ownership and prevents an indefinitely
+busy data queue from starving health sampling, but does not provide incremental
+recovery of arbitrarily large histories.
+
 ## Configuration
 
 The JSON configuration rejects unknown fields. Relative `state` and `tls` paths
@@ -45,7 +61,10 @@ bundle, separate from application-client authorization.
 
 Each `cells` object requires `pg`, positive `view`, `primary`, and `voters`.
 Groups and voters must be unique. Every voter must have a peer mapping, and
-both the local node and primary must be voters. At most 4096 voters are allowed
+the primary must be a voter. The local node is a voter unless the cell explicitly
+sets `learner_source`; see [learner history transfer](learner-history-transfer.md)
+for non-voting configuration, resumable catch-up, and role restrictions.
+At most 4096 voters are allowed
 per cell. Existing WAL membership is authoritative after initialization;
 editing bootstrap fields does not install a new view or change membership.
 Quorum-certified view exchange and topology changes over this network service

@@ -17,6 +17,11 @@ use rsf_vsr::{DurableVsrCell, VsrDecision, VsrOperation};
 // enforcement has dedicated RPC tests; allow fsync and TLS scheduling here.
 const PEER_TIMEOUT_MS: u64 = 2_000;
 
+#[path = "peer_process/stress.rs"]
+mod stress;
+#[path = "peer_process/takeover.rs"]
+mod takeover;
+
 struct Process {
     child: Child,
     address: SocketAddr,
@@ -363,7 +368,7 @@ fn surface_request(
         &rsf_wire::WireCodec.encode(&frame).unwrap(),
         test_support::pki().client.clone(),
     )
-    .unwrap()
+    .unwrap_or_else(|err| panic!("{protocol:?} operation {operation}, request {request}: {err}"))
 }
 fn follower_kv(root: &Path, node: u64) -> rsf_kv::DurableKvEngine {
     use sha2::{Digest, Sha256};
@@ -938,4 +943,127 @@ fn readiness_tracks_authenticated_quorum_loss_recovery_and_configuration_errors(
         "{}",
         String::from_utf8_lossy(&status.stdout)
     );
+}
+
+#[test]
+fn learner_cli_transfers_historical_configurations_and_materializes_after_process_restart() {
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    let first = Process::start(&root.join("peer-1.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let response = kv_request(
+        primary.address,
+        "SET learner/key",
+        "learner-write",
+        b"transferred value",
+    );
+    assert!(response.contains("RSF/1 executed"), "{response}");
+    drop(primary);
+    drop(first);
+    // Install the same configuration locally to exercise history transfer. This
+    // is not evidence for the separate distributed membership-install protocol.
+    let source_directory = state.join("protocol.vsr/pg-1");
+    let mut source = DurableVsrCell::open(
+        &source_directory,
+        PlacementGroupId(1),
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0)],
+    )
+    .unwrap();
+    let view = Epoch(source.view().0 + 1);
+    assert!(matches!(
+        source.reconfigure(view, NodeId(0), [NodeId(0), NodeId(1)]),
+        VsrDecision::MembershipChanged { .. }
+    ));
+    let expected = source.committed_prefix().unwrap();
+    drop(source);
+    {
+        let mut follower = DurableVsrCell::open(
+            root.join("store-1/pg-1"),
+            PlacementGroupId(1),
+            Epoch(1),
+            NodeId(0),
+            [NodeId(0), NodeId(1), NodeId(2)],
+        )
+        .unwrap();
+        assert!(matches!(
+            follower.reconfigure(view, NodeId(0), [NodeId(0), NodeId(1)]),
+            VsrDecision::MembershipChanged { .. }
+        ));
+    }
+    let learner_config = root.join("peer-2.json");
+    let mut config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&learner_config).unwrap()).unwrap();
+    config["cells"][0] =
+        serde_json::json!({"pg":1,"view":view.0,"primary":0,"voters":[0,1],"learner_source":0});
+    std::fs::write(&learner_config, serde_json::to_vec(&config).unwrap()).unwrap();
+    let first = Process::start(&root.join("peer-1.json"));
+    let learner = Process::start(&learner_config);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = learner.address;
+    let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
+    let source_config = root.join("source-peer.json");
+    let configuration = serde_json::json!({"cluster":"cli-cluster","node":0,"state":state.join("protocol.vsr"),"tls":root.join("tls-0"),"listen":"127.0.0.1:0","timeout_ms":PEER_TIMEOUT_MS,"peers":mapped,"cells":[{"pg":1,"view":view.0,"primary":0,"voters":[0,1]}]});
+    std::fs::write(&source_config, serde_json::to_vec(&configuration).unwrap()).unwrap();
+    let sync = || {
+        Command::new(env!("CARGO_BIN_EXE_rsfd"))
+            .args(["peer", "sync-learner", "--config"])
+            .arg(&source_config)
+            .args(["--pg", "1", "--target", "2"])
+            .output()
+            .unwrap()
+    };
+    let output = sync();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("peer.learner-synced"));
+    let output = sync();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    drop(learner);
+    {
+        let recovered = rsf_vsr::LearnerHistoryStore::open(
+            root.join("store-2/learner-1"),
+            PlacementGroupId(1),
+            NodeId(2),
+            NodeId(0),
+        )
+        .unwrap();
+        assert_eq!(recovered.committed_entries().unwrap(), expected);
+        let kv = follower_kv(&root, 2);
+        assert_eq!(kv.get(b"learner/key").unwrap().value, b"transferred value");
+        assert_eq!(kv.changes_since(rsf_core::CommitVersion(0)).len(), 1);
+    }
+    let learner = Process::start(&learner_config);
+    drop(learner);
+    assert_eq!(
+        follower_kv(&root, 2)
+            .changes_since(rsf_core::CommitVersion(0))
+            .len(),
+        1
+    );
+    // Changing a config flag cannot silently turn the staged store into a voter.
+    config["cells"][0] = serde_json::json!({"pg":1,"view":view.0,"primary":0,"voters":[0,1,2]});
+    std::fs::write(&learner_config, serde_json::to_vec(&config).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+        .args(["peer", "serve", "--config"])
+        .arg(&learner_config)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("certified membership"));
+    drop(first);
+    let output = sync();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("lacks current primary quorum"));
 }

@@ -20,6 +20,31 @@ Each invocation creates a fresh `artifacts/verification.*` directory containing
 host scenarios and recorded traces for storage, VSR, membership, protocol, authenticated peer RPC, KV
 transactions, SQL, authentication, tenancy, the daemon, objects/blobs, recovery, policy, the POC, and the
 complete workspace test suite.
+It also runs two real-process KV stress workloads:
+
+| Profile | Clients | Acknowledged logical writes | Forced process shutdowns | Uncertain writes resolved |
+| --- | --- | --- | --- | --- |
+| Debug | 4 | 198 | 18 | 3 |
+| Optimized release | 4 | 774 | 18 | 3 |
+
+Both workloads use actual TLS connections and independent daemon state
+directories. They grow history across three rounds, remove a minority and then
+the remaining quorum, kill/restart all processes, retry original request IDs,
+and inspect durable values and receipt counts on both followers. A write
+without a successful acknowledgement may still commit during recovery; the
+test resolves that uncertainty with the same request identity and requires
+exactly one applied version. Client I/O timeout limits stay enabled.
+
+The script continues independent domains after a failure and writes
+`summary.json` with their individual results, workload counts, build profiles,
+latency/throughput measurements and source fingerprints. Overall success
+requires all 17 domains, the expected real workload evidence, and unchanged
+Rust/test/script inputs throughout the run. A filter accidentally running zero
+stress tests, or edits made during verification, cannot produce a successful
+release summary. Hardware/WAN capacity targets and the complete machine-failure
+matrix still require separate qualification; these single-host measurements
+are not a production capacity guarantee.
+
 It first runs five seeded doctor checks and strict deterministic tests. Those
 checks use scripted process responses and verify scenario orchestration; they
 do not execute Rust tests. The script then removes `proc_when` mock responses
@@ -34,6 +59,16 @@ The script requires Python 3 to prepare host scenarios and Cargo to execute
 them. A pass from a compiler shim or a scripted-only scenario is insufficient
 release evidence. The historical run IDs below do not replace a fresh host
 run against the current source.
+
+SQL page tests cover 160 physical pages with a 128-frame buffer, growing-row
+relocation, physical snapshot replay and canonical KV recovery followed by
+writes. Atomic relocation redo is tested with either, both, or neither page
+already flushed, duplicate records, reversed input ordering across two moves,
+conflicting records, and every truncated prefix of a move record. Replicated
+SQL tests reopen the follower after each command, then check grown values,
+deletions, original receipt retries, and post-restart writes. Oversized rows
+must fail before protocol commit. These tests establish functional behavior;
+they do not qualify SQL throughput or replace incremental persistence.
 
 SQL durability coverage includes transaction-control rejection through the
 same parser used for execution, checkpoint byte corruption and truncation,
@@ -58,6 +93,39 @@ protocol and admin voter sets agree. Uncommitted prepares cannot reuse votes
 across a view change. Legacy logs without a bootstrap record still require
 their original initial configuration; an explicit migration remains required
 before upgrading such state and changing its topology.
+
+View-change tests persist a mandatory promise record before exporting recovery
+input. They check all majority subsets of three and five voters after reopen,
+delayed old-view certificates, forbidden post-fence WAL writes, truncation,
+conflicting candidates, and frozen snapshot identity over real TLS process
+restarts. Selection tests replay the reporting quorum, reject forged or forked input,
+and preserve commit evidence and client identities. Local installation tests
+exercise successive generations, abrupt process exit at publication boundaries,
+corrupt pointers/seals, idempotent retries after later commits, and generation
+reclamation. A TLS process test installs the selected view on a running remote
+survivor and resumes replication from the replacement primary. Another kills
+the recipient mid-upload and restarts the candidate after local publication;
+both resume the same durable input. Tests reject changed/gapped uploads and
+wrong candidates, and require materialization to succeed before a finish
+acknowledgement or normal traffic, including after restart. A minority installation
+cannot report quorum success. These do not establish automatic primary takeover:
+election scheduling, application recovery integration, and daemon/client
+orchestration remain required. Mixed-view tests select the latest normal view,
+merge late older certificates without reopening stale traffic, reject committed
+forks, and recover after a candidate alone activated before restart. Legacy
+installation-marker replay and equivalent retry across codec versions are also
+covered. See
+`primary-failover.md` for the implemented boundary.
+
+Installed-cell coordinator recovery is tested after killing the original daemon
+and deleting its entire state directory. The replacement reconstructs metadata
+and application receipts from survivor logs, retries original certificates, and
+commits new SQL/KV/object/blob writes through a running TLS peer. Both stores are
+reopened to inspect values and exact histories; strict read confirmation fails
+without quorum and succeeds after the peer restarts. Unit checks cover receipt
+persistence failure, exclusive ownership handoff, conflicting inventories and
+receipts, protocol codec bounds, and request collisions. The test invokes the
+recovery API directly; it does not establish automatic daemon takeover.
 
 Data-plane tests use real TLS 1.3 handshakes with generated test certificates.
 They reject plaintext, missing/expired/untrusted certificates, unregistered

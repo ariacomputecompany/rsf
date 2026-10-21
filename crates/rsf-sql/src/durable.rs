@@ -855,7 +855,7 @@ fn decode_string(value: &str, label: &str) -> RsfResult<String> {
 }
 
 fn hex_decode(value: &str) -> RsfResult<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
             "hex field has an odd number of digits",

@@ -7,6 +7,9 @@
       "cmd": "cargo",
       "args": [
         "test",
+        "--locked",
+        "-p",
+        "rsf-page",
         "-p",
         "rsf-sql",
         "-p",
@@ -26,6 +29,9 @@
       "cmd": "cargo",
       "args": [
         "test",
+        "--locked",
+        "-p",
+        "rsf-page",
         "-p",
         "rsf-sql",
         "-p",

@@ -354,3 +354,65 @@ fn checkpoint_failure_fences_serving_and_replays_exact_command_after_reopen() {
     assert!(sql.pending.is_none());
     assert_eq!(router.inner.committed_application_commands().len(), 2);
 }
+
+#[test]
+fn multipage_sql_replicates_restarts_and_preserves_original_receipts() {
+    let root = root("multipage");
+    let mut router = router(&root);
+    let mut sql = DurableSqlEngine::open_replicated(root.join("sql"), "tenant").unwrap();
+    execute(&mut sql, &mut router, CREATE, "create").unwrap();
+    let mut statements = Vec::new();
+    let mut results = Vec::new();
+    for n in 0..24 {
+        let statement = format!(
+            "INSERT INTO users (id, name) VALUES ({n}, '{}')",
+            "x".repeat(512)
+        );
+        results.push(execute(&mut sql, &mut router, &statement, &format!("insert-{n}")).unwrap());
+        statements.push(statement);
+    }
+    assert!(sql.engine.page_wal_report().pages > 1);
+    let grown = format!("UPDATE users SET name='{}' WHERE id=0", "y".repeat(3000));
+    execute(&mut sql, &mut router, &grown, "grow").unwrap();
+    execute(
+        &mut sql,
+        &mut router,
+        "DELETE FROM users WHERE id=7",
+        "delete",
+    )
+    .unwrap();
+    let commands = router.committed_application_commands();
+    let before = commands.len();
+    let oversized = format!("UPDATE users SET name='{}' WHERE id=0", "z".repeat(5000));
+    assert!(execute(&mut sql, &mut router, &oversized, "oversized").is_err());
+    assert_eq!(router.committed_application_commands().len(), before);
+    let mut follower = DurableSqlEngine::open_replicated(root.join("follower"), "tenant").unwrap();
+    for command in &commands {
+        follower.apply_application_command(command).unwrap();
+        drop(follower);
+        follower = DurableSqlEngine::open(root.join("follower")).unwrap();
+    }
+    assert_eq!(
+        follower.engine.select_pk("users", "0").unwrap().columns["name"],
+        "y".repeat(3000)
+    );
+    assert!(follower.engine.select_pk("users", "7").is_none());
+    drop(sql);
+    let mut sql = DurableSqlEngine::open(root.join("sql")).unwrap();
+    for (n, statement) in statements.iter().enumerate() {
+        let retry = execute(&mut sql, &mut router, statement, &format!("insert-{n}")).unwrap();
+        assert!(retry.replayed);
+        assert_eq!(retry.outcome, results[n].outcome);
+    }
+    assert_eq!(
+        execute(&mut sql, &mut router, READ, "read").unwrap().rows,
+        23
+    );
+    execute(
+        &mut sql,
+        &mut router,
+        "UPDATE users SET name='after restart' WHERE id=0",
+        "post-restart",
+    )
+    .unwrap();
+}

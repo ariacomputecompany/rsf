@@ -90,7 +90,7 @@ impl DurableVsrCell {
         sender: NodeId,
         prepare: VsrPrepare,
     ) -> RsfResult<NodeId> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         self.validate_peer(replica, sender, prepare.pg, prepare.view, prepare.primary)?;
         validate_prepare(&prepare)?;
         let next = prepare
@@ -132,7 +132,7 @@ impl DurableVsrCell {
         sender: NodeId,
         commit: VsrCommit,
     ) -> RsfResult<LogIndex> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         self.validate_peer(replica, sender, commit.pg, commit.view, commit.primary)?;
         let pending = self
             .cell
@@ -164,7 +164,7 @@ impl DurableVsrCell {
     /// Re-propose the same uncommitted operation after installing a new view.
     /// Votes from the prior view are discarded and must be collected again.
     pub fn reprepare(&mut self, primary: NodeId, index: LogIndex) -> RsfResult<VsrPrepare> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         if primary != self.cell.primary {
             return Err(invalid_input("reprepare rejected from non-primary"));
         }
@@ -234,7 +234,7 @@ impl DurableVsrCell {
         index: LogIndex,
         transport: &mut T,
     ) -> RsfResult<()> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         if primary != self.primary() {
             return Err(invalid_input("replication requires the active primary"));
         }

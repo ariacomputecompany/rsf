@@ -13,7 +13,7 @@ use rsf_protocol::{
     ClientRequestId, CommitCertificate, ConsistencyMode, FabricCommit, FabricOperation,
     FabricRouterPort,
 };
-use rsf_storage::{SegmentScanFilter, SegmentStore, WalAppend};
+use rsf_storage::SegmentStore;
 
 const KV_WAL_MAGIC: &[u8; 5] = b"RSFKV";
 const KV_WAL_VERSION: u8 = 1;
@@ -79,7 +79,6 @@ pub struct DurableKvEngine {
     engine: KvEngine,
     store: SegmentStore,
     epoch: Epoch,
-    next_indexes: BTreeMap<PlacementGroupId, u64>,
     journal: journal::Journal,
     _writer_lock: rsf_storage::ExclusiveFileLock,
 }
