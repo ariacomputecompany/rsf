@@ -102,15 +102,13 @@ read/write-retry rejection without quorum. The SQL and daemon host-backed Fozzy
 domains execute these tests and record, strictly verify, replay and CI-check their
 traces.
 
-The journal milestone's [verification report](sql-journal-verification-2026-10-21.json)
-records 66 passing SQL tests, passing native SQL network integration, strict host
-trace verification/replay/CI and SQL Clippy. The full gate failed daemon,
-automatic-client and debug-stress domains; an isolated automatic-client run also
-failed election convergence after primary loss. The cause remains unresolved.
-The gate was stopped during release compilation, so later domains and workspace
-qualification are incomplete. The earlier whole-repository success in
-[verification-2026-10-21.json](verification-2026-10-21.json) covers its recorded
-older source hash, not this milestone. Current source is not production-qualified.
+The [current full verification](verification-2026-10-21.json) passes all 18
+domains on unchanged source, including the full workspace suite, native SQL
+network integration and both automatic takeover/stress profiles. The workspace
+trace contains all named SQL journal and process-kill regressions. Earlier failed
+attempts remain recorded in the scoped journal report; later transport and
+installation fixes are covered by the current full source hash. This is local
+loopback TLS/fsync evidence, not full production qualification.
 
 Durable SQL sessions, bounded result streaming, bounded receipt retention,
 incremental physical planning and growing-table capacity qualification remain

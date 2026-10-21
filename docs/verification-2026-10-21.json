@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "524e5e8a93732c31c41e880cf5fa5ece4688a36c1827a0a8b5f8a710809bd654",
-  "source_sha256_after": "524e5e8a93732c31c41e880cf5fa5ece4688a36c1827a0a8b5f8a710809bd654",
+  "source_sha256_before": "2461ff207f7e6a85efad30ed864559b50a0437afcab6bfc9325ddfecbd9b2dde",
+  "source_sha256_after": "2461ff207f7e6a85efad30ed864559b50a0437afcab6bfc9325ddfecbd9b2dde",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -25,21 +25,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.kcOVwm",
+  "trace_directory": "artifacts/verification.89X15y",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 11.980508461514894,
-      "elapsed_ms": 81412,
+      "concurrent_write_ops_per_second": 14.124414314976205,
+      "elapsed_ms": 72038,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 683271,
-        "p50": 309130,
-        "p95": 486554,
-        "p99": 610146
+        "max": 547008,
+        "p50": 271897,
+        "p95": 328040,
+        "p99": 480917
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -52,14 +52,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 20.3622869764748,
-      "elapsed_ms": 103920,
+      "concurrent_write_ops_per_second": 23.235019652197774,
+      "elapsed_ms": 95092,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 350928,
-        "p50": 187988,
-        "p95": 250150,
-        "p99": 286241
+        "max": 281004,
+        "p50": 171900,
+        "p95": 198017,
+        "p99": 261749
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -75,8 +75,8 @@
       "concurrent_clients": 4,
       "coordinator_recoveries_before_crash": 2,
       "coordinator_reuses_before_crash": 138,
-      "elapsed_ms": 74500,
-      "history_growth_ms": 32355,
+      "elapsed_ms": 52381,
+      "history_growth_ms": 29353,
       "history_growth_writes": 128,
       "primary_state_deleted": true,
       "profile": "debug",
@@ -95,8 +95,8 @@
       "concurrent_clients": 4,
       "coordinator_recoveries_before_crash": 2,
       "coordinator_reuses_before_crash": 138,
-      "elapsed_ms": 64252,
-      "history_growth_ms": 27701,
+      "elapsed_ms": 48443,
+      "history_growth_ms": 28376,
       "history_growth_writes": 128,
       "primary_state_deleted": true,
       "profile": "release",
@@ -119,5 +119,7 @@
     "strict trace verification",
     "replay",
     "CI"
-  ]
+  ],
+  "production_qualified": false,
+  "scope": "Single-host loopback TLS with fsync; independent-host capacity and remaining architectural release blockers are not qualified."
 }

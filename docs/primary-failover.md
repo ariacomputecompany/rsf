@@ -127,8 +127,10 @@ The daemon emits `peer.control` events at collection, staging, installation and
 resume boundaries, with local node, placement group, elapsed time and available
 record counts. These are diagnostics, not quorum or readiness evidence. Batching
 reduces repeated TLS round trips and full syncs; it does not bound total retained
-history or make the serialized controller independently scheduled. Qualification
-of the current changes is still in progress.
+history or make the serialized controller independently scheduled. The latest full local gate passes all 18 domains, including both takeover and
+stress profiles; see [verification](verification-2026-10-21.json). Independent-host
+fault/capacity qualification and the remaining architectural release work are
+still open.
 
 ## Quorum selection and local installation
 
