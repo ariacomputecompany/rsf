@@ -263,14 +263,28 @@ fn membership_fence_child() {
         return;
     };
     let root = std::path::PathBuf::from(root);
-    let mut cell = DurableVsrCell::open_existing(root.join("1"), PlacementGroupId(1)).unwrap();
-    cell.begin_membership_with_hook(NodeId(1), NodeId(0), proposal(), || {
+    let after_synced = || {
         std::fs::write(root.join("synced-fence"), b"before reply").unwrap();
         loop {
             std::thread::park();
         }
-    })
-    .unwrap();
+    };
+    if std::env::var_os("RSF_MEMBER_FENCE_RESUME").is_some() {
+        let mut source =
+            DurableVsrCell::open_existing(root.join("1"), PlacementGroupId(1)).unwrap();
+        let report = source
+            .membership_snapshot(NodeId(1), NodeId(1))
+            .unwrap()
+            .report;
+        drop(source);
+        let mut cell = DurableVsrCell::open_existing(root.join("2"), PlacementGroupId(1)).unwrap();
+        cell.resume_membership_with_hook(NodeId(2), NodeId(1), &report, after_synced)
+            .unwrap();
+    } else {
+        let mut cell = DurableVsrCell::open_existing(root.join("1"), PlacementGroupId(1)).unwrap();
+        cell.begin_membership_with_hook(NodeId(1), NodeId(0), proposal(), after_synced)
+            .unwrap();
+    }
 }
 #[test]
 fn killed_membership_writer_recovers_synced_fence_before_acknowledgement() {
@@ -315,4 +329,153 @@ fn killed_membership_writer_recovers_synced_fence_before_acknowledgement() {
         .unwrap()
         .validate()
         .unwrap();
+}
+
+#[test]
+fn surviving_minority_report_completes_exact_old_quorum_after_primary_loss() {
+    let root = root("membership-resume-minority");
+    let mut cells = fixture(&root);
+    let source = cells[1]
+        .begin_membership(NodeId(1), NodeId(0), proposal())
+        .unwrap();
+    assert!(VsrMembershipApproval::from_snapshots(vec![source.clone()]).is_err());
+    drop(cells);
+    std::fs::remove_dir_all(root.join("0")).unwrap();
+    let mut survivor = DurableVsrCell::open_existing(root.join("2"), PlacementGroupId(1)).unwrap();
+    let resumed = survivor
+        .resume_membership(NodeId(2), NodeId(1), &source.report)
+        .unwrap();
+    let retry = survivor
+        .resume_membership(NodeId(2), NodeId(1), &source.report)
+        .unwrap();
+    assert_eq!(resumed.records, retry.records);
+    let approval = VsrMembershipApproval::from_snapshots(vec![source, resumed]).unwrap();
+    assert_eq!(approval.proposal(), &proposal());
+    drop(survivor);
+    for node in [1, 2] {
+        let mut cell =
+            DurableVsrCell::open_existing(root.join(node.to_string()), PlacementGroupId(1))
+                .unwrap();
+        assert_eq!(cell.membership_fence(), Some(&proposal()));
+        assert_eq!(
+            cell.request_commit(&VsrClientRequestId::new("original", 1)),
+            Some(LogIndex(1))
+        );
+        assert_eq!(cell.committed_tail(), LogIndex(1));
+        assert_eq!(cell.next_index(), LogIndex(3));
+        assert_eq!(cell.replica_count(), 3);
+        assert!(!cell.contains_replica(NodeId(3)));
+        assert!(cell.primary_probe().is_err());
+        cell.membership_snapshot(NodeId(node), NodeId(2))
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+}
+#[test]
+fn membership_continuation_rejects_spoofed_reports_conflicts_and_election_promises() {
+    let root = root("membership-resume-reject");
+    let mut cells = fixture(&root);
+    let source = cells[1]
+        .begin_membership(NodeId(1), NodeId(0), proposal())
+        .unwrap();
+    let before = cells[2].history_snapshot().unwrap().records;
+    for (replica, sender) in [
+        (NodeId(2), NodeId(0)),
+        (NodeId(2), NodeId(3)),
+        (NodeId(3), NodeId(1)),
+    ] {
+        assert!(
+            cells[2]
+                .resume_membership(replica, sender, &source.report)
+                .is_err()
+        );
+    }
+    let mut malformed = source.report.clone();
+    malformed.proposal.old_primary = NodeId(2);
+    assert!(
+        cells[2]
+            .resume_membership(NodeId(2), NodeId(1), &malformed)
+            .is_err()
+    );
+    assert_eq!(cells[2].history_snapshot().unwrap().records, before);
+    let mut other = proposal();
+    other.new_voters.push(NodeId(4));
+    cells[2]
+        .begin_membership(NodeId(2), NodeId(0), other.clone())
+        .unwrap();
+    let before = cells[2]
+        .membership_snapshot(NodeId(2), NodeId(2))
+        .unwrap()
+        .records;
+    assert!(
+        cells[2]
+            .resume_membership(NodeId(2), NodeId(1), &source.report)
+            .is_err()
+    );
+    assert_eq!(cells[2].membership_fence(), Some(&other));
+    assert_eq!(
+        cells[2]
+            .membership_snapshot(NodeId(2), NodeId(2))
+            .unwrap()
+            .records,
+        before
+    );
+    let mut request = proposal().election;
+    request.target_view = Epoch(3);
+    cells[0]
+        .begin_view_change(NodeId(0), NodeId(1), request.clone())
+        .unwrap();
+    assert!(
+        cells[0]
+            .resume_membership(NodeId(0), NodeId(1), &source.report)
+            .is_err()
+    );
+    assert_eq!(cells[0].view_change_promise(), Some(&request));
+    assert!(cells[0].membership_fence().is_none());
+}
+
+#[test]
+fn killed_membership_continuation_recovers_exact_fence_before_acknowledgement() {
+    let root = root("membership-resume-kill");
+    let mut cells = fixture(&root);
+    cells[1]
+        .begin_membership(NodeId(1), NodeId(0), proposal())
+        .unwrap();
+    drop(cells);
+    std::fs::remove_dir_all(root.join("0")).unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "membership::tests::membership_fence_child",
+            "--nocapture",
+        ])
+        .env("RSF_MEMBER_FENCE_CHILD_ROOT", &root)
+        .env("RSF_MEMBER_FENCE_RESUME", "1")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !root.join("synced-fence").exists() && std::time::Instant::now() < until {
+        assert!(child.try_wait().unwrap().is_none());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let synced = root.join("synced-fence").exists();
+    let _ = child.kill();
+    child.wait().unwrap();
+    assert!(synced);
+    let mut recovered = DurableVsrCell::open_existing(root.join("2"), PlacementGroupId(1)).unwrap();
+    let mut source = DurableVsrCell::open_existing(root.join("1"), PlacementGroupId(1)).unwrap();
+    let source = source.membership_snapshot(NodeId(1), NodeId(1)).unwrap();
+    let before = recovered.membership_snapshot(NodeId(2), NodeId(2)).unwrap();
+    let retried = recovered
+        .resume_membership(NodeId(2), NodeId(1), &source.report)
+        .unwrap();
+    assert_eq!(before.records, retried.records);
+    assert_eq!(
+        recovered.request_commit(&VsrClientRequestId::new("original", 1)),
+        Some(LogIndex(1))
+    );
+    VsrMembershipApproval::from_snapshots(vec![source, retried]).unwrap();
+    assert!(recovered.primary_probe().is_err());
 }

@@ -396,7 +396,7 @@ impl PeerReplicaServer {
         self.pending_contact = None;
         let response = if matches!(
             kind,
-            MEMBERSHIP_BEGIN | MEMBERSHIP_SNAPSHOT | MEMBERSHIP_BATCH
+            MEMBERSHIP_BEGIN | MEMBERSHIP_SNAPSHOT | MEMBERSHIP_BATCH | MEMBERSHIP_RESUME
         ) {
             self.dispatch_membership(sender, kind, payload)
         } else if kind == REPLICA_STATUS {

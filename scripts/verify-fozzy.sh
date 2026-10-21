@@ -284,6 +284,11 @@ indexed_evidence = {
 }
 indexed_valid = all(indexed_evidence.values())
 membership_approval_names = [
+    "surviving_minority_report_completes_exact_old_quorum_after_primary_loss",
+    "membership_continuation_rejects_spoofed_reports_conflicts_and_election_promises",
+    "killed_membership_continuation_recovers_exact_fence_before_acknowledgement",
+    "membership_minority_continuation_completes_over_tls_after_initiator_loss",
+    "membership_continuation_without_surviving_report_never_initiates_proposal",
     "membership_proposal_codec_binds_old_authority_new_voters_and_target",
     "membership_fence_survives_restart_preserves_prefix_and_blocks_authority_shortcuts",
     "membership_old_quorum_approval_rejects_mixed_duplicate_and_tampered_histories",

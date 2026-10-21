@@ -1,6 +1,7 @@
 # Certified membership installation
 
-Status: durable old-quorum approval and report recovery are implemented.
+Status: durable old-quorum approval, report recovery and exact-proposal
+continuation from a surviving minority report are implemented.
 New-quorum activation, learner promotion and control-metadata publication remain
 unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
@@ -112,8 +113,9 @@ recovery RPCs. Exact immutable recovery exchanges may retry one lost reply;
 normal voting traffic retains its existing deadline/retry contract.
 
 The approval API returns old-quorum input, never an installed epoch or readiness.
-It is not exposed as an operator membership-change command. Pending minority
-fences do not yet have an abort or replacement-coordinator completion protocol.
+It is not exposed as an operator membership-change command. A surviving old voter may now finish the same proposal using a durable report,
+including adopting a directly authenticated peer report before relaying its own.
+Pending fences do not yet have an abort or competing-proposal resolution protocol.
 Recovered approval does not activate the new quorum or resume application
 service. Those lifecycle states, sealed membership installation, voter/learner
 role changes and atomic control-metadata admission remain required work under
@@ -129,3 +131,34 @@ tests with zero failures, including these six named regressions. Strict lint
 checks pass for the changed production packages and daemon. The report is
 [membership approval verification](membership-approval-verification-2026-10-21.json).
 This phase is not complete production membership qualification.
+
+## Surviving minority continuation
+
+`resume_membership` accepts an existing `VsrMembershipReport` directly from its
+reporting authenticated old voter. It checks the canonical report, exact old
+configuration and sender/reporter identity before persisting the same fence.
+It cannot replace an ordinary election promise or a different membership choice.
+The report is an authenticated crash-fault assertion of an existing synced vote;
+it is not an independently verifiable signature. This step copies no application
+history and grants no new voting authority. Full history replay and prefix/client
+mapping agreement remain required to construct old-quorum approval.
+
+Peer RESUME (21) binds the report's voter to the TLS sender. A replacement old-voter
+coordinator with no local fence first fetches and validates a surviving peer's
+complete immutable snapshot, adopts its exact report locally, then relays its own
+durable report. An already fenced coordinator can relay directly. The receiver
+persists before replying; exact retries append nothing. A coordinator cannot start
+a fresh proposal when no report survives. Conflicts remain closed instead of
+silently changing the target or old authority.
+
+New targeted evidence covers a single surviving minority vote becoming an old
+quorum after primary-store deletion, sender/learner rejection, ordinary election
+and conflicting-proposal fences, a real process killed after continuation sync
+before acknowledgement, both initially fenced and unfenced coordinators over TLS,
+peer restart, idempotent retries and rejection when no durable report survives.
+The expanded full gate now requires all eleven named approval/continuation
+regressions; qualification of this addition is pending.
+
+This closes exact-proposal old-quorum completion after coordinator loss. It does
+not implement abort, new-quorum activation, learner promotion, distributed control
+metadata or atomic client admission. The full membership blocker remains open.

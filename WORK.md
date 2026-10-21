@@ -378,3 +378,19 @@ This is the old-quorum approval phase, not completed membership. New-quorum
 activation, partial-proposal abort/completion, replacement-coordinator lifecycle,
 learner promotion, control metadata and client admission remain unfinished. No
 operator membership-change command is enabled. See `docs/certified-membership.md`.
+
+## Membership minority continuation (qualification running)
+
+Added authenticated continuation of an existing exact proposal from a surviving
+old voter. A previously unfenced replacement coordinator fetches/replays a peer's
+complete snapshot before adopting and relaying its own durable report. RESUME
+(21) binds the report to the TLS sender. No surviving report means no new fence;
+ordinary election promises and conflicting proposals cannot be replaced.
+
+New regressions cover minority-to-majority completion after initiating-primary
+store deletion, initially fenced/unfenced coordinators, restart, exact retry,
+spoofed sender/configured learner rejection and process death after synced
+continuation before acknowledgement. The production gate now requires eleven
+approval/continuation regressions. Full qualification is pending. This completes
+only the exact-proposal old-quorum continuation path: abort/conflict lifecycle,
+new-quorum installation/activation, learner promotion and control/admission remain.

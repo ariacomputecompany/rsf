@@ -282,8 +282,51 @@ impl DurableVsrCell {
                 "membership proposal requires authenticated old primary and voter",
             ));
         }
+        self.persist_membership_fence(&proposal, after_synced)?;
+        self.membership_snapshot(replica, sender)
+    }
+    /// Continue an existing old-primary proposal reported directly by an
+    /// authenticated old voter. The caller must bind sender to the report's
+    /// authenticated node and cluster; report bytes are not signatures.
+    /// This persists only the exact fence and does not copy application state,
+    /// grant new votes, abort another promise or admit clients.
+    pub fn resume_membership(
+        &mut self,
+        replica: NodeId,
+        sender: NodeId,
+        report: &VsrMembershipReport,
+    ) -> RsfResult<VsrMembershipSnapshot> {
+        self.resume_membership_with_hook(replica, sender, report, || {})
+    }
+    fn resume_membership_with_hook(
+        &mut self,
+        replica: NodeId,
+        sender: NodeId,
+        report: &VsrMembershipReport,
+        after_synced: impl FnOnce(),
+    ) -> RsfResult<VsrMembershipSnapshot> {
+        self.ensure_healthy()?;
+        report.encode()?;
+        report.proposal.validate_cell(&self.cell)?;
+        if report.voter.replica != sender
+            || !self.cell.replicas.contains(&sender)
+            || !self.cell.replicas.contains(&replica)
+            || !self.bootstrap_persisted
+        {
+            return Err(invalid_input(
+                "membership continuation requires the authenticated reporting old voter",
+            ));
+        }
+        self.persist_membership_fence(&report.proposal, after_synced)?;
+        self.membership_snapshot(replica, sender)
+    }
+    fn persist_membership_fence(
+        &mut self,
+        proposal: &VsrMembershipProposal,
+        after_synced: impl FnOnce(),
+    ) -> RsfResult<()> {
         if let Some(previous) = &self.membership_fence {
-            if previous != &proposal {
+            if previous != proposal {
                 return Err(invalid_input(
                     "membership proposal conflicts with durable fence",
                 ));
@@ -299,7 +342,7 @@ impl DurableVsrCell {
             self.membership_fence = Some(proposal.clone());
             after_synced();
         }
-        self.membership_snapshot(replica, sender)
+        Ok(())
     }
     /// Any authenticated old voter may recover an existing fence and its complete
     /// history after loss of the initiating primary. This cannot create a vote.
