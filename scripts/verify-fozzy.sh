@@ -177,6 +177,7 @@ automatic_valid = all(
     and automatic_client_metrics[profile].get("disjoint_sql_sessions_committed") is True
     and automatic_client_metrics[profile].get("sql_key_components_isolated") is True
     and automatic_client_metrics[profile].get("sql_stream_after_takeover") is True
+    and automatic_client_metrics[profile].get("indexed_sql_after_takeover") is True
     for profile in ("debug", "release")
 )
 session_regressions = [
@@ -265,10 +266,25 @@ streams_valid = all(stream_evidence.values()) and all(
     and stream_metrics[profile].get("chunk_bound") == 4096
     and stream_metrics[profile].get("buffered_overflow_rejected") is True
     and stream_metrics[profile].get("quorum_loss_rejected") is True
+    and stream_metrics[profile].get("indexed_queries_verified") is True
     for profile in ("debug", "release")
 )
+indexed_names = [
+    "borrowed_index_lookup_preserves_order_scope_and_storage_identity",
+    "indexed_select_uses_only_matching_candidates_and_stops_at_limit",
+    "typed_secondary_index_keys_are_canonical_across_writes_and_recovery",
+    "indexed_transaction_overlay_merges_entries_movements_and_savepoint_rewinds",
+    "indexed_reads_reject_missing_or_mismatched_committed_entries",
+    "query_size_metadata_tracks_physical_writes_transactions_and_recovery",
+]
+indexed_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in indexed_names
+}
+indexed_valid = all(indexed_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -280,6 +296,8 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "sql_index_evidence_valid": indexed_valid,
+    "sql_index_regressions": indexed_evidence,
     "sql_stream_evidence_valid": streams_valid,
     "sql_stream_regressions": stream_evidence,
     "sql_stream_metrics": stream_metrics,

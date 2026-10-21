@@ -52,8 +52,8 @@ framing; consumers decoding JSON must also validate their row schema.
 
 The query executor pulls one candidate at a time and stops at LIMIT or sink error.
 Committed KV scans borrow their ordered prefix, and staged transaction mutations
-merge in key order without cloning a result map. Fallback planning statistics count
-encoded row bytes without decoding the table. Only the latest query report is
+merge in key order without cloning a result map. Fallback planning statistics use maintained committed row/byte counts
+without scanning the table. Only the latest query report is
 retained, with a cumulative report count. Invalid decoded rows fail the query
 rather than silently disappearing from a streamed scan.
 
@@ -76,9 +76,10 @@ available; callers needing bounded result retention use
 
 These changes bound result-path allocations. The resident database, retained MVCC
 and receipts, cold recovery, and durable-session snapshot reconstruction still
-need separate memory/retention/capacity work. Secondary query candidates currently
-scan ordered rows while applying the typed predicate; incremental indexed planning
-and production throughput qualification remain open.
+need separate memory/retention/capacity work. Secondary equality queries now use
+[bounded index candidates](sql-index-candidates.md), merging staged mutations
+without scanning unrelated rows. Incremental write planning, cold recovery and
+production throughput qualification remain open.
 
 ## Qualification
 

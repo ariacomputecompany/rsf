@@ -2,6 +2,31 @@
 //! at most one row; callers choose whether to collect or stream the result.
 use super::*;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct QuerySize {
+    pub(super) rows: u64,
+    pub(super) bytes: u64,
+}
+impl QuerySize {
+    fn change(self, before: Option<usize>, after: Option<usize>) -> RsfResult<Self> {
+        let rows = self
+            .rows
+            .checked_sub(u64::from(before.is_some()))
+            .and_then(|rows| rows.checked_add(u64::from(after.is_some())));
+        let bytes = self
+            .bytes
+            .checked_sub(before.unwrap_or(0) as u64)
+            .and_then(|bytes| bytes.checked_add(after.unwrap_or(0) as u64));
+        match (rows, bytes) {
+            (Some(rows), Some(bytes)) => Ok(Self { rows, bytes }),
+            _ => Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "SQL planning size metadata is inconsistent",
+            )),
+        }
+    }
+}
+
 impl SqlEngine {
     pub(crate) fn execute_select(
         &mut self,
@@ -99,7 +124,46 @@ impl SqlEngine {
         };
         let mut point =
             point.map(|key| key.and_then(|key| self.read_query_point(table, &key).transpose()));
-        let mut committed = self.kv.iter_prefix(prefix).peekable();
+        // Both sources expose ordered primary keys and borrow committed values.
+        // Index lookup allocates no collection of matching primary keys.
+        type Source<'a> = Box<dyn Iterator<Item = RsfResult<(String, &'a KvVersionedValue)>> + 'a>;
+        let committed: Source<'a> =
+            if let AccessPath::SecondaryIndexLookup { index, column } = access {
+                let descriptor = secondary_index_descriptor(table, column);
+                if &descriptor.name != index {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "SQL index plan differs from table descriptor",
+                    ));
+                }
+                if let Some(value) = equality_text_value(logical.predicate.as_ref(), column) {
+                    let image = RowImage {
+                        primary_key: String::new(),
+                        values: BTreeMap::from([(column.clone(), value)]),
+                    };
+                    let key = encode_index_key(&descriptor, &image)?;
+                    Box::new(self.indexes.lookup_iter(index, &key).map(move |primary| {
+                        let value = self
+                            .kv
+                            .get(&self.row_key(&table.name, primary))
+                            .ok_or_else(|| {
+                                RsfError::new(
+                                    ErrorCode::CorruptionDetected,
+                                    "SQL index references a missing row",
+                                )
+                            })?;
+                        Ok((primary.to_string(), value))
+                    }))
+                } else {
+                    Box::new(std::iter::empty())
+                }
+            } else {
+                Box::new(self.kv.iter_prefix(prefix).map(move |(key, value)| {
+                    Ok((self.primary_key_from_row_key(&table.name, key)?, value))
+                }))
+            };
+        let mut committed = committed.peekable();
+        let indexed_predicate = secondary.clone();
         let mut staged = self
             .transaction
             .iter()
@@ -112,13 +176,13 @@ impl SqlEngine {
             }
             loop {
                 let primary = match committed.peek() {
-                    Some((key, _)) => match self.primary_key_from_row_key(&table.name, key) {
-                        Ok(key) => Some(key),
-                        Err(error) => {
-                            committed.next();
-                            return Some(Err(error));
-                        }
-                    },
+                    Some(Ok((primary, _))) => Some(primary.clone()),
+                    Some(Err(_)) => {
+                        return Some(Err(committed
+                            .next()
+                            .expect("peeked committed error")
+                            .unwrap_err()));
+                    }
                     None => None,
                 };
                 if let Some(((.., key), _)) = staged.peek()
@@ -131,7 +195,7 @@ impl SqlEngine {
                     match mutation {
                         SqlTransactionMutation::Delete => continue,
                         SqlTransactionMutation::Set(columns) => {
-                            return Some(Ok(Row {
+                            let row = Row {
                                 table: table.name.clone(),
                                 primary_key: key.clone(),
                                 columns: columns.clone(),
@@ -140,17 +204,34 @@ impl SqlEngine {
                                     .as_ref()
                                     .expect("staged transaction")
                                     .snapshot,
+                            };
+                            return Some(row_image(table, &row).map(|image| Row {
+                                columns: image.values,
+                                ..row
                             }));
                         }
                     }
                 }
-                let (_, value) = committed.next()?;
-                return Some(self.row_from_physical_bytes(
+                let (_, value) = committed.next()?.expect("peeked committed value");
+                let row = self.row_from_physical_bytes(
                     table,
                     &primary.expect("committed primary"),
                     &value.value,
                     value.version,
-                ));
+                );
+                return Some(row.and_then(|row| {
+                    if indexed_predicate.as_ref().is_some_and(|(column, value)| {
+                        value
+                            .as_ref()
+                            .is_none_or(|value| row.columns.get(column) != Some(value))
+                    }) {
+                        return Err(RsfError::new(
+                            ErrorCode::CorruptionDetected,
+                            "SQL index entry differs from its committed row",
+                        ));
+                    }
+                    Ok(row)
+                }));
             }
         })
         .filter_map(move |row| match row {
@@ -198,22 +279,45 @@ impl SqlEngine {
                 average_row_bytes: estimate.average_row_bytes().max(1),
             };
         }
-        // Planning needs a size estimate, not decoded copies of the table.
-        let prefix = self.row_prefix(&table.name);
-        let (rows, bytes) =
-            self.kv
-                .iter_prefix(&prefix)
-                .fold((0_u64, 0_u64), |(rows, bytes), (_, value)| {
-                    (
-                        rows.saturating_add(1),
-                        bytes.saturating_add(value.value.len() as u64),
-                    )
-                });
+        let size = self
+            .query_sizes
+            .get(&table.name)
+            .copied()
+            .unwrap_or_default();
         TableStats {
             table: table.descriptor.name.clone(),
-            rows,
-            average_row_bytes: bytes.checked_div(rows).unwrap_or(1).max(1),
+            rows: size.rows,
+            average_row_bytes: size.bytes.checked_div(size.rows).unwrap_or(1).max(1),
         }
+    }
+
+    pub(super) fn update_query_size(
+        &mut self,
+        table: &str,
+        key: &[u8],
+        after: Option<usize>,
+    ) -> RsfResult<()> {
+        let before = self.kv.get(key).map(|value| value.value.len());
+        let previous = self.query_sizes.get(table).copied().unwrap_or_default();
+        self.query_sizes
+            .insert(table.to_string(), previous.change(before, after)?);
+        Ok(())
+    }
+
+    pub(super) fn rebuild_query_sizes(&mut self) -> RsfResult<()> {
+        let mut sizes = BTreeMap::new();
+        for table in self.tables.keys() {
+            let prefix = self.row_prefix(table);
+            let size = self
+                .kv
+                .iter_prefix(&prefix)
+                .try_fold(QuerySize::default(), |size, (_, value)| {
+                    size.change(None, Some(value.value.len()))
+                })?;
+            sizes.insert(table.clone(), size);
+        }
+        self.query_sizes = sizes;
+        Ok(())
     }
 }
 
@@ -345,3 +449,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod indexed_tests;

@@ -112,6 +112,12 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         ),
         (
             Sql,
+            "CREATE INDEX users_name ON users(name)",
+            "client-index",
+            b"",
+        ),
+        (
+            Sql,
             "INSERT INTO users (id, name) VALUES (1, ada)",
             "client-row",
             b"",
@@ -387,6 +393,16 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
     let streamed = super::sql_stream::rows(&streamed);
     assert_eq!(streamed.len(), 1);
     assert_eq!(streamed[0]["name"], "parentvalue");
+    let indexed = surface_request(
+        address,
+        Sql,
+        "SELECT * FROM users WHERE name=ada",
+        "indexed-after-takeover",
+        rsf_wire::sql_stream::SQL_STREAM_REQUEST,
+    );
+    let indexed = super::sql_stream::rows(&indexed);
+    assert_eq!(indexed.len(), 1);
+    assert_eq!(indexed[0]["id"], "1");
     for (key, request, value, original) in &concurrent {
         let retry = must_execute(address, Kv, &format!("SET {key}"), request, value);
         if let Ok(original) = original
@@ -752,6 +768,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "precrash_sql_read_dependency_recovered":true,"disjoint_sql_sessions_committed":true,
             "sql_key_components_isolated":true,
             "sql_stream_after_takeover":true,
+            "indexed_sql_after_takeover":true,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"
         })

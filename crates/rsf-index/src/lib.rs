@@ -180,11 +180,20 @@ impl IndexStore {
         Ok(())
     }
 
-    pub fn lookup(&self, index: &str, key: &[u8]) -> Vec<String> {
+    /// Borrow matching primary keys in byte order without collecting the set.
+    pub fn lookup_iter<'a>(
+        &'a self,
+        index: &str,
+        key: &[u8],
+    ) -> impl Iterator<Item = &'a str> + use<'a> {
         self.entries
             .get(&(index.to_string(), key.to_vec()))
-            .map(|primary_keys| primary_keys.iter().cloned().collect())
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|keys| keys.iter().map(String::as_str))
+    }
+
+    pub fn lookup(&self, index: &str, key: &[u8]) -> Vec<String> {
+        self.lookup_iter(index, key).map(str::to_owned).collect()
     }
 
     pub fn entry_count(&self) -> usize {
@@ -293,6 +302,34 @@ fn invalid(message: impl Into<String>) -> RsfError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn borrowed_index_lookup_preserves_order_scope_and_storage_identity() {
+        let table = table();
+        let index = users_name_index();
+        let planner = IndexPlanner::new(&table, vec![index.clone()]).unwrap();
+        let mut store = IndexStore::default();
+        for id in ["3", "1", "2"] {
+            store.apply(
+                &planner
+                    .plan_insert(&table, &row(id, "shared", true))
+                    .unwrap(),
+            );
+        }
+        let key = encode_index_key(&index, &row("ignored", "shared", true)).unwrap();
+        let borrowed = store.lookup_iter(&index.name, &key).collect::<Vec<_>>();
+        assert_eq!(borrowed, ["1", "2", "3"]);
+        let stored = store
+            .entries
+            .get(&(index.name.clone(), key.clone()))
+            .unwrap()
+            .first()
+            .unwrap();
+        assert!(std::ptr::eq(borrowed[0].as_ptr(), stored.as_ptr()));
+        assert_eq!(store.lookup_iter(&index.name, &key).take(1).count(), 1);
+        assert_eq!(store.lookup_iter("foreign", &key).count(), 0);
+        assert_eq!(store.lookup_iter(&index.name, b"foreign").count(), 0);
+    }
+
     use super::*;
 
     #[test]

@@ -320,3 +320,23 @@ The new named regression is required by the full gate; the failing baseline is
 restarted on corrected, frozen source and passed; its trace directory is
 `artifacts/verification.oq1pB1`. Corrected implementation 95647f6 is pushed to
 remote main.
+
+## Indexed SQL candidate milestone (qualification running)
+
+Reproduced two failures: an indexed SELECT decoded an unrelated malformed row,
+and live typed secondary lookups missed noncanonical int/bool spellings that
+recovery normalized. Added borrowed ordered index lookup, direct matching-key
+resolution and canonical typed index publication/deletion/lookup. Transaction
+overlays merge inserts, predicate moves and deletes in key order, including
+savepoint rewinds. Visited missing/mismatched index references reject corruption.
+
+Derived committed row/encoded-byte counts now update with row effects and rebuild
+on recovery. SELECT fallback planning and row_count no longer scan the table.
+Counts are not new durable authority; explicit ANALYZE precedence is unchanged.
+The targeted suite passes 98 SQL and nine index tests. Strict Clippy passes for
+index/SQL/daemon all-targets/no-deps with warnings denied. Full native and expanded
+qualification are pending. Six named regressions and indexed native/takeover
+metrics are required by the full gate. See `docs/sql-index-candidates.md`.
+
+Full-state write planning, cold/session snapshot reconstruction, history/receipt
+retention and independent-host workload qualification remain open.

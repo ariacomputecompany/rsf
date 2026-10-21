@@ -287,6 +287,7 @@ pub struct SqlEngine {
     query_report_count: usize,
     portals: SqlPortalSession,
     stats: StatisticsCatalog,
+    query_sizes: BTreeMap<String, reads::QuerySize>,
     schema_version: CommitVersion,
     transaction: Option<SqlTransactionState>,
     next_transaction: u64,
@@ -317,6 +318,7 @@ impl Default for SqlEngine {
             query_report_count: 0,
             portals: SqlPortalSession::default(),
             stats: StatisticsCatalog::default(),
+            query_sizes: BTreeMap::new(),
             schema_version: CommitVersion::GENESIS,
             transaction: None,
             next_transaction: 1,
@@ -594,6 +596,7 @@ impl SqlEngine {
         table.page_size = decision.page_size;
         self.layout_decisions
             .insert(table.name.clone(), decision.clone());
+        self.query_sizes.entry(table.name.clone()).or_default();
         self.tables.insert(table.name.clone(), table);
         Ok(())
     }
@@ -740,6 +743,7 @@ impl SqlEngine {
                 .insert((row.table.clone(), row.primary_key.clone()), row);
         }
 
+        self.rebuild_query_sizes()?;
         Ok(SqlRecoveryReport {
             tables: self.tables.len(),
             row_versions,
@@ -1058,9 +1062,9 @@ impl SqlEngine {
     }
 
     pub fn row_count(&self) -> usize {
-        self.tables
-            .keys()
-            .map(|table| self.committed_rows_for_table(table).len())
+        self.query_sizes
+            .values()
+            .map(|size| size.rows as usize)
             .sum()
     }
 
@@ -1237,9 +1241,23 @@ impl SqlEngine {
             return Vec::new();
         }
         let descriptor = secondary_index_descriptor(table_record, column);
+        let Some(ty) = table_record
+            .descriptor
+            .columns
+            .iter()
+            .find(|entry| entry.name == column)
+            .map(|entry| &entry.ty)
+        else {
+            return Vec::new();
+        };
+        let Ok(value) =
+            query_value_from_sql_string(ty, value, column).and_then(query_value_to_sql_string)
+        else {
+            return Vec::new();
+        };
         let row = RowImage {
-            primary_key: value.to_string(),
-            values: BTreeMap::from([(column.to_string(), value.to_string())]),
+            primary_key: value.clone(),
+            values: BTreeMap::from([(column.to_string(), value)]),
         };
         let Ok(key) = encode_index_key(&descriptor, &row) else {
             return Vec::new();
@@ -1597,6 +1615,7 @@ impl SqlEngine {
             logical_key.clone(),
             Some(row_payload.clone()),
         )?;
+        self.update_query_size(table, &logical_key, Some(row_payload.len()))?;
         self.kv
             .apply_committed_set(logical_key, row_payload.clone(), version);
         self.apply_primary_insert(table, primary_key, columns, pg, version)?;
@@ -1643,6 +1662,7 @@ impl SqlEngine {
             logical_key.clone(),
             Some(row_payload.clone()),
         )?;
+        self.update_query_size(table, &logical_key, Some(row_payload.len()))?;
         self.kv
             .apply_committed_set(logical_key, row_payload.clone(), version);
         self.apply_primary_update(table, primary_key, columns, pg, version)?;
@@ -1686,6 +1706,7 @@ impl SqlEngine {
             logical_key.clone(),
             None,
         )?;
+        self.update_query_size(table, &logical_key, None)?;
         self.kv.apply_committed_clear(logical_key, version);
         self.apply_primary_delete(table, primary_key)?;
         self.apply_tuple_delete(table, primary_key, version)?;
@@ -2169,8 +2190,8 @@ impl SqlEngine {
             .committed_rows_for_table(table)
             .into_iter()
             .filter(|row| row_has_index_values(row, descriptor))
-            .map(|row| row_image(&row))
-            .collect::<Vec<_>>();
+            .map(|row| row_image(table_record, &row))
+            .collect::<RsfResult<Vec<_>>>()?;
         let rebuild = planner.plan_rebuild(descriptor, &rows)?;
         self.indexes.apply_rebuild(&rebuild)?;
         Ok(())
@@ -2260,7 +2281,7 @@ impl SqlEngine {
             return Ok(());
         }
         let plan = IndexPlanner::new(&table.descriptor, descriptors)?
-            .plan_insert(&table.descriptor, &row_image(row))?;
+            .plan_insert(&table.descriptor, &row_image(table, row)?)?;
         self.indexes.apply(&plan);
         Ok(())
     }
@@ -2277,7 +2298,7 @@ impl SqlEngine {
             return Ok(());
         }
         let plan = IndexPlanner::new(&table.descriptor, descriptors)?
-            .plan_delete(&table.descriptor, &row_image(row))?;
+            .plan_delete(&table.descriptor, &row_image(table, row)?)?;
         self.indexes.apply(&plan);
         Ok(())
     }
@@ -3527,11 +3548,25 @@ fn secondary_index_name(table: &str, column: &str) -> String {
     format!("{table}_{column}")
 }
 
-fn row_image(row: &Row) -> RowImage {
-    RowImage {
+fn row_image(table: &Table, row: &Row) -> RsfResult<RowImage> {
+    // Match the physical row codec's canonical values, including int/bool
+    // spellings. Primary-key payloads retain their actual logical key identity.
+    let values = table
+        .descriptor
+        .columns
+        .iter()
+        .filter_map(|column| {
+            row.columns.get(&column.name).map(|value| {
+                query_value_from_sql_string(&column.ty, value, &column.name)
+                    .and_then(query_value_to_sql_string)
+                    .map(|value| (column.name.clone(), value))
+            })
+        })
+        .collect::<RsfResult<BTreeMap<_, _>>>()?;
+    Ok(RowImage {
         primary_key: row.primary_key.clone(),
-        values: row.columns.clone(),
-    }
+        values,
+    })
 }
 
 fn row_has_index_values(row: &Row, descriptor: &IndexDescriptor) -> bool {

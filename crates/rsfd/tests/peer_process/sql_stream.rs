@@ -30,6 +30,60 @@ fn native_sql_streams_large_results_and_bounds_legacy_responses() {
     peers.get_mut(&NodeId(2)).unwrap().address = second.address;
     configure_primary(&root, &state, &peers);
     let primary = Process::primary(&state);
+    for (operation, request) in [
+        ("CREATE TABLE lookup(id PRIMARY KEY, name)", "lookup-table"),
+        ("CREATE INDEX lookup_name ON lookup(name)", "lookup-index"),
+        (
+            "INSERT INTO lookup (id, name) VALUES (1, target)",
+            "lookup-one",
+        ),
+        (
+            "INSERT INTO lookup (id, name) VALUES (2, other)",
+            "lookup-two",
+        ),
+        (
+            "INSERT INTO lookup (id, name) VALUES (3, target)",
+            "lookup-three",
+        ),
+    ] {
+        let response = surface_request(primary.address, Sql, operation, request, b"");
+        assert!(response.starts_with("RSF/1 executed"), "{response}");
+    }
+    let indexed = surface_request(
+        primary.address,
+        Sql,
+        "SELECT * FROM lookup WHERE name=target",
+        "indexed-before",
+        SQL_STREAM_REQUEST,
+    );
+    assert_eq!(
+        rows(&indexed)
+            .iter()
+            .map(|row| row["id"].as_str())
+            .collect::<Vec<_>>(),
+        ["1", "3"]
+    );
+    for (operation, request) in [
+        ("UPDATE lookup SET name=target WHERE id=2", "lookup-move"),
+        ("DELETE FROM lookup WHERE id=1", "lookup-delete"),
+    ] {
+        let response = surface_request(primary.address, Sql, operation, request, b"");
+        assert!(response.starts_with("RSF/1 executed"), "{response}");
+    }
+    let indexed = surface_request(
+        primary.address,
+        Sql,
+        "SELECT * FROM lookup WHERE name=target",
+        "indexed-after",
+        SQL_STREAM_REQUEST,
+    );
+    assert_eq!(
+        rows(&indexed)
+            .iter()
+            .map(|row| row["id"].as_str())
+            .collect::<Vec<_>>(),
+        ["2", "3"]
+    );
     let create = surface_request(
         primary.address,
         Sql,
@@ -125,6 +179,6 @@ fn native_sql_streams_large_results_and_bounds_legacy_responses() {
     let summary = decode_sql_stream(stream.as_bytes(), |_| Ok(())).unwrap();
     println!(
         "{}",
-        serde_json::json!({"workload":"native-sql-stream", "profile":if cfg!(debug_assertions) {"debug"} else {"release"}, "rows":summary.rows, "bytes":summary.bytes, "chunk_bound":rsf_wire::sql_stream::SQL_STREAM_CHUNK_BYTES,"buffered_overflow_rejected":true,"quorum_loss_rejected":true,"elapsed_ms":started.elapsed().as_millis(),"scope":"single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification"})
+        serde_json::json!({"workload":"native-sql-stream", "profile":if cfg!(debug_assertions) {"debug"} else {"release"}, "rows":summary.rows, "bytes":summary.bytes, "chunk_bound":rsf_wire::sql_stream::SQL_STREAM_CHUNK_BYTES,"buffered_overflow_rejected":true,"quorum_loss_rejected":true,"indexed_queries_verified":true,"elapsed_ms":started.elapsed().as_millis(),"scope":"single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification"})
     );
 }
