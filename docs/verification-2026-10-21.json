@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "d535d2480c71187fbb525ddbe91ef7b6963f14269c8bd33962d3f9940bb659c1",
-  "source_sha256_after": "d535d2480c71187fbb525ddbe91ef7b6963f14269c8bd33962d3f9940bb659c1",
+  "source_sha256_before": "e9bed25e809f23f56750f8a5b3257433db9fe80942474ef98f37f6a6f7d6564d",
+  "source_sha256_after": "e9bed25e809f23f56750f8a5b3257433db9fe80942474ef98f37f6a6f7d6564d",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -24,21 +24,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.2pDtsY",
+  "trace_directory": "artifacts/verification.4nssP2",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 12.683824622342424,
-      "elapsed_ms": 76555,
+      "concurrent_write_ops_per_second": 9.333866271170011,
+      "elapsed_ms": 82584,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 623394,
-        "p50": 300757,
-        "p95": 388307,
-        "p99": 547407
+        "max": 999411,
+        "p50": 332871,
+        "p95": 814594,
+        "p99": 998355
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -51,14 +51,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 21.999565107555387,
-      "elapsed_ms": 101876,
+      "concurrent_write_ops_per_second": 21.36227743907349,
+      "elapsed_ms": 104939,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 388246,
-        "p50": 184895,
-        "p95": 233274,
-        "p99": 278143
+        "max": 862173,
+        "p50": 176990,
+        "p95": 252279,
+        "p99": 387692
       },
       "payload_bytes": 1769691,
       "profile": "release",

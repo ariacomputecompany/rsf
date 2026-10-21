@@ -11,9 +11,9 @@ use rsf_core::{
 
 pub use durable::{
     ApplicationPayload, ApplicationSurface, DurableFabricRouter, DurableProtocolCommit,
-    DurableRequestCommit, PlacementMap, ProtocolCommitRecord, ProtocolPolicy, ProtocolWal,
-    RecoveredProtocolCommit, ReplicatedFabricCommand, ReplicatedProtocolCommand,
-    VsrBackedFabricRouter,
+    DurableRequestCommit, PlacementMap, ProtocolCommandPurpose, ProtocolCommitRecord,
+    ProtocolPolicy, ProtocolWal, RecoveredProtocolCommit, ReplicatedFabricCommand,
+    ReplicatedProtocolCommand, VsrBackedFabricRouter,
 };
 pub use profile::{
     BorrowedProtocolPart, CustomProtocolProfile, ProtocolSpine, custom_protocol_profile,
@@ -323,6 +323,32 @@ pub trait FabricRouterPort {
         operation: FabricOperation,
     ) -> RsfResult<RequestCommitEvidence>;
 
+    fn validate_immutable_dependency(
+        &self,
+        _pg: PlacementGroupId,
+        _request: &ClientRequestId,
+        _digest: [u8; 32],
+    ) -> RsfResult<()> {
+        Err(RsfError::new(
+            ErrorCode::InvalidInput,
+            "router does not support typed immutable dependency preflight",
+        ))
+    }
+
+    /// A coordination dependency for a later complete object command. This
+    /// receipt does not promise replicated payload durability on its own.
+    fn commit_immutable_dependency(
+        &mut self,
+        _pg: PlacementGroupId,
+        _request: ClientRequestId,
+        _digest: [u8; 32],
+    ) -> RsfResult<RequestCommitEvidence> {
+        Err(RsfError::new(
+            ErrorCode::InvalidInput,
+            "router does not support typed immutable dependencies",
+        ))
+    }
+
     /// Validate a metadata request's placement, policy and existing identity
     /// before persisting an application intent that depends on that request.
     fn validate_request(
@@ -492,6 +518,35 @@ pub struct RequestCommitEvidence {
 }
 
 impl FabricRouterPort for FabricRouter {
+    fn validate_immutable_dependency(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<()> {
+        self.validate_request(
+            pg,
+            request,
+            ConsistencyMode::AvailabilityFirst,
+            &FabricOperation::BlobPin { digest },
+        )
+    }
+
+    fn commit_immutable_dependency(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<RequestCommitEvidence> {
+        FabricRouterPort::commit_request_with_mode(
+            self,
+            pg,
+            request,
+            ConsistencyMode::AvailabilityFirst,
+            FabricOperation::BlobPin { digest },
+        )
+    }
+
     fn commit(
         &mut self,
         pg: PlacementGroupId,

@@ -2,7 +2,7 @@ mod application;
 mod command;
 mod handoff;
 pub use application::{ApplicationPayload, ApplicationSurface, ReplicatedFabricCommand};
-pub use command::ReplicatedProtocolCommand;
+pub use command::{ProtocolCommandPurpose, ReplicatedProtocolCommand};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -890,6 +890,35 @@ impl DurableFabricRouter {
 }
 
 impl FabricRouterPort for DurableFabricRouter {
+    fn validate_immutable_dependency(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<()> {
+        self.validate_request(
+            pg,
+            request,
+            ConsistencyMode::AvailabilityFirst,
+            &FabricOperation::BlobPin { digest },
+        )
+    }
+
+    fn commit_immutable_dependency(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<RequestCommitEvidence> {
+        FabricRouterPort::commit_request_with_mode(
+            self,
+            pg,
+            request,
+            ConsistencyMode::AvailabilityFirst,
+            FabricOperation::BlobPin { digest },
+        )
+    }
+
     fn commit(
         &mut self,
         pg: PlacementGroupId,
@@ -1098,6 +1127,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         }
         let preview = self.router.next_commit(pg, mode, operation)?;
         self.finish_protocol_command(&ReplicatedProtocolCommand {
+            purpose: ProtocolCommandPurpose::Operation,
             commit: preview.clone(),
             request: None,
         })?;
@@ -1111,6 +1141,57 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         mode: ConsistencyMode,
         operation: FabricOperation,
     ) -> RsfResult<DurableRequestCommit> {
+        self.commit_protocol_request(
+            pg,
+            request,
+            mode,
+            operation,
+            ProtocolCommandPurpose::Operation,
+        )
+    }
+
+    fn commit_protocol_request(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        mode: ConsistencyMode,
+        operation: FabricOperation,
+        purpose: ProtocolCommandPurpose,
+    ) -> RsfResult<DurableRequestCommit> {
+        if !self.provision_local_cells
+            && purpose == ProtocolCommandPurpose::Operation
+            && !matches!(
+                operation,
+                FabricOperation::CatalogMutation { .. } | FabricOperation::TransactionCommit { .. }
+            )
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "installed-state surface mutations require complete application payloads",
+            ));
+        }
+        if self.protocol_commands.values().any(|command| {
+            command.request.as_ref() == Some(&request)
+                && (command.purpose != purpose
+                    || (purpose == ProtocolCommandPurpose::ImmutableDependency
+                        && (command.commit.pg != pg
+                            || command.commit.mode != mode
+                            || command.commit.operation != operation)))
+        }) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "request identity belongs to a different protocol purpose or immutable dependency",
+            ));
+        }
+        if purpose == ProtocolCommandPurpose::ImmutableDependency {
+            let FabricOperation::BlobPin { digest } = &operation else {
+                return Err(RsfError::new(
+                    ErrorCode::InvalidInput,
+                    "immutable dependency requires a blob pin",
+                ));
+            };
+            self.validate_dependency_request(pg, &request, *digest)?;
+        }
         let completed_here = self.protocol_commands.values().any(|command| {
             command.request.as_ref() == Some(&request)
                 && self
@@ -1141,6 +1222,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             self.router.next_commit(pg, mode, operation)?
         };
         self.finish_protocol_command(&ReplicatedProtocolCommand {
+            purpose,
             commit: commit.clone(),
             request: Some(request),
         })?;
@@ -1156,6 +1238,17 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         mode: ConsistencyMode,
         operation: FabricOperation,
     ) -> RsfResult<DurableRequestCommit> {
+        if !self.provision_local_cells
+            && !matches!(
+                operation,
+                FabricOperation::CatalogMutation { .. } | FabricOperation::TransactionCommit { .. }
+            )
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "installed-state surface mutations require complete application payloads",
+            ));
+        }
         self.reconcile_application_commands()?;
         if self.application_commands.contains_key(&request) {
             return Err(RsfError::new(
@@ -1315,7 +1408,11 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         operation: FabricOperation,
     ) -> RsfResult<FabricCommit> {
         let commit = self.router.next_commit(pg, mode, operation)?;
-        self.require_vsr_commit(&commit, Some(request.clone()))?;
+        self.require_vsr_commit(
+            &commit,
+            Some(request.clone()),
+            ProtocolCommandPurpose::Operation,
+        )?;
         self.remember_vsr_request_for_test(pg, request, commit.index)?;
         Ok(commit)
     }
@@ -1334,11 +1431,19 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         &mut self,
         commit: &FabricCommit,
         request: Option<ClientRequestId>,
+        purpose: ProtocolCommandPurpose,
     ) -> RsfResult<()> {
         let command = ReplicatedProtocolCommand {
+            purpose,
             commit: commit.clone(),
             request,
         };
+        if !self.provision_local_cells && command.requires_surface_payload() {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "installed-state surface mutations require complete application payloads",
+            ));
+        }
         let full = command.vsr_operation()?;
         let legacy = fabric_to_vsr_operation(&commit.operation, commit.operation_id);
         let existing = self
@@ -1469,6 +1574,34 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
 }
 
 impl<T: VsrTransport> FabricRouterPort for VsrBackedFabricRouter<T> {
+    fn validate_immutable_dependency(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<()> {
+        self.validate_dependency_request(pg, request, digest)
+    }
+
+    fn commit_immutable_dependency(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<RequestCommitEvidence> {
+        let result = self.commit_protocol_request(
+            pg,
+            request,
+            ConsistencyMode::AvailabilityFirst,
+            FabricOperation::BlobPin { digest },
+            ProtocolCommandPurpose::ImmutableDependency,
+        )?;
+        Ok(RequestCommitEvidence {
+            certificate: result.certificate,
+            replayed: result.replayed,
+        })
+    }
+
     fn route_operation(&self, operation: &FabricOperation) -> Option<PlacementGroupId> {
         Some(self.placement.route(operation))
     }

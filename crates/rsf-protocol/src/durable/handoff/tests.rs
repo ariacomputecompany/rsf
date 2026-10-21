@@ -383,3 +383,179 @@ fn a_pending_metadata_request_cannot_be_reused_for_an_application_command() {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[test]
+fn installed_surface_operations_without_payloads_require_migration_before_adoption() {
+    for (case, operation) in [
+        FabricOperation::KvMutation {
+            key: b"missing-value".to_vec(),
+        },
+        FabricOperation::RelationalMutation {
+            table: "users".into(),
+            key: b"missing-row".to_vec(),
+        },
+        FabricOperation::ObjectManifest {
+            bucket: "media".into(),
+            key: "missing-object".into(),
+        },
+        FabricOperation::BlobPin { digest: [7; 32] },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let root = root(&format!("missing-surface-{case}"));
+        let mut cells = installed(&root, 1, false);
+        let command = ReplicatedProtocolCommand {
+            purpose: ProtocolCommandPurpose::Operation,
+            commit: FabricCommit {
+                pg: PlacementGroupId(1),
+                index: LogIndex(2),
+                version: CommitVersion(2),
+                mode: ConsistencyMode::Strict,
+                operation_id: operation.operation_id(),
+                operation: operation.clone(),
+            },
+            request: None,
+        };
+        let cell = cells.get_mut(&PlacementGroupId(1)).unwrap();
+        let VsrDecision::Prepared(prepare) = cell
+            .prepare(
+                NodeId(1),
+                command.vsr_operation().unwrap(),
+                command.encode().unwrap().len() as u32,
+            )
+            .unwrap()
+        else {
+            panic!("prepare")
+        };
+        cell.replicate_with_transport(
+            NodeId(1),
+            prepare.index,
+            &mut LocalVsrTransport::all_reachable(voters()),
+        )
+        .unwrap();
+        let path = root.join("protocol");
+        assert!(
+            adopt(&path, cells).is_err(),
+            "coordination receipts cannot substitute for surface values"
+        );
+        assert!(
+            !path.exists(),
+            "reject incomplete surface history before creating a protocol store"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn an_adopted_coordinator_cannot_acknowledge_a_surface_mutation_without_its_payload() {
+    let root = root("reject-missing-payload");
+    let cells = installed(&root, 1, false);
+    let path = root.join("protocol");
+    let mut router = adopt(&path, cells).unwrap();
+    router.reconcile_application_commands().unwrap();
+    let operation = FabricOperation::KvMutation {
+        key: b"no-payload".to_vec(),
+    };
+    assert!(
+        router
+            .commit(PlacementGroupId(1), operation.clone())
+            .is_err()
+    );
+    assert!(
+        router
+            .commit_request(
+                PlacementGroupId(1),
+                ClientRequestId::new("no-payload", 1),
+                ConsistencyMode::Strict,
+                operation
+            )
+            .is_err()
+    );
+    assert_eq!(router.latest_version(), CommitVersion(1));
+    assert_eq!(router.cells[&PlacementGroupId(1)].next_index(), LogIndex(2));
+    assert!(router.protocol_commands.is_empty());
+    let command = command(2);
+    let result = router
+        .commit_application(
+            command.commit.pg,
+            command.request,
+            command.commit.mode,
+            command.commit.operation,
+            command.application,
+        )
+        .unwrap();
+    assert_eq!(result.certificate.version, CommitVersion(2));
+    drop(router);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn orphaned_internal_pin_recovers_as_coordination_without_becoming_a_user_blob_receipt() {
+    let root = root("orphaned-pin");
+    let cells = installed(&root, 1, false);
+    let path = root.join("protocol");
+    let mut router = adopt(&path, cells).unwrap();
+    router.reconcile_application_commands().unwrap();
+    let request = ClientRequestId::new("object-internal-pin", 1);
+    let pin = FabricRouterPort::commit_immutable_dependency(
+        &mut router,
+        PlacementGroupId(1),
+        request.clone(),
+        [7; 32],
+    )
+    .unwrap();
+    assert_eq!(pin.certificate.version, CommitVersion(2));
+    let cells = router.into_cells();
+    let mut router = adopt(&path, cells).unwrap();
+    assert_eq!(router.reconcile_application_commands().unwrap(), 0);
+    // No containing object command was replicated and no application value is
+    // invented during recovery. The pin is only a retryable internal dependency.
+    assert_eq!(router.committed_application_commands().len(), 1);
+    assert!(
+        router
+            .commit_request_routed(
+                request.clone(),
+                ConsistencyMode::AvailabilityFirst,
+                FabricOperation::BlobPin { digest: [7; 32] }
+            )
+            .is_err()
+    );
+    assert!(
+        router
+            .validate_immutable_dependency(PlacementGroupId(1), &request, [8; 32])
+            .is_err()
+    );
+    assert!(
+        router
+            .commit_request(
+                PlacementGroupId(1),
+                request.clone(),
+                ConsistencyMode::AvailabilityFirst,
+                FabricOperation::BlobPin { digest: [7; 32] }
+            )
+            .is_err()
+    );
+    assert!(
+        FabricRouterPort::commit_immutable_dependency(
+            &mut router,
+            PlacementGroupId(1),
+            request.clone(),
+            [8; 32]
+        )
+        .is_err()
+    );
+    let retry = FabricRouterPort::commit_immutable_dependency(
+        &mut router,
+        PlacementGroupId(1),
+        request,
+        [7; 32],
+    )
+    .unwrap();
+    assert!(retry.replayed);
+    assert_eq!(retry.certificate, pin.certificate);
+    assert_eq!(router.latest_version(), CommitVersion(2));
+    assert_eq!(router.cells[&PlacementGroupId(1)].next_index(), LogIndex(3));
+    drop(router);
+    fs::remove_dir_all(root).unwrap();
+}

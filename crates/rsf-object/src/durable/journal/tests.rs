@@ -86,6 +86,29 @@ impl InterruptAfterCommit {
     }
 }
 impl FabricRouterPort for InterruptAfterCommit {
+    fn validate_immutable_dependency(
+        &self,
+        pg: PlacementGroupId,
+        request: &ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<()> {
+        self.inner
+            .validate_immutable_dependency(pg, request, digest)
+    }
+
+    fn commit_immutable_dependency(
+        &mut self,
+        pg: PlacementGroupId,
+        request: ClientRequestId,
+        digest: [u8; 32],
+    ) -> RsfResult<RequestCommitEvidence> {
+        let result = self
+            .inner
+            .commit_immutable_dependency(pg, request, digest)?;
+        self.after_commit("pin");
+        Ok(result)
+    }
+
     fn route_operation(&self, operation: &FabricOperation) -> Option<PlacementGroupId> {
         self.inner.route_operation(operation)
     }

@@ -164,6 +164,26 @@ index/version. Previously written metadata-only VSR entries are kept immutable
 and can still recover through the original local protocol WAL; importing them
 without that WAL requires explicit migration.
 
+Ordinary protocol-only records for data-bearing SQL/KV/object/blob operations
+are insufficient to recover values. Installed-cell adoption rejects them before
+creating a coordination store; new mutations on an adopted coordinator must use
+the complete surface command path. Cached or routed request retries cannot
+turn an internal certificate into a user payload acknowledgement. Local legacy
+API histories still require explicit migration.
+
+An object's internal blob pin is a separate immutable dependency (`RSFI1`),
+explicitly tagged by `ProtocolCommandPurpose::ImmutableDependency`. It must be
+an idempotent `BlobPin` in immutable availability-first mode. The containing
+object command (`RSFC1`) replicates the payload before object success. Losing
+the primary between the internal pin and object command can leave an orphaned
+dependency. Recovery preserves that coordination receipt without inventing an
+application value. The original pin identity can retry; another digest, purpose,
+or ordinary user-blob request cannot reuse it. Policy and identity preflight run
+before an object intent is persisted. Ports that do not implement typed immutable
+dependencies fail closed. Unmarked historical pins are not automatically upgraded
+to dependencies; their migration must establish the original purpose and payload
+history explicitly.
+
 An unresolved lower-version command currently blocks fresh allocation across
 groups. A healthy group's own membership/quorum remains independent, but a
 new command cannot reuse a version already carried by another group's accepted

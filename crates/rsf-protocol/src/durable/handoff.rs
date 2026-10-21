@@ -10,7 +10,8 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     /// inventory only: reconcile pending commands, recover application stores,
     /// and confirm the current quorum before opening client service.
     ///
-    /// Complete replicated application commands are required. Metadata-only
+    /// Surface mutations require complete application payloads; protocol-only
+    /// records cover catalog/transaction coordination. Metadata-only
     /// legacy logs need explicit migration; their values/receipts cannot be
     /// reconstructed from operation identities. On each restart supply these
     /// same authoritative cell roots rather than the default local bootstrap.
@@ -39,9 +40,16 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
                 let prepare = cell
                     .prepared(LogIndex(index))
                     .ok_or_else(|| handoff_corrupt("installed history has an operation gap"))?;
-                if !matches!(prepare.operation, VsrOperation::ReplicatedCommand { .. }) {
+                let VsrOperation::ReplicatedCommand { payload, .. } = &prepare.operation else {
                     return Err(handoff_invalid(
                         "metadata-only installed history requires complete-command migration",
+                    ));
+                };
+                if ReplicatedProtocolCommand::is_payload(payload)
+                    && ReplicatedProtocolCommand::decode(payload)?.requires_surface_payload()
+                {
+                    return Err(handoff_invalid(
+                        "installed surface history has no replicated payload; explicit migration is required",
                     ));
                 }
             }

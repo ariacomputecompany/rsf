@@ -125,27 +125,30 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Latest verification (2026-10-21): `artifacts/verification.2pDtsY/summary.json`
+Latest verification (2026-10-21): `artifacts/verification.4nssP2/summary.json`
 passes all 17 domains with unchanged executable sources (SHA-256
-`d535d2480c71187fbb525ddbe91ef7b6963f14269c8bd33962d3f9940bb659c1`).
-Includes 83 VSR tests, 47 protocol tests, 25 peer RPC tests, 56 storage tests,
+`e9bed25e809f23f56750f8a5b3257433db9fe80942474ef98f37f6a6f7d6564d`).
+Includes 83 VSR tests, 51 protocol tests, 25 peer RPC tests, 56 storage tests,
 multi-page SQL tests, the full workspace, recorded host traces, and debug/release
 crash-restart workloads (198/774 acknowledged writes, 18 process shutdowns and
 three uncertain-write resolutions per workload). Strict Clippy passes for
-`rsf-vsr`, `rsf-rpc`, and `rsf-protocol` with `--no-deps`. A real-daemon test
+`rsf-vsr`, `rsf-rpc`, `rsf-protocol`, and `rsf-blob` with `--no-deps`. A real-daemon test
 removes the old primary's state, installs a new view on survivors, recovers a
 coordinator from the installed cells, preserves original retry certificates,
 and commits new SQL/KV/object/blob operations through a surviving TLS peer.
 Metadata commands now preserve their complete protocol operation and original
 version/request identity. Receipt failure, global version ordering, and metadata/
-application request collisions are covered. This does not establish automatic
+application request collisions are covered. Installed-cell adoption rejects surface
+operations without payloads. Tagged immutable dependencies preserve orphaned
+object pins without creating user blob receipts; identity/purpose checks, preflight,
+and real object process-kill recovery cover this boundary. This does not establish automatic
 daemon election/client routing, full legacy-value migration, workspace-wide lint
 cleanliness, or independent-machine readiness. See `docs/primary-failover.md`.
 
 ## Remaining Release Blockers
 
 - Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and incremental replay/checkpoint cursors. Complete quorum-certified configuration changes and learner promotion, and automatic primary failover with peer/client ownership integration, application recovery, and client routing. Installed-cell coordinator recovery and four-surface recovery/write integration are implemented; the daemon does not schedule elections or route listeners through that recovery API. Mixed-view selection, atomic generation installation, and authenticated resumable remote view installation are implemented. Authenticated non-voting history catch-up does not install membership. Prove end-to-end quorum durability under machine failure.
-- Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. The secured daemon currently rejects shared top-level surface directories.
+- Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. Establish the purpose and payload history of old unmarked immutable pins before adopting them as dependencies. The secured daemon currently rejects shared top-level surface directories.
 - Add durable SQL sessions, incremental persistence, and bounded result streaming; current autocommit checkpoints rewrite the full state and replicated planning rebuilds canonical page placement per mutation. Multi-page tables and atomic row relocation are implemented; growing-table capacity and throughput still need qualification.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.
 - Exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.

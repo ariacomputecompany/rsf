@@ -126,6 +126,11 @@ without quorum and succeeds after the peer restarts. Unit checks cover receipt
 persistence failure, exclusive ownership handoff, conflicting inventories and
 receipts, protocol codec bounds, and request collisions. The test invokes the
 recovery API directly; it does not establish automatic daemon takeover.
+Adoption rejects ordinary SQL/KV/object/blob protocol records without their
+surface payloads. Internal object pins use an explicit immutable-dependency
+encoding; tests cover orphan recovery, exact identity retries, wrong digests,
+purpose confusion, routed user-blob retries, and preflight. Object process-kill
+tests preserve the dependency tag across both pin and object-commit boundaries.
 
 Data-plane tests use real TLS 1.3 handshakes with generated test certificates.
 They reject plaintext, missing/expired/untrusted certificates, unregistered

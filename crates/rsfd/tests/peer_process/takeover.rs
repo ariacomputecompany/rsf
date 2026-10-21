@@ -104,7 +104,7 @@ fn replacement_router_recovers_all_surfaces_and_original_receipts_from_installed
                 else {
                     return Err("expected complete command".into());
                 };
-                if payload.starts_with(b"RSFG1") {
+                if payload.starts_with(b"RSFG1") || payload.starts_with(b"RSFI1") {
                     rsf_protocol::ReplicatedProtocolCommand::decode(payload)
                         .map_err(|err| err.message)?;
                     return Ok(());
