@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b",
-  "source_sha256_after": "50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b",
+  "source_sha256_before": "ed34d70dbb5566ff59cebedfb8da42d7728df52b4394a98b2d7cfe44f63c2d41",
+  "source_sha256_after": "ed34d70dbb5566ff59cebedfb8da42d7728df52b4394a98b2d7cfe44f63c2d41",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -26,21 +26,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.qnu3Dn",
+  "trace_directory": "artifacts/verification.92OYfy",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 14.167388133528519,
-      "elapsed_ms": 70977,
+      "concurrent_write_ops_per_second": 14.246406288363735,
+      "elapsed_ms": 70586,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 567241,
-        "p50": 271834,
-        "p95": 319410,
-        "p99": 501153
+        "max": 638658,
+        "p50": 268956,
+        "p95": 320474,
+        "p99": 573725
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -53,14 +53,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 20.77861867152064,
-      "elapsed_ms": 99720,
+      "concurrent_write_ops_per_second": 20.703156285134543,
+      "elapsed_ms": 97927,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 298025,
-        "p50": 188160,
-        "p95": 231113,
-        "p99": 285830
+        "max": 702865,
+        "p50": 177018,
+        "p95": 261224,
+        "p99": 584818
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -78,8 +78,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 150,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 69809,
-      "history_growth_ms": 32827,
+      "elapsed_ms": 69039,
+      "history_growth_ms": 32173,
       "history_growth_writes": 128,
       "indexed_sql_after_takeover": true,
       "precrash_sql_read_dependency_recovered": true,
@@ -106,8 +106,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 150,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 61460,
-      "history_growth_ms": 29283,
+      "elapsed_ms": 57953,
+      "history_growth_ms": 28405,
       "history_growth_writes": 128,
       "indexed_sql_after_takeover": true,
       "precrash_sql_read_dependency_recovered": true,
@@ -129,6 +129,16 @@
     }
   },
   "automatic_client_evidence_valid": true,
+  "membership_approval_evidence_valid": true,
+  "membership_approval_regressions": {
+    "membership_proposal_codec_binds_old_authority_new_voters_and_target": true,
+    "membership_fence_survives_restart_preserves_prefix_and_blocks_authority_shortcuts": true,
+    "membership_old_quorum_approval_rejects_mixed_duplicate_and_tampered_histories": true,
+    "malformed_membership_fence_envelopes_fail_repeated_recovery_without_rewrite": true,
+    "killed_membership_writer_recovers_synced_fence_before_acknowledgement": true,
+    "membership_approval_recovers_from_real_old_voters_after_primary_loss": true
+  },
+  "membership_approval_scope": "old-quorum approval only; new-quorum activation, learner promotion and complete membership qualification remain unfinished",
   "sql_index_evidence_valid": true,
   "sql_index_regressions": {
     "borrowed_index_lookup_preserves_order_scope_and_storage_identity": true,
@@ -156,7 +166,7 @@
       "buffered_overflow_rejected": true,
       "bytes": 264960,
       "chunk_bound": 4096,
-      "elapsed_ms": 86772,
+      "elapsed_ms": 85871,
       "indexed_queries_verified": true,
       "profile": "debug",
       "quorum_loss_rejected": true,
@@ -168,7 +178,7 @@
       "buffered_overflow_rejected": true,
       "bytes": 264960,
       "chunk_bound": 4096,
-      "elapsed_ms": 26468,
+      "elapsed_ms": 25634,
       "indexed_queries_verified": true,
       "profile": "release",
       "quorum_loss_rejected": true,
@@ -218,12 +228,13 @@
     "CI"
   ],
   "production_qualified": false,
-  "source_commit": "783d13f6a35e7b8ee1b4aab210a53794778cb7cb",
+  "membership_complete": false,
+  "source_commit": "379e049b763151703f0a99356b7930b99ce1d885",
   "scope": "single-host loopback TLS with fsync; independent-machine, WAN, workload-capacity and complete production qualification remain open",
   "workspace_regression_audit": {
-    "source_sha256": "50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b",
+    "source_sha256": "ed34d70dbb5566ff59cebedfb8da42d7728df52b4394a98b2d7cfe44f63c2d41",
     "counts": {
-      "passed": 1147,
+      "passed": 1154,
       "failed": 0,
       "ignored": 1,
       "result_groups": 163
@@ -277,6 +288,14 @@
       "indexed_transaction_overlay_merges_entries_movements_and_savepoint_rewinds": true,
       "indexed_reads_reject_missing_or_mismatched_committed_entries": true,
       "query_size_metadata_tracks_physical_writes_transactions_and_recovery": true
+    },
+    "required_membership_approval_regressions": {
+      "membership_proposal_codec_binds_old_authority_new_voters_and_target": true,
+      "membership_fence_survives_restart_preserves_prefix_and_blocks_authority_shortcuts": true,
+      "membership_old_quorum_approval_rejects_mixed_duplicate_and_tampered_histories": true,
+      "malformed_membership_fence_envelopes_fail_repeated_recovery_without_rewrite": true,
+      "killed_membership_writer_recovers_synced_fence_before_acknowledgement": true,
+      "membership_approval_recovers_from_real_old_voters_after_primary_loss": true
     },
     "verified_prior_regressions": [
       "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",

@@ -124,5 +124,8 @@ accepted/committed prefixes and original request mapping, rejection of conflicti
 or tampered reports, ordinary-installation shortcut rejection, malformed WAL
 recovery, a real process kill after synced fence before acknowledgement, and
 old-quorum recovery from real TLS peers after deleting the initiator's store.
-The full gate now requires these six named regressions; its report is pending.
+The unchanged-source full gate passes all 19 domains and 1,154 workspace
+tests with zero failures, including these six named regressions. Strict lint
+checks pass for the changed production packages and daemon. The report is
+[membership approval verification](membership-approval-verification-2026-10-21.json).
 This phase is not complete production membership qualification.
