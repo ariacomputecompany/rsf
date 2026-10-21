@@ -1,0 +1,41 @@
+{
+  "all_pass": false,
+  "production_qualified": false,
+  "source_sha256": "2461ff207f7e6a85efad30ed864559b50a0437afcab6bfc9325ddfecbd9b2dde",
+  "milestone": "Bounded idempotent recovery RPC retry and learner finish acknowledgement recovery",
+  "targeted_checks": {
+    "rpc_tests": 32,
+    "trace": "artifacts/verification.89X15y/peer-rpc.trace.fozzy",
+    "recorded_host_exit": 0,
+    "strict_verify_replay_ci": true,
+    "clippy_log": "artifacts/recovery-rpc-qualified-clippy.log",
+    "clippy_crates": [
+      "rsf-rpc",
+      "rsfd"
+    ],
+    "clippy_all_targets_no_deps_deny_warnings": true
+  },
+  "full_gate": {
+    "status": "in_progress",
+    "trace_directory": "artifacts/verification.89X15y",
+    "log": "artifacts/recovery-rpc-qualified-20261021.log",
+    "passed_domains_so_far": [
+      "storage",
+      "vsr",
+      "membership",
+      "protocol",
+      "peer-rpc",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy"
+    ]
+  },
+  "limits": [
+    "A recovery RPC may make at most two attempts, each using the configured absolute deadline",
+    "Voting RPCs, quorum probes, heartbeats and status do not automatically retry",
+    "Rejected requests and invalid authenticated responses are not retried",
+    "Learner materialization completion is cached only for the current server lifetime; restart must reapply",
+    "Broader full-suite, stress and independent-host production qualification remain incomplete"
+  ]
+}

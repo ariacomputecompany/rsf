@@ -134,8 +134,11 @@ impl PeerReplicaServer {
                 let tail = learner.finish(id).map_err(rsf)?;
                 // Publishing the WAL precedes materialization, so crashes or lost
                 // replies can retry the idempotent materializer from ACTIVE.
-                for entry in learner.committed_entries().map_err(rsf)? {
-                    apply(&entry).map_err(invalid)?;
+                if self.learner_materialized.get(&pg) != Some(&id) {
+                    for entry in learner.committed_entries().map_err(rsf)? {
+                        apply(&entry).map_err(invalid)?;
+                    }
+                    self.learner_materialized.insert(pg, id);
                 }
                 Ok(tail)
             }

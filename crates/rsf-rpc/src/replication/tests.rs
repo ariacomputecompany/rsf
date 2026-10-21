@@ -747,6 +747,14 @@ impl LearnerPeer {
         peers: BTreeMap<NodeId, PeerEndpoint>,
         applied: Arc<std::sync::atomic::AtomicUsize>,
     ) -> Self {
+        Self::start_with_reply_loss(root, peers, applied, false)
+    }
+    fn start_with_reply_loss(
+        root: &Path,
+        peers: BTreeMap<NodeId, PeerEndpoint>,
+        applied: Arc<std::sync::atomic::AtomicUsize>,
+        drop_first_reply: bool,
+    ) -> Self {
         let learner = rsf_vsr::LearnerHistoryStore::open(
             root.join("learner-3"),
             PlacementGroupId(1),
@@ -770,11 +778,17 @@ impl LearnerPeer {
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let worker = std::thread::spawn(move || {
+            let mut lost_reply = false;
             while !flag.load(std::sync::atomic::Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((socket, _)) => {
+                        let shutdown = socket.try_clone().unwrap();
                         let _ = server.serve_connection_with_apply(socket, &mut |_| {
                             applied.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if drop_first_reply && !lost_reply {
+                                shutdown.shutdown(std::net::Shutdown::Both).unwrap();
+                                lost_reply = true;
+                            }
                             Ok(())
                         });
                     }
@@ -797,6 +811,59 @@ impl Drop for LearnerPeer {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
         self.worker.take().unwrap().join().unwrap();
     }
+}
+
+#[test]
+fn learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart() {
+    let root = root("learner-lost-reply");
+    provision(&root);
+    let voter = PeerProcess::spawn(&root, 1);
+    let mut peers = endpoints(&root);
+    peers.get_mut(&NodeId(1)).unwrap().address = voter.address;
+    peers.insert(
+        NodeId(3),
+        PeerEndpoint {
+            address: "127.0.0.1:1".parse().unwrap(),
+            server_name: "localhost".into(),
+            fingerprint: identity(&root, 3).fingerprint,
+        },
+    );
+    let applied = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let learner =
+        LearnerPeer::start_with_reply_loss(&root, peers.clone(), Arc::clone(&applied), true);
+    peers.get_mut(&NodeId(3)).unwrap().address = learner.address;
+    let mut network = transport(&root, peers.clone());
+    let mut leader = cell(&root, 0);
+    let prepared = prepare(&mut leader, b"durable before lost learner finish reply");
+    leader
+        .replicate_with_transport(NodeId(0), prepared.index, &mut network)
+        .unwrap();
+    assert_eq!(
+        network.sync_learner(NodeId(3), &mut leader).unwrap(),
+        prepared.index
+    );
+    assert_eq!(applied.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(
+        network.sync_learner(NodeId(3), &mut leader).unwrap(),
+        prepared.index
+    );
+    assert_eq!(applied.load(std::sync::atomic::Ordering::Relaxed), 1);
+    drop(learner);
+    let learner = LearnerPeer::start(&root, peers.clone(), Arc::clone(&applied));
+    peers.get_mut(&NodeId(3)).unwrap().address = learner.address;
+    let mut network = transport(&root, peers);
+    assert_eq!(
+        network.sync_learner(NodeId(3), &mut leader).unwrap(),
+        prepared.index
+    );
+    assert_eq!(applied.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert!(
+        network
+            .confirm_primary(NodeId(3), &leader.primary_probe().unwrap())
+            .is_err()
+    );
+    drop(learner);
+    drop(voter);
 }
 
 #[test]

@@ -34,8 +34,37 @@
     }
   },
   "full_gate": {
-    "status": "in_progress",
-    "log": "artifacts/batched-control-qualified-20261021.log"
+    "status": "interrupted_after_failures",
+    "log": "artifacts/batched-control-qualified-20261021.log",
+    "trace_directory": "artifacts/verification.anNt3n",
+    "failed_domains": [
+      "peer-rpc"
+    ],
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "protocol",
+      "kv-transactions"
+    ],
+    "not_completed": [
+      "sql",
+      "authentication",
+      "tenancy",
+      "daemon",
+      "automatic-client",
+      "daemon-stress",
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end",
+      "workspace"
+    ],
+    "observations": [
+      "Learner catch-up and recipient installation restart hit RPC deadlines",
+      "Original process and tool handle were absent when rechecked; no complete summary was produced"
+    ]
   },
   "limits": [
     "Single-host loopback TLS with fsync",

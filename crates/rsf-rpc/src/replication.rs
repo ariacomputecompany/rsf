@@ -6,6 +6,7 @@ mod election;
 pub use control::{PeerElectionProgress, PeerElectionTiming, PeerElectionUpdate};
 mod history;
 mod installation;
+mod recovery_retry;
 mod tls;
 mod wire;
 
@@ -83,6 +84,10 @@ impl NetworkVsrTransport {
     }
 
     fn exchange_io(&self, replica: NodeId, kind: u8, payload: &[u8]) -> io::Result<Vec<u8>> {
+        recovery_retry::exchange(kind, || self.exchange_once(replica, kind, payload))
+    }
+
+    fn exchange_once(&self, replica: NodeId, kind: u8, payload: &[u8]) -> io::Result<Vec<u8>> {
         let peer = self
             .peers
             .get(&replica)
@@ -222,6 +227,7 @@ pub struct PeerReplicaServer {
     timeout: Duration,
     learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
     election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
+    learner_materialized: BTreeMap<PlacementGroupId, [u8; 32]>,
     installation_pending: BTreeSet<PlacementGroupId>,
     control_transport: NetworkVsrTransport,
     election_clock: BTreeMap<PlacementGroupId, control::Clock>,
@@ -328,6 +334,7 @@ impl PeerReplicaServer {
             timeout,
             learners,
             election_snapshots: BTreeMap::new(),
+            learner_materialized: BTreeMap::new(),
         })
     }
 

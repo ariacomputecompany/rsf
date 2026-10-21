@@ -125,13 +125,26 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current control milestone verification (2026-10-21):
+Current recovery RPC milestone verification (2026-10-21):
+`docs/recovery-rpc-verification-2026-10-21.json` records 32 passing RPC tests
+through a recorded host trace with strict verification, replay and CI checks.
+A real TLS acknowledgement-loss test verifies bounded recovery without duplicate
+learner materialization, then proves restart still reapplies the durable snapshot.
+Strict Clippy passes for RPC and daemon targets. The fresh full gate has passed
+its first nine domains and is running daemon integration; no full qualification
+claim is made. Voting requests and rejected/invalid responses do not auto-retry.
+
+Previous control milestone verification (2026-10-21):
 `docs/control-batching-verification-2026-10-21.json` records 89 passing VSR tests,
 29 RPC tests, 65 daemon unit tests and a passing debug automatic-client workload
 with 128 growth writes, 32 concurrent identities and all 162 logical KV writes
 verified on both survivors after primary data deletion. Bounded history batches,
 completed-installation retry and cumulative socket I/O accounting are implemented.
-The full qualification gate is in progress; production readiness remains unproven.
+The full qualification attempt was interrupted after two peer-RPC deadline
+failures, before producing a complete summary. Bounded retries for idempotent
+recovery exchanges and learner materialization acknowledgement recovery now pass
+32 RPC tests, including real TLS response loss and restart. A fresh full gate is
+required; production readiness remains unproven.
 
 Previous SQL milestone verification (2026-10-21):
 `docs/sql-journal-verification-2026-10-21.json` records 66 passing SQL tests,

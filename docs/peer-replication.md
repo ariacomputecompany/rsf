@@ -258,3 +258,19 @@ remains resident. A regression deletes an evicted derived KV store and requires
 the next read to return its committed value, rather than a false miss. This cold
 namespace replay remains proportional to its retained history; durable checkpoints
 are still required to bound reconstruction and memory at large scale.
+
+### Recovery acknowledgement retry
+
+Descriptor-bound learner transfer, election collection and installation RPCs may
+retry once after a timeout, connection reset, broken pipe or truncated reply.
+Each attempt retains the configured absolute RPC deadline and repeats the exact
+request with fresh TLS authentication. Rejected requests and invalid responses
+are not retried; prepare, commit, quorum probes, heartbeats and status retain their
+single-attempt policy. This resolves an uncertain transfer acknowledgement; it
+does not establish voting authority or replace the required quorum checks.
+
+A learner remembers successful materialization by exact snapshot identity only
+for its current server lifetime. Repeating a finish after a lost response does
+not reapply an already completed snapshot. A failed materializer remains pending,
+and a restarted server must materialize from the durable ACTIVE snapshot again.
+Learners remain unable to acknowledge voting requests.
