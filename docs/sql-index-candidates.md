@@ -65,7 +65,9 @@ and committed planning counts through recovery. Native TLS streaming checks real
 indexed results before and after row movements/deletion. Automatic takeover also
 requires an indexed streamed read from the replacement after primary data loss.
 
-The current full report remains historical until unchanged-source qualification
-finishes. All six named regressions and debug/release indexed native/takeover
-metrics are required by the expanded gate. These are local correctness and
-execution-path checks; independent-host capacity remains unqualified.
+The [indexed-candidate qualification](sql-index-verification-2026-10-21.json)
+records all 19 domains and 1,147 workspace tests passing on unchanged source.
+All six named regressions and prior required checks appear in host output.
+Both debug/release native streaming and automatic takeover profiles require the
+indexed-query metrics. These are local correctness and execution-path checks;
+independent-host capacity remains unqualified.

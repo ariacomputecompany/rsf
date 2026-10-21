@@ -125,24 +125,24 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current verification (2026-10-21): `artifacts/verification.oq1pB1/summary.json`
+Current verification (2026-10-21): `artifacts/verification.qnu3Dn/summary.json`
 passes all 19 domains against unchanged executable sources (SHA-256
-`39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b`).
-The workspace host run passes 1,141 tests; its one opt-in stress test is exercised
+`50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b`).
+The workspace host run passes 1,147 tests; its one opt-in stress test is exercised
 separately by both required stress domains. Named regression audit confirms the
 new SQL journal crash boundaries, torn installation batches, completed-installation
 retries, real TLS acknowledgement loss, learner restart and cumulative socket
-I/O deadline checks were executed in the full workspace run. All ten SQL streaming regressions, both required KV atomicity regressions and all 24 required SQL/key regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
+I/O deadline checks were executed in the full workspace run. All six indexed-candidate regressions, ten SQL streaming regressions, both required KV atomicity regressions and all 24 required SQL/key regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
 five-run doctor, strict deterministic orchestration, recorded host execution,
 strict trace verification, replay and CI checks. The recorded host processes
 supply the Rust test evidence; scripted expectations alone do not establish it.
 
-Includes 89 VSR tests, 57 protocol tests, 32 RPC tests, 93 SQL tests, 68 daemon
+Includes 89 VSR tests, 57 protocol tests, 32 RPC tests, 98 SQL tests, 68 daemon
 unit tests and all regular peer-process integration tests. Strict Clippy passes
 for core, index, write, relational commit, SQL, SQL DML/transactions, protocol and daemon targets with `--all-targets --no-deps -D warnings`.
 Workspace-wide lint cleanliness remains separate work. The complete summary is
 saved in `docs/verification-2026-10-21.json`; scoped recovery evidence is in
-`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`; key-identity and index-rebuild evidence is in `docs/sql-key-identity-verification-2026-10-21.json`; shared KV atomicity evidence is in `docs/kv-atomic-batch-verification-2026-10-21.json`; current SQL streaming evidence is in `docs/sql-stream-verification-2026-10-21.json`. Production qualification remains
+`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`; key-identity and index-rebuild evidence is in `docs/sql-key-identity-verification-2026-10-21.json`; shared KV atomicity evidence is in `docs/kv-atomic-batch-verification-2026-10-21.json`; SQL streaming evidence is in `docs/sql-stream-verification-2026-10-21.json`; current indexed-candidate evidence is in `docs/sql-index-verification-2026-10-21.json`. Production qualification remains
 incomplete because the release blockers below remain open.
 
 Opt-in peer client coordination now retains derived inventory with its cells
@@ -159,7 +159,7 @@ accepted-only commands still require fresh replication.
 
 Both required automatic-client profiles grow 128 acknowledged writes, then exercise
 four clients and 32 concurrent identities across primary death and deletion of its
-data. Each profile reports three full recoveries and 149 retained uses before the
+data. Each profile reports three full recoveries and 150 retained uses before the
 crash, preserves four acknowledgements, resolves 28 requests without acknowledgements,
 and verifies all 162 logical KV writes on both survivors without duplicates.
 Coverage also includes an active SQL session and acknowledged predicate read across primary loss, original read replay and phantom rejection, disjoint SQL commits on both survivors, savepoint rollback, atomic schema/row commit, original session results after restart, SQL/object/blob recovery, original certificates, replacement
@@ -183,7 +183,7 @@ See `docs/primary-failover.md`, `docs/peer-replication.md`, and
 
 - Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and durable checkpoint/recovery cursors. Retained client replay cursors are implemented; cold recovery and elections still load complete histories. Complete quorum-certified configuration changes and learner promotion, independent-group client routing, distributed control metadata, and production qualification of automatic takeover. Installed-cell coordinator recovery and four-surface recovery/write integration are implemented; the daemon now optionally schedules peer elections, repairs stale voters, and serves client listeners through scoped installed-cell recovery with shared application writers and primary redirects. Independent-group routing and distributed control metadata remain unfinished. Mixed-view selection, atomic generation installation, and authenticated resumable remote view installation are implemented. Authenticated non-voting history catch-up does not install membership. Prove end-to-end quorum durability under machine failure.
 - Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. Establish the purpose and payload history of old unmarked immutable pins before adopting them as dependencies. The secured daemon currently rejects shared top-level surface directories.
-- Qualify growing-history SQL read/write throughput, cold/session-snapshot memory and incremental planning. Native autocommit result streaming, bounded legacy responses and incremental session result admission are implemented; expanded qualification passes all 19 domains locally; workload capacity remains open. Current native sessions retain bounded durable row/predicate dependencies, including reads and implicit mutation preconditions across savepoint rewinds and failover. Disjoint point transactions can commit; matching predicates, phantoms, tombstones and dependent-key changes reject COMMIT. Validation remains conservative across full predicates and catalog changes, and scans retained history. Legacy active sessions retain namespace-wide snapshot validation because earlier reads were not tracked. Durable principal-owned sessions replicate BEGIN, staged mutations/schema, savepoints, COMMIT and ROLLBACK through complete commands. Legacy snapshot-only command receipts remain readable; all voters and uncertain pre-upgrade writes must be drained/upgraded before qualifying serializable operation. Namespace-bound SQL appends complete commands and synced acknowledged-history heads, then periodically checkpoints and reclaims covered journal records; unbound legacy persistence still rewrites full state. Replicated planning still rebuilds canonical page placement per mutation. Checkpoint MVCC/receipts and maintenance metadata remain unbounded; growing-table capacity and throughput still need qualification.
+- Qualify growing-history SQL read/write throughput, cold/session-snapshot memory and incremental write planning. Bounded indexed SELECT candidates and maintained planning counts are locally qualified. Native autocommit result streaming, bounded legacy responses and incremental session result admission are implemented; expanded qualification passes all 19 domains locally; workload capacity remains open. Current native sessions retain bounded durable row/predicate dependencies, including reads and implicit mutation preconditions across savepoint rewinds and failover. Disjoint point transactions can commit; matching predicates, phantoms, tombstones and dependent-key changes reject COMMIT. Validation remains conservative across full predicates and catalog changes, and scans retained history. Legacy active sessions retain namespace-wide snapshot validation because earlier reads were not tracked. Durable principal-owned sessions replicate BEGIN, staged mutations/schema, savepoints, COMMIT and ROLLBACK through complete commands. Legacy snapshot-only command receipts remain readable; all voters and uncertain pre-upgrade writes must be drained/upgraded before qualifying serializable operation. Namespace-bound SQL appends complete commands and synced acknowledged-history heads, then periodically checkpoints and reclaims covered journal records; unbound legacy persistence still rewrites full state. Replicated planning still rebuilds canonical page placement per mutation. Checkpoint MVCC/receipts and maintenance metadata remain unbounded; growing-table capacity and throughput still need qualification.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.
 - Reproduce and eliminate the earlier unexplained listener address collision, which did not recur in the latest full gate. Exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
 - Qualify primary request latency and growing-history behavior against the deployment workload. Bounded primary runtime batches and resident peer materializers reduce repeated replay, and the opt-in peer client now retains coordination across scoped requests. Legacy listeners still reconstruct history between batches, and cold recovery/elections still load full histories. Both `tests/stress-host.pass.fozzy.json` and the larger optimized workload in `tests/stress-release-host.pass.fozzy.json` are required release checks. Loopback results alone cannot establish independent-host capacity or machine-failure readiness.
@@ -321,7 +321,7 @@ restarted on corrected, frozen source and passed; its trace directory is
 `artifacts/verification.oq1pB1`. Corrected implementation 95647f6 is pushed to
 remote main.
 
-## Indexed SQL candidate milestone (qualification running)
+## Indexed SQL candidate milestone (qualified locally)
 
 Reproduced two failures: an indexed SELECT decoded an unrelated malformed row,
 and live typed secondary lookups missed noncanonical int/bool spellings that
@@ -334,9 +334,16 @@ Derived committed row/encoded-byte counts now update with row effects and rebuil
 on recovery. SELECT fallback planning and row_count no longer scan the table.
 Counts are not new durable authority; explicit ANALYZE precedence is unchanged.
 The targeted suite passes 98 SQL and nine index tests. Strict Clippy passes for
-index/SQL/daemon all-targets/no-deps with warnings denied. Full native and expanded
-qualification are pending. Six named regressions and indexed native/takeover
-metrics are required by the full gate. See `docs/sql-index-candidates.md`.
+index/SQL/daemon all-targets/no-deps with warnings denied. Full unchanged-source
+qualification passes all 19 domains and 1,147 workspace tests with zero failures.
+All six new named regressions and prior required regressions appear in actual
+host output. Both native streaming profiles verify indexed queries around row
+movements/deletion, and both automatic takeover profiles perform an indexed read
+from the replacement after old-primary data loss. Debug/release stress retains
+198/774 acknowledgements, 18 abrupt shutdowns and three uncertain-write
+resolutions per profile. Implementation 783d13f is pushed to remote main.
+See `docs/sql-index-candidates.md` and
+`docs/sql-index-verification-2026-10-21.json`.
 
 Full-state write planning, cold/session snapshot reconstruction, history/receipt
 retention and independent-host workload qualification remain open.

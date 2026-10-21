@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b",
-  "source_sha256_after": "39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b",
+  "source_sha256_before": "50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b",
+  "source_sha256_after": "50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -26,21 +26,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.oq1pB1",
+  "trace_directory": "artifacts/verification.qnu3Dn",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 14.493117920310045,
-      "elapsed_ms": 70046,
+      "concurrent_write_ops_per_second": 14.167388133528519,
+      "elapsed_ms": 70977,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 540094,
-        "p50": 266936,
-        "p95": 312856,
-        "p99": 474118
+        "max": 567241,
+        "p50": 271834,
+        "p95": 319410,
+        "p99": 501153
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -53,14 +53,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 21.321446034906483,
-      "elapsed_ms": 96931,
+      "concurrent_write_ops_per_second": 20.77861867152064,
+      "elapsed_ms": 99720,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 323203,
-        "p50": 179356,
-        "p95": 234205,
-        "p99": 293174
+        "max": 298025,
+        "p50": 188160,
+        "p95": 231113,
+        "p99": 285830
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -76,11 +76,12 @@
       "active_sql_session_resumed": true,
       "concurrent_clients": 4,
       "coordinator_recoveries_before_crash": 3,
-      "coordinator_reuses_before_crash": 149,
+      "coordinator_reuses_before_crash": 150,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 72530,
-      "history_growth_ms": 35248,
+      "elapsed_ms": 69809,
+      "history_growth_ms": 32827,
       "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
       "precrash_sql_read_dependency_recovered": true,
       "primary_state_deleted": true,
       "profile": "debug",
@@ -103,11 +104,12 @@
       "active_sql_session_resumed": true,
       "concurrent_clients": 4,
       "coordinator_recoveries_before_crash": 3,
-      "coordinator_reuses_before_crash": 149,
+      "coordinator_reuses_before_crash": 150,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 55154,
-      "history_growth_ms": 27768,
+      "elapsed_ms": 61460,
+      "history_growth_ms": 29283,
       "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
       "precrash_sql_read_dependency_recovered": true,
       "primary_state_deleted": true,
       "profile": "release",
@@ -127,6 +129,15 @@
     }
   },
   "automatic_client_evidence_valid": true,
+  "sql_index_evidence_valid": true,
+  "sql_index_regressions": {
+    "borrowed_index_lookup_preserves_order_scope_and_storage_identity": true,
+    "indexed_select_uses_only_matching_candidates_and_stops_at_limit": true,
+    "typed_secondary_index_keys_are_canonical_across_writes_and_recovery": true,
+    "indexed_transaction_overlay_merges_entries_movements_and_savepoint_rewinds": true,
+    "indexed_reads_reject_missing_or_mismatched_committed_entries": true,
+    "query_size_metadata_tracks_physical_writes_transactions_and_recovery": true
+  },
   "sql_stream_evidence_valid": true,
   "sql_stream_regressions": {
     "borrowed_prefix_scans_preserve_order_bounds_and_tombstones": true,
@@ -145,7 +156,8 @@
       "buffered_overflow_rejected": true,
       "bytes": 264960,
       "chunk_bound": 4096,
-      "elapsed_ms": 88800,
+      "elapsed_ms": 86772,
+      "indexed_queries_verified": true,
       "profile": "debug",
       "quorum_loss_rejected": true,
       "rows": 128,
@@ -156,7 +168,8 @@
       "buffered_overflow_rejected": true,
       "bytes": 264960,
       "chunk_bound": 4096,
-      "elapsed_ms": 25277,
+      "elapsed_ms": 26468,
+      "indexed_queries_verified": true,
       "profile": "release",
       "quorum_loss_rejected": true,
       "rows": 128,
@@ -205,12 +218,12 @@
     "CI"
   ],
   "production_qualified": false,
-  "source_commit": "95647f6c7ec53bde27bfea09321f91b57b7f8c66",
+  "source_commit": "783d13f6a35e7b8ee1b4aab210a53794778cb7cb",
   "scope": "single-host loopback TLS with fsync; independent-machine, WAN, workload-capacity and complete production qualification remain open",
   "workspace_regression_audit": {
-    "source_sha256": "39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b",
+    "source_sha256": "50d31e2d8f70e09fa3b30e4c60973e8b9ea891954b018bba9a59c8e407a0d47b",
     "counts": {
-      "passed": 1141,
+      "passed": 1147,
       "failed": 0,
       "ignored": 1,
       "result_groups": 163
@@ -256,6 +269,14 @@
       "sql_stream_sink_failure_never_publishes_completion": true,
       "streaming_application_work_cannot_renew_blocked_socket_budget": true,
       "native_sql_streams_large_results_and_bounds_legacy_responses": true
+    },
+    "required_sql_index_regressions": {
+      "borrowed_index_lookup_preserves_order_scope_and_storage_identity": true,
+      "indexed_select_uses_only_matching_candidates_and_stops_at_limit": true,
+      "typed_secondary_index_keys_are_canonical_across_writes_and_recovery": true,
+      "indexed_transaction_overlay_merges_entries_movements_and_savepoint_rewinds": true,
+      "indexed_reads_reject_missing_or_mismatched_committed_entries": true,
+      "query_size_metadata_tracks_physical_writes_transactions_and_recovery": true
     },
     "verified_prior_regressions": [
       "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",

@@ -227,7 +227,7 @@ The [key-identity verification](sql-key-identity-verification-2026-10-21.json)
 records both original failing reproductions, all eight new required regressions,
 legacy follower reconstruction after derived SQL directory deletion, and isolated
 colliding table names through debug/release takeover. All 24 required SQL/key
-regressions ran in the current full workspace trace (1,129 passing tests).
+regressions ran in that full workspace trace (1,129 passing tests).
 
 The [current full verification](verification-2026-10-21.json) passes all 19
 domains on unchanged source, including the full workspace suite, native SQL
@@ -251,3 +251,10 @@ result admission and post-takeover streaming. All ten named streaming regression
 ran in the current workspace trace, alongside prior session/key/atomicity checks.
 Both debug/release native streaming workloads delivered all 128 rows and 264,960
 JSON bytes; this is delivery/recovery evidence, not workload capacity qualification.
+
+The [indexed-candidate qualification](sql-index-verification-2026-10-21.json) adds
+actual bounded secondary lookup, canonical typed index values and maintained
+committed planning sizes. All six required regressions appear in the current
+workspace trace. Both debug/release native and takeover profiles verify indexed
+reads. Growing-history write planning, cold recovery and workload capacity remain
+release work.

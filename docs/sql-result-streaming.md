@@ -95,3 +95,7 @@ streaming and takeover profiles. It retains the earlier stopped attempt and the
 indexed nullable-row baseline/correction. Workload elapsed time includes setup
 and population; these are delivery/recovery checks, not production throughput
 or independent-machine capacity qualification.
+
+The subsequent [indexed-candidate qualification](sql-index-verification-2026-10-21.json)
+verifies actual secondary-index traversal, canonical typed keys and recovered
+planning counts, including all 19 domains and 1,147 workspace tests.
