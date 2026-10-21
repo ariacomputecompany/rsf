@@ -377,6 +377,16 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "{response}"
         );
     }
+    let streamed = surface_request(
+        address,
+        Sql,
+        "SELECT * FROM collision",
+        "stream-after-takeover",
+        rsf_wire::sql_stream::SQL_STREAM_REQUEST,
+    );
+    let streamed = super::sql_stream::rows(&streamed);
+    assert_eq!(streamed.len(), 1);
+    assert_eq!(streamed[0]["name"], "parentvalue");
     for (key, request, value, original) in &concurrent {
         let retry = must_execute(address, Kv, &format!("SET {key}"), request, value);
         if let Ok(original) = original
@@ -741,6 +751,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "serializable_sql_phantom_rejected":true,
             "precrash_sql_read_dependency_recovered":true,"disjoint_sql_sessions_committed":true,
             "sql_key_components_isolated":true,
+            "sql_stream_after_takeover":true,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"
         })

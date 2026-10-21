@@ -356,11 +356,28 @@ impl KvEngine {
             .collect()
     }
 
-    pub fn scan_prefix(&self, prefix: &[u8]) -> Vec<(Bytes, KvVersionedValue)> {
+    /// Borrow visible keys/values in byte order without materializing a scan.
+    pub fn iter_prefix<'a>(
+        &'a self,
+        prefix: &'a [u8],
+    ) -> impl Iterator<Item = (&'a [u8], &'a KvVersionedValue)> + 'a {
         self.data
-            .iter()
-            .filter(|(key, _)| key.starts_with(prefix))
-            .filter_map(|(key, _)| self.get(key).map(|value| (key.clone(), value.clone())))
+            .range::<[u8], _>((
+                std::ops::Bound::Included(prefix),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(move |(key, _)| key.starts_with(prefix))
+            .filter_map(|(key, versions)| {
+                versions
+                    .last()
+                    .filter(|value| !value.deleted)
+                    .map(|value| (key.as_slice(), value))
+            })
+    }
+
+    pub fn scan_prefix(&self, prefix: &[u8]) -> Vec<(Bytes, KvVersionedValue)> {
+        self.iter_prefix(prefix)
+            .map(|(key, value)| (key.to_vec(), value.clone()))
             .collect()
     }
 
@@ -915,6 +932,24 @@ fn ensure_operation_matches_router_route(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn borrowed_prefix_scans_preserve_order_bounds_and_tombstones() {
+        let mut kv = KvEngine::default();
+        for key in [b"aa".as_slice(), b"ab", b"ab\0", b"ab\xff", b"ac"] {
+            kv.apply_committed_set(key.to_vec(), key.to_vec(), CommitVersion(1));
+        }
+        kv.apply_committed_clear(b"ab\0".to_vec(), CommitVersion(2));
+        let rows = kv.iter_prefix(b"ab").collect::<Vec<_>>();
+        assert_eq!(
+            rows.iter().map(|(key, _)| *key).collect::<Vec<_>>(),
+            vec![b"ab".as_slice(), b"ab\xff"]
+        );
+        assert!(std::ptr::eq(rows[0].1, kv.get(b"ab").unwrap()));
+        assert_eq!(kv.iter_prefix(b"").count(), 4);
+        assert_eq!(kv.iter_prefix(b"missing").count(), 0);
+        assert_eq!(kv.iter_prefix(b"ab").take(1).count(), 1);
+    }
+
     use super::*;
     use rsf_core::{Epoch, NodeId};
     use rsf_protocol::{FabricRouter, VsrBackedFabricRouter};

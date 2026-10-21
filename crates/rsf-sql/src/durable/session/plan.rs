@@ -495,9 +495,30 @@ pub(in crate::durable) fn read(
     else {
         return Err(invalid("SQL session inspection requires SELECT"));
     };
-    let mut rows = work
-        .engine
-        .execute_select(&table, projection, predicate, limit)?;
+    let mut rows = Vec::new();
+    let mut bytes = 2_usize; // Canonical JSON array brackets and row separators.
+    work.engine
+        .visit_select(&table, projection, predicate, limit, |row| {
+            let version = row.version;
+            let canonical = SessionRow {
+                table: row.table,
+                key: row.primary_key,
+                columns: row.columns,
+            };
+            bytes = bytes.saturating_add(encode(&canonical)?.len() + usize::from(!rows.is_empty()));
+            if bytes > MAX_SQL_SESSION_READ_BYTES {
+                return Err(invalid(
+                    "SQL session SELECT result exceeds limit; use a smaller LIMIT",
+                ));
+            }
+            rows.push(crate::Row {
+                table: canonical.table,
+                primary_key: canonical.key,
+                columns: canonical.columns,
+                version,
+            });
+            Ok(())
+        })?;
     for row in &mut rows {
         if row.version.0 > state.snapshot {
             row.version = CommitVersion(state.snapshot);

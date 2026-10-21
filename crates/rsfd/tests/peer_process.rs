@@ -21,6 +21,8 @@ const PEER_TIMEOUT_MS: u64 = 2_000;
 mod automatic;
 #[path = "peer_process/client_takeover.rs"]
 mod client_takeover;
+#[path = "peer_process/sql_stream.rs"]
+mod sql_stream;
 #[path = "peer_process/stress.rs"]
 mod stress;
 #[path = "peer_process/takeover.rs"]

@@ -96,6 +96,7 @@ run_domain authentication tests/auth-host.pass.fozzy.json
 run_domain tenancy tests/tenancy-host.pass.fozzy.json
 run_domain daemon tests/rsfd-host.pass.fozzy.json
 run_domain automatic-client tests/automatic-client-host.pass.fozzy.json
+run_domain sql-stream tests/sql-stream-host.pass.fozzy.json
 run_domain daemon-stress tests/stress-host.pass.fozzy.json
 run_domain release-stress tests/stress-release-host.pass.fozzy.json
 run_domain object-blob tests/object-blob-host.pass.fozzy.json
@@ -175,6 +176,7 @@ automatic_valid = all(
     and automatic_client_metrics[profile].get("precrash_sql_read_dependency_recovered") is True
     and automatic_client_metrics[profile].get("disjoint_sql_sessions_committed") is True
     and automatic_client_metrics[profile].get("sql_key_components_isolated") is True
+    and automatic_client_metrics[profile].get("sql_stream_after_takeover") is True
     for profile in ("debug", "release")
 )
 session_regressions = [
@@ -226,8 +228,46 @@ kv_batch_evidence = {
     )
 }
 kv_batches_valid = all(kv_batch_evidence.values())
+stream_regressions = [
+    "borrowed_prefix_scans_preserve_order_bounds_and_tombstones",
+    "pull_execution_stops_at_limit_and_sink_failure_without_reading_ahead",
+    "sql_pull_limit_does_not_decode_later_rows_and_sink_failure_stops",
+    "sql_pull_merges_ordered_overlay_and_retains_only_latest_report",
+    "sql_stream_decoder_requires_complete_ordered_bounded_results",
+    "sql_row_chunks_bound_frames_and_preserve_escaped_json",
+    "sql_stream_sink_failure_never_publishes_completion",
+    "streaming_application_work_cannot_renew_blocked_socket_budget",
+    "native_sql_streams_large_results_and_bounds_legacy_responses",
+]
+stream_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in stream_regressions
+}
+stream_metrics = {}
+stream_trace = Path(root, "sql-stream.trace.fozzy")
+if stream_trace.exists():
+    for decision in json.loads(stream_trace.read_text()).get("decisions", []):
+        if decision.get("kind") != "proc_spawn" or decision.get("exit_code") != 0:
+            continue
+        for line in decision.get("stdout", "").splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if value.get("workload") == "native-sql-stream":
+                stream_metrics[value.get("profile")] = value
+streams_valid = all(stream_evidence.values()) and all(
+    profile in stream_metrics
+    and stream_metrics[profile].get("rows") == 128
+    and stream_metrics[profile].get("bytes", 0) > 65536
+    and stream_metrics[profile].get("chunk_bound") == 4096
+    and stream_metrics[profile].get("buffered_overflow_rejected") is True
+    and stream_metrics[profile].get("quorum_loss_rejected") is True
+    for profile in ("debug", "release")
+)
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -239,6 +279,9 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "sql_stream_evidence_valid": streams_valid,
+    "sql_stream_regressions": stream_evidence,
+    "sql_stream_metrics": stream_metrics,
     "kv_atomic_batch_evidence_valid": kv_batches_valid,
     "kv_atomic_batch_regressions": kv_batch_evidence,
     "sql_session_evidence_valid": sessions_valid,

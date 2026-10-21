@@ -2,6 +2,7 @@
 
 mod durable;
 mod pages;
+mod reads;
 
 use rsf_core::relational_key::RelationalKeyFormat;
 use std::collections::{BTreeMap, BTreeSet};
@@ -282,7 +283,8 @@ pub struct SqlEngine {
     page_wal_redo_records: Vec<Vec<u8>>,
     layout_decisions: BTreeMap<String, SqlLayoutDecision>,
     next_page_lsn: u64,
-    query_reports: Vec<SqlQueryReport>,
+    query_reports: Option<SqlQueryReport>,
+    query_report_count: usize,
     portals: SqlPortalSession,
     stats: StatisticsCatalog,
     schema_version: CommitVersion,
@@ -311,7 +313,8 @@ impl Default for SqlEngine {
             page_wal_redo_records: Vec::new(),
             layout_decisions: BTreeMap::new(),
             next_page_lsn: 1,
-            query_reports: Vec::new(),
+            query_reports: None,
+            query_report_count: 0,
             portals: SqlPortalSession::default(),
             stats: StatisticsCatalog::default(),
             schema_version: CommitVersion::GENESIS,
@@ -1074,11 +1077,11 @@ impl SqlEngine {
     }
 
     pub fn query_report_count(&self) -> usize {
-        self.query_reports.len()
+        self.query_report_count
     }
 
     pub fn last_query_report(&self) -> Option<&SqlQueryReport> {
-        self.query_reports.last()
+        self.query_reports.as_ref()
     }
 
     pub fn prepare_statement(
@@ -1113,7 +1116,7 @@ impl SqlEngine {
         deadline_ms: u64,
     ) -> RsfResult<SqlPortalExecution> {
         let statement = self.portals.bound_sql(portal)?;
-        let previous_report_count = self.query_reports.len();
+        let previous_report_count = self.query_report_count;
         let outcome = self.execute(router, pg, &statement)?;
         let elapsed_ms = self.portal_elapsed_ms(previous_report_count);
         let rows = outcome_row_count(&outcome);
@@ -1246,49 +1249,6 @@ impl SqlEngine {
             .into_iter()
             .filter_map(|primary_key| self.physical_row(table_record, &primary_key))
             .collect()
-    }
-
-    fn execute_select(
-        &mut self,
-        table: &str,
-        projection: Projection,
-        predicate: Option<Predicate>,
-        limit: Option<usize>,
-    ) -> RsfResult<Vec<Row>> {
-        let table_record = self.table_record(table)?.clone();
-        let requested_projection = projection.clone();
-        let typed_predicate = type_select_predicate(&table_record, predicate)?;
-        let logical = QueryPlanner.select(
-            &table_record.descriptor,
-            projection_with_primary(&table_record, projection),
-            typed_predicate,
-            limit,
-        )?;
-        let physical = PhysicalPlanner.plan(
-            &table_record.descriptor,
-            &logical,
-            &PhysicalPlanningContext {
-                stats: self.table_stats(&table_record),
-                indexes: self.secondary_index_descriptors(&table_record),
-                stream_threshold_bytes: 64 * 1024,
-                cacheable: false,
-            },
-        )?;
-        let execution = PhysicalExecutor.execute(&physical)?;
-        let candidates = self.query_candidates(&table_record, &logical, &physical)?;
-        let result = QueryExecutor.execute(&logical, &candidates)?;
-        self.query_reports.push(SqlQueryReport {
-            logical,
-            physical,
-            execution,
-        });
-        let mut rows = result
-            .rows
-            .into_iter()
-            .map(|row| row_from_query_row(&table_record, row))
-            .collect::<RsfResult<Vec<_>>>()?;
-        apply_requested_projection(&mut rows, &requested_projection)?;
-        Ok(rows)
     }
 
     fn begin_transaction(
@@ -1536,38 +1496,6 @@ impl SqlEngine {
         self.physical_primary_row(table_record, primary_key)
     }
 
-    fn transaction_rows_for_table(&self, table: &str) -> Vec<Row> {
-        let mut rows = self
-            .committed_rows_for_table(table)
-            .into_iter()
-            .map(|row| (row.primary_key.clone(), row))
-            .collect::<BTreeMap<_, _>>();
-        if let Some(transaction) = &self.transaction {
-            for ((staged_table, primary_key), mutation) in &transaction.staged {
-                if staged_table != table {
-                    continue;
-                }
-                match mutation {
-                    SqlTransactionMutation::Set(columns) => {
-                        rows.insert(
-                            primary_key.clone(),
-                            Row {
-                                table: table.to_string(),
-                                primary_key: primary_key.clone(),
-                                columns: columns.clone(),
-                                version: transaction.snapshot,
-                            },
-                        );
-                    }
-                    SqlTransactionMutation::Delete => {
-                        rows.remove(primary_key);
-                    }
-                }
-            }
-        }
-        rows.into_values().collect()
-    }
-
     fn validate_transaction_candidate(
         &self,
         table: &str,
@@ -1766,98 +1694,12 @@ impl SqlEngine {
     }
 
     fn portal_elapsed_ms(&self, previous_report_count: usize) -> u64 {
-        if self.query_reports.len() > previous_report_count {
+        if self.query_report_count > previous_report_count {
             self.last_query_report()
                 .map(|report| report.execution.stages.len().max(1) as u64)
                 .unwrap_or(1)
         } else {
             1
-        }
-    }
-
-    fn query_candidates(
-        &self,
-        table: &Table,
-        logical: &QueryPlan,
-        physical: &PhysicalPlan,
-    ) -> RsfResult<Vec<QueryRow>> {
-        let access = physical
-            .operators
-            .iter()
-            .find_map(|operator| match operator.access {
-                AccessPath::CacheLookup | AccessPath::StreamRead { .. } => None,
-                _ => Some(&operator.access),
-            })
-            .ok_or_else(|| {
-                RsfError::new(
-                    ErrorCode::InvalidInput,
-                    "physical query plan has no row-producing access operator",
-                )
-            })?;
-
-        let rows = match access {
-            AccessPath::PrimaryKeyLookup { column } => {
-                let Some(value) = equality_text_value(logical.predicate.as_ref(), column) else {
-                    return Ok(Vec::new());
-                };
-                self.transaction_row(&table.name, &value)
-                    .into_iter()
-                    .collect::<Vec<_>>()
-            }
-            AccessPath::SecondaryIndexLookup { column, .. } => {
-                let Some(value) = equality_text_value(logical.predicate.as_ref(), column) else {
-                    return Ok(Vec::new());
-                };
-                self.transaction_rows_for_table(&table.name)
-                    .into_iter()
-                    .filter(|row| {
-                        row.columns
-                            .get(column)
-                            .is_some_and(|actual| actual == &value)
-                    })
-                    .collect()
-            }
-            AccessPath::RangeScan => self.transaction_rows_for_table(&table.name),
-            AccessPath::CacheLookup | AccessPath::StreamRead { .. } => Vec::new(),
-        };
-
-        rows.into_iter()
-            .map(|row| query_row_from_row(table, &row))
-            .collect()
-    }
-
-    fn table_stats(&self, table: &Table) -> TableStats {
-        if let Some(estimate) = self.stats.estimate(&table.descriptor.name)
-            && estimate.rows > 0
-        {
-            return TableStats {
-                table: estimate.table.clone(),
-                rows: estimate.rows,
-                average_row_bytes: estimate.average_row_bytes().max(1),
-            };
-        }
-        let rows = self
-            .committed_rows_for_table(&table.name)
-            .into_iter()
-            .collect::<Vec<_>>();
-        let row_count = rows.len() as u64;
-        let total_bytes = rows
-            .iter()
-            .map(|row| {
-                row.columns
-                    .iter()
-                    .map(|(column, value)| column.len() + value.len())
-                    .sum::<usize>()
-            })
-            .sum::<usize>() as u64;
-        TableStats {
-            table: table.descriptor.name.clone(),
-            rows: row_count,
-            average_row_bytes: if row_count == 0 {
-                1
-            } else {
-                (total_bytes / row_count).max(1)
-            },
         }
     }
 

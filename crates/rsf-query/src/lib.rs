@@ -83,20 +83,45 @@ pub struct QueryExecutor;
 impl QueryExecutor {
     pub fn execute(&self, plan: &QueryPlan, rows: &[QueryRow]) -> RsfResult<QueryResult> {
         let mut output = Vec::new();
-        for row in rows.iter().filter(|row| row.table == plan.table) {
-            if !plan
-                .predicate
-                .as_ref()
-                .is_none_or(|predicate| predicate_matches(predicate, row))
+        self.visit(plan, rows.iter().cloned().map(Ok), |row| {
+            output.push(row);
+            Ok(())
+        })?;
+        Ok(QueryResult { rows: output })
+    }
+
+    /// Pull one candidate at a time. A LIMIT or sink failure stops the source;
+    /// no candidate/result collection is retained by the executor.
+    pub fn visit(
+        &self,
+        plan: &QueryPlan,
+        rows: impl IntoIterator<Item = RsfResult<QueryRow>>,
+        mut sink: impl FnMut(QueryRow) -> RsfResult<()>,
+    ) -> RsfResult<usize> {
+        if plan.limit == Some(0) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "query limit must be greater than zero",
+            ));
+        }
+        let mut count = 0;
+        for row in rows {
+            let row = row?;
+            if row.table != plan.table
+                || !plan
+                    .predicate
+                    .as_ref()
+                    .is_none_or(|predicate| predicate_matches(predicate, &row))
             {
                 continue;
             }
-            output.push(project_row(row, &plan.projection)?);
-            if plan.limit.is_some_and(|limit| output.len() >= limit) {
+            sink(project_row(&row, &plan.projection)?)?;
+            count += 1;
+            if plan.limit.is_some_and(|limit| count >= limit) {
                 break;
             }
         }
-        Ok(QueryResult { rows: output })
+        Ok(count)
     }
 }
 
@@ -257,6 +282,39 @@ fn project_row(row: &QueryRow, projection: &Projection) -> RsfResult<QueryRow> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pull_execution_stops_at_limit_and_sink_failure_without_reading_ahead() {
+        use std::cell::Cell;
+        let produced = Cell::new(0);
+        let plan = QueryPlan {
+            table: TableName("rows".into()),
+            projection: Projection::All,
+            predicate: None,
+            limit: Some(2),
+        };
+        let source = || {
+            (0_u64..).map(|id| {
+                produced.set(produced.get() + 1);
+                Ok(QueryRow {
+                    table: plan.table.clone(),
+                    columns: BTreeMap::from([("id".into(), QueryValue::Text(id.to_string()))]),
+                })
+            })
+        };
+        assert_eq!(QueryExecutor.visit(&plan, source(), |_| Ok(())).unwrap(), 2);
+        assert_eq!(produced.get(), 2);
+        produced.set(0);
+        assert!(
+            QueryExecutor
+                .visit(&plan, source(), |_| Err(RsfError::new(
+                    ErrorCode::InvalidInput,
+                    "closed sink"
+                )))
+                .is_err()
+        );
+        assert_eq!(produced.get(), 1);
+    }
+
     use rsf_core::catalog::{ColumnDescriptor, ColumnType, NamespaceName};
 
     use super::*;

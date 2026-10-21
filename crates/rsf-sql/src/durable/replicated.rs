@@ -208,6 +208,22 @@ impl DurableSqlEngine {
     /// Inspect the local materialized snapshot. This does not establish leader
     /// freshness; network callers must confirm their read consistency separately.
     pub fn read_snapshot(&mut self, statement: &str) -> RsfResult<DurableSqlExecution> {
+        let mut rows = Vec::new();
+        self.read_snapshot_into(statement, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(execution(SqlOutcome::Selected { rows }, false))
+    }
+
+    /// Visit the local SELECT snapshot without collecting candidates/results.
+    /// The caller establishes network read freshness and serializes writes for
+    /// the duration of the visit. Sink failure stops execution immediately.
+    pub fn read_snapshot_into(
+        &mut self,
+        statement: &str,
+        sink: impl FnMut(crate::Row) -> RsfResult<()>,
+    ) -> RsfResult<usize> {
         self.ensure_healthy()?;
         if self.pending.is_some() {
             return Err(corrupt("resolve the pending SQL statement before reading"));
@@ -221,10 +237,8 @@ impl DurableSqlEngine {
         else {
             return Err(invalid("SQL snapshot inspection requires SELECT"));
         };
-        let rows = self
-            .engine
-            .execute_select(&table, projection, predicate, limit)?;
-        Ok(execution(SqlOutcome::Selected { rows }, false))
+        self.engine
+            .visit_select(&table, projection, predicate, limit, sink)
     }
 
     /// Resolve the local pending statement before exposing SQL reads. Callers

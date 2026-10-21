@@ -169,8 +169,11 @@ The transaction is pinned to its original placement group. Limits per namespace
 are 128 active sessions, 64 staged mutation statements per transaction, 32
 savepoints, 128 unique row/query dependencies, 64 KiB of canonical session state,
 24 KiB of canonical SELECT rows and 384 KiB of canonical transition payload.
-SELECTs that exceed the result bound require a smaller LIMIT. This bounds the
-persisted result, not peak query memory; result streaming remains unfinished.
+SELECTs that exceed the result bound require a smaller LIMIT. Result admission
+checks canonical bytes while rows are produced, before retaining the next row.
+Session snapshot reconstruction and retained database/history memory remain
+separate capacity work. Autocommit native reads support
+[bounded result streaming](sql-result-streaming.md).
 Limit failures occur before intent or
 protocol submission and preserve the transaction for rollback. There is no
 automatic expiry; clients must close abandoned transactions. Session reads and
@@ -234,9 +237,9 @@ attempts remain recorded in the scoped journal report; later transport and
 installation fixes are covered by the current full source hash. This is local
 loopback TLS/fsync evidence, not full production qualification.
 
-Bounded result streaming, bounded receipt retention,
+Bounded receipt retention,
 incremental physical planning and growing-table capacity qualification remain
-release work. Multiple pages and atomic row relocation are implemented. Native
+release work. Multiple pages and atomic row relocation are implemented. Native request
 frames are limited to 64 KiB and complete commands to 1 MiB. Certified network
 membership changes, independent-group routing, explicit legacy migration and
 independent-machine fault/performance measurements remain unfinished. Opt-in

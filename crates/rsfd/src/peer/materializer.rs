@@ -95,6 +95,7 @@ impl ApplicationMaterializer {
         &mut self,
         envelope: &rsf_wire::RequestEnvelope,
         router: &mut rsf_protocol::VsrBackedFabricRouter<T>,
+        output: &mut dyn std::io::Write,
     ) -> RsfResult<crate::data::DataPlaneResponse> {
         use rsf_wire::WireProtocol;
         let surface = match envelope.protocol {
@@ -133,7 +134,7 @@ impl ApplicationMaterializer {
                 }
                 Store::Sql(sql) => {
                     sql.reconcile(router)?;
-                    crate::data::execution::sql(envelope, router, sql)
+                    crate::data::execution::sql(envelope, router, sql, output)
                 }
                 Store::Object(objects) => {
                     objects.reconcile(router)?;
@@ -307,7 +308,9 @@ mod tests {
             body_bytes: 0,
             body: vec![],
         };
-        let response = materializer.execute(&envelope, &mut router).unwrap();
+        let response = materializer
+            .execute(&envelope, &mut router, &mut std::io::sink())
+            .unwrap();
         let crate::data::DataPlaneResponse::Executed { payload, .. } = response else {
             panic!("read did not execute")
         };

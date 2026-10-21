@@ -183,7 +183,7 @@ See `docs/primary-failover.md`, `docs/peer-replication.md`, and
 
 - Replace remaining local transport paths in admin/policy orchestration. Add cross-group application scheduling and durable checkpoint/recovery cursors. Retained client replay cursors are implemented; cold recovery and elections still load complete histories. Complete quorum-certified configuration changes and learner promotion, independent-group client routing, distributed control metadata, and production qualification of automatic takeover. Installed-cell coordinator recovery and four-surface recovery/write integration are implemented; the daemon now optionally schedules peer elections, repairs stale voters, and serves client listeners through scoped installed-cell recovery with shared application writers and primary redirects. Independent-group routing and distributed control metadata remain unfinished. Mixed-view selection, atomic generation installation, and authenticated resumable remote view installation are implemented. Authenticated non-voting history catch-up does not install membership. Prove end-to-end quorum durability under machine failure.
 - Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. Establish the purpose and payload history of old unmarked immutable pins before adopting them as dependencies. The secured daemon currently rejects shared top-level surface directories.
-- Implement bounded SQL result streaming and qualify growing-history read/write throughput. Current native sessions retain bounded durable row/predicate dependencies, including reads and implicit mutation preconditions across savepoint rewinds and failover. Disjoint point transactions can commit; matching predicates, phantoms, tombstones and dependent-key changes reject COMMIT. Validation remains conservative across full predicates and catalog changes, and scans retained history. Legacy active sessions retain namespace-wide snapshot validation because earlier reads were not tracked. Durable principal-owned sessions replicate BEGIN, staged mutations/schema, savepoints, COMMIT and ROLLBACK through complete commands. Legacy snapshot-only command receipts remain readable; all voters and uncertain pre-upgrade writes must be drained/upgraded before qualifying serializable operation. Namespace-bound SQL appends complete commands and synced acknowledged-history heads, then periodically checkpoints and reclaims covered journal records; unbound legacy persistence still rewrites full state. Replicated planning still rebuilds canonical page placement per mutation. Checkpoint MVCC/receipts and maintenance metadata remain unbounded; growing-table capacity and throughput still need qualification.
+- Qualify growing-history SQL read/write throughput, cold/session-snapshot memory and incremental planning. Native autocommit result streaming, bounded legacy responses and incremental session result admission are implemented; full expanded qualification is running. Current native sessions retain bounded durable row/predicate dependencies, including reads and implicit mutation preconditions across savepoint rewinds and failover. Disjoint point transactions can commit; matching predicates, phantoms, tombstones and dependent-key changes reject COMMIT. Validation remains conservative across full predicates and catalog changes, and scans retained history. Legacy active sessions retain namespace-wide snapshot validation because earlier reads were not tracked. Durable principal-owned sessions replicate BEGIN, staged mutations/schema, savepoints, COMMIT and ROLLBACK through complete commands. Legacy snapshot-only command receipts remain readable; all voters and uncertain pre-upgrade writes must be drained/upgraded before qualifying serializable operation. Namespace-bound SQL appends complete commands and synced acknowledged-history heads, then periodically checkpoints and reclaims covered journal records; unbound legacy persistence still rewrites full state. Replicated planning still rebuilds canonical page placement per mutation. Checkpoint MVCC/receipts and maintenance metadata remain unbounded; growing-table capacity and throughput still need qualification.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.
 - Reproduce and eliminate the earlier unexplained listener address collision, which did not recur in the latest full gate. Exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
 - Qualify primary request latency and growing-history behavior against the deployment workload. Bounded primary runtime batches and resident peer materializers reduce repeated replay, and the opt-in peer client now retains coordination across scoped requests. Legacy listeners still reconstruct history between batches, and cold recovery/elections still load full histories. Both `tests/stress-host.pass.fozzy.json` and the larger optimized workload in `tests/stress-release-host.pass.fozzy.json` are required release checks. Loopback results alone cannot establish independent-host capacity or machine-failure readiness.
@@ -278,3 +278,29 @@ three uncertain-write resolutions per profile. Implementation e1f53ed is pushed
 to remote main. Complete evidence is in
 `docs/kv-atomic-batch-verification-2026-10-21.json`; broad production qualification
 remains incomplete for the release blockers above.
+
+## SQL result streaming milestone (qualification running)
+
+Replaced eager candidate/result scans with pull-based typed execution, borrowed
+KV prefix iteration and ordered staged-row merging. LIMIT and sink errors stop
+the source. Fallback query statistics no longer decode/collect a whole table, and
+only the latest query report is retained alongside its cumulative count. Removed
+the obsolete eager transaction query-overlay helper.
+
+Standalone and elected-peer native listeners accept RSF_SQL_STREAM_V1 SELECTs,
+sending JSON rows in bounded 4 KiB hex chunks with explicit row/completion counts.
+The public wire decoder rejects incomplete, oversized or inconsistent streams.
+Native legacy reads retain at most 64 KiB of JSON and explicitly direct larger
+queries to streaming. Session result admission checks its existing 24 KiB bound
+as rows are produced. The cumulative socket I/O budget includes stream writes
+while excluding application CPU; blocked clients cannot renew the deadline.
+
+Targeted qualification passes 29 KV, 10 query, 92 SQL, 13 wire and 68 daemon unit
+tests. Strict Clippy passes for KV/query/SQL/wire/daemon all-targets, no-deps with
+warnings denied. The real TLS workload streams all 128 rows and 264,960 JSON
+bytes, checks projection/empty results/buffered overflow and rejects quorum loss.
+The full Fozzy gate is expanded to 19 domains, debug/release streaming workloads,
+replacement-primary streaming and nine required named workspace regressions. Its
+final outcome will be recorded separately from the tested implementation push.
+See `docs/sql-result-streaming.md`; retained histories, cold/session snapshot
+reconstruction, incremental planning and independent-host capacity remain open.

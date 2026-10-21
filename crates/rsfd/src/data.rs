@@ -1,5 +1,6 @@
 mod deadline;
 pub(crate) mod execution;
+mod sql_stream;
 use crate::replication::ReplicationTransport;
 type DataRouter = VsrBackedFabricRouter<ReplicationTransport>;
 
@@ -60,7 +61,9 @@ impl DataPlaneListener {
         let executor = DataPlaneExecutor::new(self.state.clone());
         self.serve_with(
             MAX_DATA_REQUESTS_PER_TICK,
-            &mut |envelope, fingerprint| executor.execute(envelope, fingerprint),
+            &mut |envelope, fingerprint, output| {
+                executor.execute_with_output(envelope, fingerprint, output)
+            },
             out,
         )
     }
@@ -68,7 +71,7 @@ impl DataPlaneListener {
     /// One connection per peer-control tick bounds application admission work.
     pub(crate) fn serve_one_with(
         &self,
-        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
+        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
         out: &mut impl Write,
     ) -> Result<usize, String> {
         self.serve_with(1, executor, out)
@@ -77,7 +80,7 @@ impl DataPlaneListener {
     fn serve_with(
         &self,
         limit: usize,
-        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
+        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
         out: &mut impl Write,
     ) -> Result<usize, String> {
         let mut served = 0_usize;
@@ -128,6 +131,12 @@ impl MutationOutcome {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataPlaneResponse {
+    Streamed {
+        protocol: &'static str,
+        rows: usize,
+        bytes: u64,
+        version: u64,
+    },
     Executed {
         protocol: &'static str,
         operation_kind: &'static str,
@@ -166,7 +175,16 @@ impl DataPlaneExecutor {
         }
     }
 
+    #[cfg(test)]
     fn execute(&self, envelope: RequestEnvelope, fingerprint: &[u8; 32]) -> DataPlaneResponse {
+        self.execute_with_output(envelope, fingerprint, &mut std::io::sink())
+    }
+    fn execute_with_output(
+        &self,
+        envelope: RequestEnvelope,
+        fingerprint: &[u8; 32],
+        output: &mut dyn Write,
+    ) -> DataPlaneResponse {
         if let Err(err) = crate::security::authorize(&self.state, fingerprint, &envelope) {
             return DataPlaneResponse::Rejected {
                 protocol: envelope.protocol.as_str(),
@@ -183,7 +201,7 @@ impl DataPlaneExecutor {
             WireOperationKind::Write | WireOperationKind::Admin => MutationOutcome::Unknown,
         };
         let result = match protocol {
-            WireProtocol::Sql => self.execute_sql(envelope),
+            WireProtocol::Sql => self.execute_sql(envelope, output),
             WireProtocol::Kv => self.execute_kv(envelope),
             WireProtocol::Blob => self.execute_blob(envelope),
             WireProtocol::Object => self.execute_object(envelope),
@@ -201,13 +219,17 @@ impl DataPlaneExecutor {
         })
     }
 
-    fn execute_sql(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
+    fn execute_sql(
+        &self,
+        envelope: RequestEnvelope,
+        output: &mut dyn Write,
+    ) -> RsfResult<DataPlaneResponse> {
         let namespace = envelope
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("namespace is required"))?;
         let mut runtime = self.open_sql_runtime(namespace)?;
-        let response = execution::sql(&envelope, &mut runtime.router, &mut runtime.sql);
+        let response = execution::sql(&envelope, &mut runtime.router, &mut runtime.sql, output);
         self.remember(namespace, Runtime::Sql(Box::new(runtime)));
         response
     }
@@ -519,7 +541,7 @@ fn serve_data_stream(
     stream: TcpStream,
     codec: &WireCodec,
     adapter: &WireAdapter,
-    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
+    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
     tls: std::sync::Arc<rustls::ServerConfig>,
 ) -> Result<DataPlaneResponse, String> {
     stream
@@ -548,16 +570,21 @@ fn serve_data_stream(
             .map_err(|err| err.message)
     });
     let response = match admitted {
-        Ok(decision) => stream
-            .sock
-            .execute(|| data_plane_response(decision, executor, &fingerprint))
-            .map_err(|err| format!("data I/O deadline expired before execution: {err}"))?,
+        Ok(decision) => {
+            let _execution = stream
+                .sock
+                .application_guard()
+                .map_err(|err| format!("data I/O deadline expired before execution: {err}"))?;
+            data_plane_response(decision, executor, &fingerprint, &mut stream)
+        }
         Err(reason) => DataPlaneResponse::Corrupt { reason },
     };
-    let body = render_data_plane_response(&response);
-    stream
-        .write_all(body.as_bytes())
-        .map_err(|err| format!("failed to write daemon data response: {err}"))?;
+    if !matches!(response, DataPlaneResponse::Streamed { .. }) {
+        let body = render_data_plane_response(&response);
+        stream
+            .write_all(body.as_bytes())
+            .map_err(|err| format!("failed to write daemon data response: {err}"))?;
+    }
     stream.conn.send_close_notify();
     stream
         .flush()
@@ -589,11 +616,12 @@ fn read_data_frame(stream: &mut impl Read) -> Result<Vec<u8>, String> {
 
 fn data_plane_response(
     decision: WireDecision,
-    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32]) -> DataPlaneResponse,
+    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
     fingerprint: &[u8; 32],
+    output: &mut dyn Write,
 ) -> DataPlaneResponse {
     match decision {
-        WireDecision::Accepted(envelope) => executor(envelope, fingerprint),
+        WireDecision::Accepted(envelope) => executor(envelope, fingerprint, output),
         WireDecision::Rejected { protocol, reason } => DataPlaneResponse::Rejected {
             protocol: protocol.as_str(),
             mutation: MutationOutcome::NotAttempted,
@@ -985,6 +1013,14 @@ fn single_line(value: &str) -> String {
 
 fn render_data_plane_response(response: &DataPlaneResponse) -> String {
     match response {
+        DataPlaneResponse::Streamed {
+            protocol,
+            rows,
+            bytes,
+            version,
+        } => format!(
+            "RSF/1 completed protocol={protocol} surface=sql version={version} rows={rows} bytes={bytes}\n"
+        ),
         DataPlaneResponse::Executed {
             protocol,
             operation_kind,
@@ -1035,6 +1071,7 @@ fn emit_data_plane_response(
     response: &DataPlaneResponse,
 ) -> Result<(), String> {
     match response {
+        DataPlaneResponse::Streamed { protocol, rows, bytes, version } => writeln!(out, "daemon data peer={peer} status=streamed protocol={protocol} surface=sql version={version} rows={rows} bytes={bytes}"),
         DataPlaneResponse::Executed {
             protocol,
             operation_kind,
@@ -1093,7 +1130,7 @@ mod tests {
                 socket,
                 &WireCodec,
                 &WireAdapter,
-                &mut |_, _| {
+                &mut |_, _, _| {
                     std::thread::sleep(DATA_CONNECTION_TIMEOUT + Duration::from_millis(100));
                     DataPlaneResponse::Executed {
                         protocol: "kv",

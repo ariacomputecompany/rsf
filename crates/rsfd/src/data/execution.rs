@@ -5,7 +5,21 @@ pub(crate) fn sql<T: VsrTransport>(
     envelope: &RequestEnvelope,
     router: &mut VsrBackedFabricRouter<T>,
     sql: &mut DurableSqlEngine,
+    output: &mut dyn Write,
 ) -> RsfResult<DataPlaneResponse> {
+    if envelope.body == sql_stream::REQUEST {
+        if envelope.operation_kind != WireOperationKind::Read {
+            return Err(invalid("SQL streaming requires SELECT"));
+        }
+        router.confirm_read_quorum()?;
+        sql.reconcile(router)?;
+        return sql_stream::stream(sql, envelope, router.latest_version().0, output);
+    }
+    if envelope.body.is_empty() && envelope.operation_kind == WireOperationKind::Read {
+        router.confirm_read_quorum()?;
+        sql.reconcile(router)?;
+        return sql_stream::buffered(sql, envelope);
+    }
     let context = if envelope.body.is_empty() {
         None
     } else {

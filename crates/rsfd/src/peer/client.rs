@@ -109,7 +109,9 @@ impl ClientService {
         materializer: &mut ApplicationMaterializer,
     ) -> Result<(), String> {
         let served = self.listener.serve_one_with(
-            &mut |envelope, fingerprint| self.execute(server, materializer, envelope, fingerprint),
+            &mut |envelope, fingerprint, output| {
+                self.execute(server, materializer, envelope, fingerprint, output)
+            },
             &mut std::io::stdout(),
         )?;
         if served != 0 {
@@ -128,6 +130,7 @@ impl ClientService {
         materializer: &mut ApplicationMaterializer,
         envelope: RequestEnvelope,
         fingerprint: &[u8; 32],
+        output: &mut dyn std::io::Write,
     ) -> DataPlaneResponse {
         let rejected = |mutation, reason: String| DataPlaneResponse::Rejected {
             protocol: envelope.protocol.as_str(),
@@ -201,7 +204,7 @@ impl ClientService {
                         // Even immutable reads through this primary endpoint wait
                         // for a fresh installed quorum; no election event is a lease.
                         router.confirm_read_quorum()?;
-                        let response = materializer.execute(&envelope, router)?;
+                        let response = materializer.execute(&envelope, router, output)?;
                         // Complete the prefix contract explicitly, including any
                         // secondary payload commands. Reapplying the selected
                         // engine's own command is idempotent; protocol-only pins
@@ -226,7 +229,10 @@ impl ClientService {
                     )
                 })
             })();
-            let materialized = matches!(response, DataPlaneResponse::Executed { .. });
+            let materialized = matches!(
+                response,
+                DataPlaneResponse::Executed { .. } | DataPlaneResponse::Streamed { .. }
+            );
             (response, materialized)
         })
     }

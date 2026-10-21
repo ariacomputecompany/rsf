@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "native-sql-stream-debug-and-release",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_sql_streams_large_results_and_bounds_legacy_responses",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_sql_streams_large_results_and_bounds_legacy_responses",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_sql_streams_large_results_and_bounds_legacy_responses",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_sql_streams_large_results_and_bounds_legacy_responses",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}
