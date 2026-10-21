@@ -1,8 +1,8 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819",
-  "source_sha256_after": "af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819",
+  "source_sha256_before": "39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b",
+  "source_sha256_after": "39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b",
   "seed": 20261021,
   "passed_domains": [
     "storage",
@@ -16,6 +16,7 @@
     "tenancy",
     "daemon",
     "automatic-client",
+    "sql-stream",
     "daemon-stress",
     "release-stress",
     "object-blob",
@@ -25,21 +26,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.f8oO8T",
+  "trace_directory": "artifacts/verification.oq1pB1",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 13.622240237004277,
-      "elapsed_ms": 73863,
+      "concurrent_write_ops_per_second": 14.493117920310045,
+      "elapsed_ms": 70046,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 645376,
-        "p50": 286796,
-        "p95": 380129,
-        "p99": 566519
+        "max": 540094,
+        "p50": 266936,
+        "p95": 312856,
+        "p99": 474118
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -52,14 +53,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 18.277875253168208,
-      "elapsed_ms": 106923,
+      "concurrent_write_ops_per_second": 21.321446034906483,
+      "elapsed_ms": 96931,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 967706,
-        "p50": 177965,
-        "p95": 349945,
-        "p99": 905139
+        "max": 323203,
+        "p50": 179356,
+        "p95": 234205,
+        "p99": 293174
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -77,8 +78,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 149,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 66187,
-      "history_growth_ms": 29486,
+      "elapsed_ms": 72530,
+      "history_growth_ms": 35248,
       "history_growth_writes": 128,
       "precrash_sql_read_dependency_recovered": true,
       "primary_state_deleted": true,
@@ -90,6 +91,7 @@
       "serializable_sql_phantom_rejected": true,
       "sql_key_components_isolated": true,
       "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
       "submitted_requests": 32,
       "surface_count": 4,
       "surviving_replicas_checked": 2,
@@ -103,8 +105,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 149,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 52047,
-      "history_growth_ms": 24719,
+      "elapsed_ms": 55154,
+      "history_growth_ms": 27768,
       "history_growth_writes": 128,
       "precrash_sql_read_dependency_recovered": true,
       "primary_state_deleted": true,
@@ -116,6 +118,7 @@
       "serializable_sql_phantom_rejected": true,
       "sql_key_components_isolated": true,
       "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
       "submitted_requests": 32,
       "surface_count": 4,
       "surviving_replicas_checked": 2,
@@ -124,6 +127,43 @@
     }
   },
   "automatic_client_evidence_valid": true,
+  "sql_stream_evidence_valid": true,
+  "sql_stream_regressions": {
+    "borrowed_prefix_scans_preserve_order_bounds_and_tombstones": true,
+    "pull_execution_stops_at_limit_and_sink_failure_without_reading_ahead": true,
+    "sql_pull_limit_does_not_decode_later_rows_and_sink_failure_stops": true,
+    "sql_pull_merges_ordered_overlay_and_retains_only_latest_report": true,
+    "sql_pull_index_filter_skips_nonmatching_nullable_rows_before_projection": true,
+    "sql_stream_decoder_requires_complete_ordered_bounded_results": true,
+    "sql_row_chunks_bound_frames_and_preserve_escaped_json": true,
+    "sql_stream_sink_failure_never_publishes_completion": true,
+    "streaming_application_work_cannot_renew_blocked_socket_budget": true,
+    "native_sql_streams_large_results_and_bounds_legacy_responses": true
+  },
+  "sql_stream_metrics": {
+    "debug": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 88800,
+      "profile": "debug",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    },
+    "release": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 25277,
+      "profile": "release",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    }
+  },
   "kv_atomic_batch_evidence_valid": true,
   "kv_atomic_batch_regressions": {
     "rejected_committed_batches_preserve_all_values_versions_and_changes": true,
@@ -165,12 +205,12 @@
     "CI"
   ],
   "production_qualified": false,
-  "source_commit": "e1f53edae87b3ee1f6dea3184d012ffbbd0b46be",
+  "source_commit": "95647f6c7ec53bde27bfea09321f91b57b7f8c66",
   "scope": "single-host loopback TLS with fsync; independent-machine, WAN, workload-capacity and complete production qualification remain open",
   "workspace_regression_audit": {
-    "source_sha256": "af4d012c9ace1d39ba27f48da578ae6b2d6d73884835eff8241fade22b5de819",
+    "source_sha256": "39f0c1bc08e3bb8ca86e378966de2cc81dc48ffee12d55c25a5fe53355aba69b",
     "counts": {
-      "passed": 1131,
+      "passed": 1141,
       "failed": 0,
       "ignored": 1,
       "result_groups": 163
@@ -204,6 +244,18 @@
     "required_kv_atomic_batch_regressions": {
       "rejected_committed_batches_preserve_all_values_versions_and_changes": true,
       "committed_batch_preflight_covers_order_tombstones_and_duplicate_replay": true
+    },
+    "required_sql_stream_regressions": {
+      "borrowed_prefix_scans_preserve_order_bounds_and_tombstones": true,
+      "pull_execution_stops_at_limit_and_sink_failure_without_reading_ahead": true,
+      "sql_pull_limit_does_not_decode_later_rows_and_sink_failure_stops": true,
+      "sql_pull_merges_ordered_overlay_and_retains_only_latest_report": true,
+      "sql_pull_index_filter_skips_nonmatching_nullable_rows_before_projection": true,
+      "sql_stream_decoder_requires_complete_ordered_bounded_results": true,
+      "sql_row_chunks_bound_frames_and_preserve_escaped_json": true,
+      "sql_stream_sink_failure_never_publishes_completion": true,
+      "streaming_application_work_cannot_renew_blocked_socket_budget": true,
+      "native_sql_streams_large_results_and_bounds_legacy_responses": true
     },
     "verified_prior_regressions": [
       "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",

@@ -229,7 +229,7 @@ legacy follower reconstruction after derived SQL directory deletion, and isolate
 colliding table names through debug/release takeover. All 24 required SQL/key
 regressions ran in the current full workspace trace (1,129 passing tests).
 
-The [current full verification](verification-2026-10-21.json) passes all 18
+The [current full verification](verification-2026-10-21.json) passes all 19
 domains on unchanged source, including the full workspace suite, native SQL
 network integration and both automatic takeover/stress profiles. The workspace
 trace contains all named SQL journal and process-kill regressions. Earlier failed
@@ -244,3 +244,10 @@ frames are limited to 64 KiB and complete commands to 1 MiB. Certified network
 membership changes, independent-group routing, explicit legacy migration and
 independent-machine fault/performance measurements remain unfinished. Opt-in
 automatic takeover is implemented; its production qualification remains open.
+
+The [streaming qualification](sql-stream-verification-2026-10-21.json) adds
+bounded native delivery, strict client completion checks, incremental session
+result admission and post-takeover streaming. All ten named streaming regressions
+ran in the current workspace trace, alongside prior session/key/atomicity checks.
+Both debug/release native streaming workloads delivered all 128 rows and 264,960
+JSON bytes; this is delivery/recovery evidence, not workload capacity qualification.

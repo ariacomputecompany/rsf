@@ -57,8 +57,8 @@ encoded row bytes without decoding the table. Only the latest query report is
 retained, with a cumulative report count. Invalid decoded rows fail the query
 rather than silently disappearing from a streamed scan.
 
-Native delivery retains a 4 KiB output chunk and one decoded row, plus schema,
-query-plan and TLS state; it does not collect the candidate set, result rows or
+Native delivery retains a 4 KiB output chunk and a constant number of current-row
+representations, plus schema, query-plan and TLS state; it does not collect the candidate set, result rows or
 whole-result JSON/hex. Its bound depends on the largest row and existing catalog
 metadata. The listener retains the same cumulative two-second transport I/O budget
 for handshake, request and response. Application CPU work does not consume that
@@ -87,5 +87,10 @@ checks every value and row order, and covers projection/LIMIT, empty results,
 buffered overflow, invalid operations and missing quorum. Both debug/release
 profiles are required by the new SQL streaming Fozzy domain. Automatic takeover
 also requires a streamed read from the replacement after old-primary data loss.
-The workspace gate requires all ten pull/stream/deadline regressions. Current
-full reports remain historical until the expanded unchanged-source gate passes.
+The workspace gate requires all ten pull/stream/deadline regressions. The
+[streaming verification](sql-stream-verification-2026-10-21.json) records all 19
+domains and 1,141 workspace tests passing on unchanged source, including both
+streaming and takeover profiles. It retains the earlier stopped attempt and the
+indexed nullable-row baseline/correction. Workload elapsed time includes setup
+and population; these are delivery/recovery checks, not production throughput
+or independent-machine capacity qualification.
