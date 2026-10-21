@@ -168,6 +168,11 @@ and verify original responses after replacement restart on both surviving stores
 The full gate requires these named workspace tests and takeover metrics. See
 [session verification](sql-session-verification-2026-10-21.json), including the
 first attempt's missed proof-of-concept result consumer and its correction.
+The [serializable verification](sql-serializable-verification-2026-10-21.json)
+adds write-skew checks after restart/follower recovery, phantom inserts and
+tombstones, legacy receipt/intent compatibility, checkpoint isolation validation,
+and native phantom rejection in both automatic takeover profiles. All eleven
+required session regressions ran in the full workspace host trace.
 
 The [current full verification](verification-2026-10-21.json) passes all 18
 domains on unchanged source, including the full workspace suite, native SQL
