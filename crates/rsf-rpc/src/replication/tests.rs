@@ -1486,3 +1486,82 @@ fn installed_peer_requires_successful_materialization_before_normal_traffic() {
     drop(candidate);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn heartbeat_requires_materialization_and_fenced_status_does_not_grant_old_leadership() {
+    let root = root("control-heartbeat");
+    provision(&root);
+    let mut leader = cell(&root, 0);
+    let prepare = prepare(&mut leader, b"materialize before heartbeat");
+    leader.acknowledge(NodeId(2), Epoch(1), prepare.index);
+    let VsrDecision::Committed(commit) = leader.commit(NodeId(0), prepare.index).unwrap() else {
+        panic!("commit")
+    };
+    let mut server = PeerReplicaServer::new(
+        NodeId(2),
+        &cluster(),
+        identity(&root, 2),
+        endpoints(&root),
+        [(PlacementGroupId(1), cell(&root, 2))].into(),
+        Duration::from_millis(800),
+    )
+    .unwrap();
+    server
+        .dispatch(NodeId(0), PREPARE, &prepare.encode().unwrap(), &mut |_| {
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        server
+            .dispatch(NodeId(0), COMMIT, &commit.encode().unwrap(), &mut |_| Err(
+                "application unavailable".into()
+            ))
+            .is_err()
+    );
+    let probe = leader.primary_probe().unwrap();
+    assert!(
+        server
+            .dispatch_heartbeat(NodeId(0), &probe.encode().unwrap(), &mut |_| Err(
+                "still unavailable".into()
+            ))
+            .is_err()
+    );
+    let mut applied = Vec::new();
+    server
+        .dispatch_heartbeat(NodeId(0), &probe.encode().unwrap(), &mut |entry| {
+            applied.push(entry.prepare.index);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(applied, vec![LogIndex(1)]);
+    let request = rsf_vsr::VsrViewChangeRequest {
+        pg: PlacementGroupId(1),
+        previous_view: Epoch(1),
+        target_view: Epoch(2),
+        candidate: NodeId(1),
+        voters: vec![NodeId(0), NodeId(1), NodeId(2)],
+    };
+    server
+        .dispatch_election(NodeId(1), VIEW_CHANGE_BEGIN, &request.encode().unwrap())
+        .unwrap();
+    assert!(
+        server
+            .dispatch_heartbeat(NodeId(0), &probe.encode().unwrap(), &mut |_| Ok(()))
+            .is_err()
+    );
+    server.pending_contact = None;
+    let status = server
+        .dispatch_status(NodeId(0), &1u64.to_le_bytes())
+        .unwrap();
+    assert_eq!(
+        rsf_vsr::VsrReplicaStatus::decode(&status).unwrap().promise,
+        Some(request)
+    );
+    assert!(
+        server.pending_contact.is_none(),
+        "read-only inventory cannot refresh primary liveness"
+    );
+    drop(server);
+    drop(leader);
+    std::fs::remove_dir_all(root).unwrap();
+}

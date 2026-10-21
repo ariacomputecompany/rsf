@@ -11,7 +11,7 @@ pub use transfer::{VsrHistoryDescriptor, VsrHistoryRecord, VsrHistorySnapshot};
 mod migration;
 mod probe;
 mod replica;
-pub use probe::VsrPrimaryProbe;
+pub use probe::{VsrPrimaryProbe, VsrReplicaStatus};
 
 pub const MAX_REPLICATED_COMMAND_BYTES: usize = 1024 * 1024;
 

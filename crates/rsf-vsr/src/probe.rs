@@ -93,3 +93,84 @@ impl DurableVsrCell {
         })
     }
 }
+
+/// Authenticated recovery/liveness inventory. A promised replica can report its
+/// last normal view without granting the old primary permission to serve.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VsrReplicaStatus {
+    pub normal: VsrPrimaryProbe,
+    pub promise: Option<VsrViewChangeRequest>,
+}
+impl VsrReplicaStatus {
+    pub fn encode(&self) -> RsfResult<Vec<u8>> {
+        let normal = self.normal.encode()?;
+        let promise = match &self.promise {
+            Some(request) => {
+                if request.pg != self.normal.pg
+                    || request.voters != self.normal.voters
+                    || request.previous_view > self.normal.view
+                    || request.target_view <= self.normal.view
+                {
+                    return Err(invalid_input(
+                        "replica status promise differs from normal configuration",
+                    ));
+                }
+                request.encode()?
+            }
+            None => Vec::new(),
+        };
+        let mut bytes = b"RSFS1".to_vec();
+        bytes.extend_from_slice(&(normal.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&normal);
+        bytes.extend_from_slice(&(promise.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&promise);
+        Ok(bytes)
+    }
+    pub fn decode(bytes: &[u8]) -> RsfResult<Self> {
+        if bytes.len() < 13 || !bytes.starts_with(b"RSFS1") || bytes.len() > 128 * 1024 {
+            return Err(corrupt("invalid replica status"));
+        }
+        let length = u32::from_le_bytes(bytes[5..9].try_into().unwrap()) as usize;
+        let end = 9usize
+            .checked_add(length)
+            .ok_or_else(|| corrupt("replica status length overflow"))?;
+        let normal = VsrPrimaryProbe::decode(
+            bytes
+                .get(9..end)
+                .ok_or_else(|| corrupt("truncated replica status normal view"))?,
+        )?;
+        let length = bytes
+            .get(end..end + 4)
+            .ok_or_else(|| corrupt("truncated replica status promise length"))?;
+        let length = u32::from_le_bytes(length.try_into().unwrap()) as usize;
+        let payload = bytes
+            .get(end + 4..)
+            .ok_or_else(|| corrupt("truncated replica status promise"))?;
+        if payload.len() != length {
+            return Err(corrupt("replica status trailing or missing bytes"));
+        }
+        let status = Self {
+            normal,
+            promise: if payload.is_empty() {
+                None
+            } else {
+                Some(VsrViewChangeRequest::decode(payload)?)
+            },
+        };
+        if status.encode()? != bytes {
+            return Err(corrupt("noncanonical replica status"));
+        }
+        Ok(status)
+    }
+}
+impl DurableVsrCell {
+    pub fn replica_status(&self) -> RsfResult<VsrReplicaStatus> {
+        Ok(VsrReplicaStatus {
+            normal: self.recovery_probe()?,
+            promise: self.view_change.clone(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests;

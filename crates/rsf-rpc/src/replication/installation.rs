@@ -186,6 +186,7 @@ impl PeerReplicaServer {
             Some(d) => d.request().pg,
             None => PlacementGroupId(u64_at(payload, 0)?),
         };
+        self.pending_contact = Some(pg);
         let cell = self
             .cells
             .get_mut(&pg)

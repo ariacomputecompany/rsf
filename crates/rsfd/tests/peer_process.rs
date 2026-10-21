@@ -17,6 +17,8 @@ use rsf_vsr::{DurableVsrCell, VsrDecision, VsrOperation};
 // enforcement has dedicated RPC tests; allow fsync and TLS scheduling here.
 const PEER_TIMEOUT_MS: u64 = 2_000;
 
+#[path = "peer_process/automatic.rs"]
+mod automatic;
 #[path = "peer_process/stress.rs"]
 mod stress;
 #[path = "peer_process/takeover.rs"]

@@ -373,3 +373,11 @@ No RSF protocol or storage-engine release is acceptable unless:
 - at least one real host-backed run passes
 - performance regressions are explained
 - consistency mode behavior is documented
+
+Automatic peer control is also covered by real daemon tests: primary loss and
+stale-primary rejoin preserve the acknowledged payload, minority observations
+cannot establish a new normal view, and a candidate killed after local-only
+publication resumes its retained input on daemon restart. Authenticated status
+queries do not refresh failure timers; failed materialization blocks heartbeat
+success. These tests do not exercise automatic client listener takeover, which
+remains a release blocker.

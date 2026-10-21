@@ -1,7 +1,9 @@
 //! Authenticated peer RPCs for durable VSR logs. TLS authenticates the leaf;
 //! the configured fingerprint binds it to a node, and each frame binds the
 //! cluster, sender, destination, and protocol version before touching storage.
+mod control;
 mod election;
+pub use control::{PeerElectionTiming, PeerElectionUpdate};
 mod history;
 mod installation;
 mod tls;
@@ -221,6 +223,10 @@ pub struct PeerReplicaServer {
     learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
     election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
     installation_pending: BTreeSet<PlacementGroupId>,
+    control_transport: NetworkVsrTransport,
+    election_clock: BTreeMap<PlacementGroupId, control::Clock>,
+    pending_contact: Option<PlacementGroupId>,
+    last_control_group: Option<PlacementGroupId>,
 }
 
 impl PeerReplicaServer {
@@ -271,6 +277,12 @@ impl PeerReplicaServer {
         }) {
             return Err("learner requires a mapped remote source, matching identity, and no voting cell for its group".into());
         }
+        let control_transport =
+            NetworkVsrTransport::new(local, cluster, identity.clone(), peers.clone(), timeout)?;
+        let election_clock = cells
+            .keys()
+            .map(|pg| (*pg, control::Clock::new(Instant::now())))
+            .collect();
         let installation_pending = cells
             .iter()
             .filter_map(|(pg, cell)| cell.has_installed_view().then_some(*pg))
@@ -280,6 +292,10 @@ impl PeerReplicaServer {
             cluster: cluster_digest(cluster),
             identity,
             installation_pending,
+            control_transport,
+            election_clock,
+            pending_contact: None,
+            last_control_group: None,
             nodes: peers
                 .into_iter()
                 .map(|(node, peer)| (peer.fingerprint, node))
@@ -343,7 +359,12 @@ impl PeerReplicaServer {
             .ok_or_else(|| invalid("client certificate is not bound to a peer node"))?;
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
-        let response = if matches!(kind, INSTALL_BEGIN | INSTALL_RECORD | INSTALL_FINISH) {
+        self.pending_contact = None;
+        let response = if kind == REPLICA_STATUS {
+            self.dispatch_status(sender, payload)
+        } else if kind == HEARTBEAT {
+            self.dispatch_heartbeat(sender, payload, apply)
+        } else if matches!(kind, INSTALL_BEGIN | INSTALL_RECORD | INSTALL_FINISH) {
             self.dispatch_installation(sender, kind, payload, apply)
         } else if matches!(kind, VIEW_CHANGE_BEGIN | VIEW_CHANGE_RECORD) {
             self.dispatch_election(sender, kind, payload)
@@ -351,6 +372,11 @@ impl PeerReplicaServer {
             self.dispatch(sender, kind, payload, apply)
                 .map(|index| index.0.to_le_bytes().to_vec())
         };
+        if response.is_ok()
+            && let Some(pg) = self.pending_contact.take()
+        {
+            self.record_primary_contact(pg, sender, Instant::now());
+        }
         match response {
             Ok(payload) => write_frame(
                 &mut stream,
@@ -382,6 +408,7 @@ impl PeerReplicaServer {
         if sender == local || sender != cell.primary() || !cell.contains_replica(sender) {
             return Err(invalid("sender is not the active remote primary"));
         }
+        self.pending_contact = Some(pg);
         if self.installation_pending.contains(&pg) {
             for entry in cell
                 .committed_prefix()
@@ -437,7 +464,10 @@ impl PeerReplicaServer {
                     .prepared(index)
                     .cloned()
                     .ok_or_else(|| invalid("committed command has no prepare"))?;
+                let pg = commit.pg;
+                self.installation_pending.insert(pg);
                 apply(&VsrCommittedEntry { prepare, commit }).map_err(invalid)?;
+                self.installation_pending.remove(&pg);
                 Ok(index)
             }
             TAIL if payload.len() == 8 => Ok(self
@@ -467,7 +497,9 @@ impl PeerReplicaServer {
                 self.cell(sender, entry.prepare.pg, apply)?
                     .catch_up_from(std::slice::from_ref(&entry))
                     .map_err(rsf)?;
+                self.installation_pending.insert(entry.prepare.pg);
                 apply(&entry).map_err(invalid)?;
+                self.installation_pending.remove(&entry.prepare.pg);
                 Ok(index)
             }
             _ => Err(invalid("unsupported peer request or invalid payload size")),

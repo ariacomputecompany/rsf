@@ -130,6 +130,7 @@ impl PeerReplicaServer {
                 "authenticated sender is not the remote view-change candidate",
             ));
         }
+        self.pending_contact = Some(request.pg);
         let cell = self
             .cells
             .get_mut(&request.pg)

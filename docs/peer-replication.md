@@ -16,7 +16,7 @@ peer services materialize those commands durably before acknowledging them. See
 recovery behavior, and [blob network replication](blob-network-replication.md) for
 immutable payloads. [Object replication](object-network-replication.md) covers
 buckets and mutable heads, and [SQL replication](sql-network-replication.md) covers
-autocommit statements. Automatic membership and failover are still unfinished. Admin/policy paths still use the in-process transport in places;
+autocommit statements. Opt-in peer elections are implemented; automatic client takeover and certified membership changes are still unfinished. Admin/policy paths still use the in-process transport in places;
 `LocalVsrTransport` itself remains a simulation with no remote disk durability.
 
 Peer services retain up to 64 recently used namespace/surface application
@@ -50,6 +50,7 @@ resolve against the configuration file's directory.
 | `timeout_ms` | Absolute RPC deadline, 1 through 30000 milliseconds |
 | `peers` | Array of node endpoint objects, including this node |
 | `cells` | Nonempty array of placement-group bootstrap configurations |
+| `elections` | Optional peer election timing object; omitted by default |
 
 Each `peers` object requires `node`, `address` (numeric IP and port),
 `server_name` (the TLS certificate's DNS name or IP), and `fingerprint` (64
@@ -67,8 +68,25 @@ for non-voting configuration, resumable catch-up, and role restrictions.
 At most 4096 voters are allowed
 per cell. Existing WAL membership is authoritative after initialization;
 editing bootstrap fields does not install a new view or change membership.
-Quorum-certified view exchange and topology changes over this network service
-remain unfinished.
+Authenticated quorum view installation is implemented. Quorum-certified
+topology changes remain unfinished.
+
+To enable automatic peer elections, add for example:
+
+```json
+"elections": {"heartbeat_ms": 100, "timeout_ms": 1500, "rank_delay_ms": 1000}
+```
+
+This example uses a top-level RPC `timeout_ms` of 150 in a three-voter
+group. Election timeout must cover twice the sum of remote RPC deadlines plus
+three heartbeat intervals. Rank delay must lie between heartbeat and election
+timeout. Heartbeat is 1–60000 ms; election timeout is at most one hour. Each
+hosted voting group must satisfy the timing bounds before stores are opened;
+a learner-only service cannot enable elections. The controller acts only on
+voting groups. Configuration enables peer consensus and materialization; it
+does not open a replacement application-client listener. `peer.election` JSON
+events report changed controller observations, not a client readiness lease.
+See [primary failover](primary-failover.md) for recovery and remaining integration.
 
 The service persists `IDENTITY.json` before opening cells and refuses to reuse
 the directory under a different cluster or node. Unbound directories containing

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rsf_core::{ClusterId, Epoch, NodeId, PlacementGroupId};
-use rsf_rpc::replication::{PeerEndpoint, PeerIdentity, PeerReplicaServer};
+use rsf_rpc::replication::{PeerElectionTiming, PeerEndpoint, PeerIdentity, PeerReplicaServer};
 use rsf_vsr::DurableVsrCell;
 use serde::Deserialize;
 
@@ -24,6 +24,8 @@ struct PeerConfig {
     timeout_ms: u64,
     peers: Vec<NodeConfig>,
     cells: Vec<CellConfig>,
+    #[serde(default)]
+    elections: Option<ElectionConfig>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,11 +46,30 @@ struct CellConfig {
     learner_source: Option<u64>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ElectionConfig {
+    heartbeat_ms: u64,
+    timeout_ms: u64,
+    rank_delay_ms: u64,
+}
+impl ElectionConfig {
+    fn timing(&self) -> PeerElectionTiming {
+        PeerElectionTiming {
+            heartbeat: Duration::from_millis(self.heartbeat_ms),
+            timeout: Duration::from_millis(self.timeout_ms),
+            rank_delay: Duration::from_millis(self.rank_delay_ms),
+        }
+    }
+}
+
 struct PeerService {
     listener: TcpListener,
     server: PeerReplicaServer,
     _lock: rsf_storage::ExclusiveFileLock,
     materializer: ApplicationMaterializer,
+    elections: Option<PeerElectionTiming>,
+    last_elections: BTreeMap<u64, (u64, u64, bool, String)>,
 }
 
 pub fn run_cli(args: &[String]) -> Result<(), String> {
@@ -68,28 +89,63 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
     );
     std::io::stdout().flush().map_err(|err| err.to_string())?;
     loop {
-        let (socket, address) = match service.listener.accept() {
-            Ok(connection) => connection,
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(err) => return Err(format!("peer accept failed: {err}")),
-        };
-        let materializer = &mut service.materializer;
-        match service
-            .server
-            .serve_connection_with_apply(socket, &mut |entry| {
+        let started = std::time::Instant::now();
+        for _ in 0..64 {
+            let (socket, address) = match service.listener.accept() {
+                Ok(connection) => connection,
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(err) => return Err(format!("peer accept failed: {err}")),
+            };
+            let materializer = &mut service.materializer;
+            match service
+                .server
+                .serve_connection_with_apply(socket, &mut |entry| {
+                    if let Some(command) = decode_application_entry(entry)? {
+                        materializer.apply(&command)?;
+                    }
+                    Ok(())
+                }) {
+                Ok(()) => println!(
+                    "{}",
+                    serde_json::json!({"event":"peer.rpc","outcome":"accepted","remote":address.to_string()})
+                ),
+                Err(reason) => eprintln!(
+                    "{}",
+                    serde_json::json!({"event":"peer.rpc","outcome":"rejected","remote":address.to_string(),"reason":reason})
+                ),
+            }
+            if service.elections.is_none()
+                || service
+                    .elections
+                    .is_some_and(|t| started.elapsed() >= t.heartbeat / 2)
+            {
+                break;
+            }
+        }
+        if let Some(timing) = service.elections {
+            let materializer = &mut service.materializer;
+            if let Some(update) = service.server.poll_elections(timing, &mut |entry| {
                 if let Some(command) = decode_application_entry(entry)? {
                     materializer.apply(&command)?;
                 }
                 Ok(())
-            }) {
-            Ok(()) => println!(
-                "{}",
-                serde_json::json!({"event":"peer.rpc","outcome":"accepted","remote":address.to_string()})
-            ),
-            Err(reason) => eprintln!(
-                "{}",
-                serde_json::json!({"event":"peer.rpc","outcome":"rejected","remote":address.to_string(),"reason":reason})
-            ),
+            })? {
+                let state = (
+                    update.view.0,
+                    update.primary.0,
+                    update.quorum_confirmed,
+                    update.detail.clone(),
+                );
+                if service.last_elections.get(&update.pg.0) != Some(&state) {
+                    println!(
+                        "{}",
+                        serde_json::json!({"event":"peer.election","pg":update.pg.0,"view":update.view.0,"primary":update.primary.0,"quorum_confirmed":update.quorum_confirmed,"detail":update.detail})
+                    );
+                    service.last_elections.insert(update.pg.0, state);
+                }
+            }
+            std::thread::sleep(timing.heartbeat.min(Duration::from_millis(10)));
         }
     }
 }
@@ -169,6 +225,22 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
         peers.clone(),
         timeout,
     )?;
+    if let Some(elections) = &config.elections {
+        if config
+            .cells
+            .iter()
+            .all(|cell| cell.learner_source.is_some())
+        {
+            return Err("automatic election requires a hosted voting cell".into());
+        }
+        for cell in config
+            .cells
+            .iter()
+            .filter(|cell| cell.learner_source.is_none())
+        {
+            elections.timing().validate(timeout, cell.voters.len())?;
+        }
+    }
     if config.cells.is_empty() {
         return Err("peer server requires at least one cell".into());
     }
@@ -191,6 +263,7 @@ impl PeerService {
             peers,
         } = load_config(path)?;
         let timeout = Duration::from_millis(config.timeout_ms);
+        let elections = config.elections.as_ref().map(ElectionConfig::timing);
         std::fs::create_dir_all(&state).map_err(|err| err.to_string())?;
         let lock = OpenOptions::new()
             .create(true)
@@ -259,9 +332,16 @@ impl PeerService {
         }
         let listener = TcpListener::bind(config.listen)
             .map_err(|err| format!("cannot bind peer listener: {err}"))?;
+        if elections.is_some() {
+            listener
+                .set_nonblocking(true)
+                .map_err(|err| err.to_string())?;
+        }
         Ok(Self {
             listener,
             server,
+            elections,
+            last_elections: BTreeMap::new(),
             _lock: lock,
             materializer,
         })

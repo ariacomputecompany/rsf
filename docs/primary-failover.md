@@ -8,9 +8,40 @@ resumes replication from the replacement primary. Another kills the recipient
 mid-upload, publishes only the candidate, restarts both endpoints, and completes
 the same installation without recollecting old-view reports.
 
-Automatic daemon takeover, election scheduling, application recovery integration
-on replacement primaries, certified membership changes, and client redirection
-remain release blockers. Do not enable automatic failover yet.
+Opt-in daemon peer election scheduling, quorum installation, and lagging voter
+adoption are implemented. Automatic client coordinator ownership, listener
+routing, certified membership changes, and client redirection remain release
+blockers. Peer election events do not establish client-service readiness.
+
+## Automatic peer control
+
+An optional `elections` object enables the serialized peer controller; see
+[peer configuration](peer-replication.md). Without it the service retains its
+RPC-only behavior. The controller runs between bounded incoming RPC batches,
+round-robins placement groups, sends authenticated heartbeats, and staggers
+candidates after missed contact. Timing validation accounts for sequential peer
+RPC deadlines. Timers only suspect failure; durable promises and a completed
+quorum installation establish authority.
+
+Read-only replica status includes the installed normal view and any durable
+promise, including while ordinary probes are fenced. Status queries never
+refresh primary contact. Heartbeats require the installed authenticated primary,
+an unfenced view, and completed local application. Only a matching successful
+heartbeat counts toward the controller's current quorum observation. That
+observation is neither a lease nor authorization to admit client requests.
+
+Candidates retain installation input before publication and resume it after
+restart. A candidate restarted after local-only publication must complete the
+quorum installation before confirming its view. A higher promise fences obsolete
+work. A healthy primary repairs reachable stale voters from the retained input,
+then transfers later committed entries. Failed materialization suppresses
+successful heartbeats until the committed prefix has been applied.
+
+Real-daemon tests kill the elected primary, preserve acknowledged KV data through
+successor elections, rejoin a stale primary, fence isolated minorities, and
+restore quorum. A separate subprocess is killed after only local publication;
+its restarted daemon completes the retained installation. These tests use
+loopback TLS and independent state directories on one machine.
 
 ## Durable election preparation
 
@@ -135,7 +166,8 @@ the group pending; normal peer traffic cannot succeed until prefix application
 succeeds. An installed generation starts pending after server restart as well.
 Materializers must remain idempotent and the candidate controller must keep
 client service gated until the quorum installation call succeeds. The daemon
-controller and client-serving integration are still outstanding.
+peer controller enforces installation/materialization completion; client-serving
+integration is still outstanding.
 
 The transfer and selection currently hold full histories in memory. Incremental
 checkpoint recovery remains required for growing histories. These APIs install
@@ -216,10 +248,10 @@ ordinary stale-view prepare/commit traffic remains fenced, and another payload
 or index cannot use the authorization. The authorization is replayed with the
 installation and survives subsequent views.
 
-The remaining controller work includes recovery of all application surfaces
-on the new primary, lagging voter adoption, election timers, certified membership
-changes, and client routing. The remote installation APIs do not schedule
-elections or enable automatic daemon takeover.
+The remaining controller work includes transferring cell and application-writer
+ownership to the client coordinator, opening/routing client listeners through
+that coordinator, and certified membership changes. Peer elections alone do
+not enable automatic client-service takeover.
 Independent-machine partitions and crash/power-loss qualification remain
 required. Process exit tests establish software publication ordering; they do
 not simulate loss of filesystem caches or prove hardware fsync behavior.
