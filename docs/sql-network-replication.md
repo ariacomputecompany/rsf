@@ -183,6 +183,12 @@ adds write-skew checks after restart/follower recovery, phantom inserts and
 tombstones, legacy receipt/intent compatibility, checkpoint isolation validation,
 and native phantom rejection in both automatic takeover profiles. All eleven
 required session regressions ran in the full workspace host trace.
+The [read-dependency verification](sql-read-dependencies-verification-2026-10-21.json)
+adds disjoint transaction commits, dependency retention across savepoint rewind,
+bounded read/result admission, real process-kill read recovery, original RSFSP2
+receipt compatibility, and a pre-crash acknowledged read across native takeover.
+Both profiles verify the resulting disjoint writes on both surviving stores.
+All sixteen required session regressions ran in the current full workspace trace.
 
 The [current full verification](verification-2026-10-21.json) passes all 18
 domains on unchanged source, including the full workspace suite, native SQL

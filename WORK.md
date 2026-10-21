@@ -125,24 +125,24 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current verification (2026-10-21): `artifacts/verification.Tj9nbC/summary.json`
+Current verification (2026-10-21): `artifacts/verification.NPafNU/summary.json`
 passes all 18 domains against unchanged executable sources (SHA-256
-`4bfd06ca9f70e3a10f838b1434cbe1d60d08bbf9f5c5a82ec26d0410c0e28492`).
-The workspace host run passes 1,115 tests; its one opt-in stress test is exercised
+`cf88883cd2798cd106e67a8dc45e1146fa4c603ec471c6542c9944193abd0e6d`).
+The workspace host run passes 1,121 tests; its one opt-in stress test is exercised
 separately by both required stress domains. Named regression audit confirms the
 new SQL journal crash boundaries, torn installation batches, completed-installation
 retries, real TLS acknowledgement loss, learner restart and cumulative socket
-I/O deadline checks were executed in the full workspace run. All eleven required SQL session regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection and legacy isolation recovery. Each domain passes
+I/O deadline checks were executed in the full workspace run. All sixteen required SQL session regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
 five-run doctor, strict deterministic orchestration, recorded host execution,
 strict trace verification, replay and CI checks. The recorded host processes
 supply the Rust test evidence; scripted expectations alone do not establish it.
 
-Includes 89 VSR tests, 57 protocol tests, 32 RPC tests, 78 SQL tests, 65 daemon
+Includes 89 VSR tests, 57 protocol tests, 32 RPC tests, 84 SQL tests, 65 daemon
 unit tests and all regular peer-process integration tests. Strict Clippy passes
 for SQL, protocol and daemon targets with `--all-targets --no-deps -D warnings`.
 Workspace-wide lint cleanliness remains separate work. The complete summary is
 saved in `docs/verification-2026-10-21.json`; scoped recovery evidence is in
-`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; current serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`. Production qualification remains
+`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; current read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`. Production qualification remains
 incomplete because the release blockers below remain open.
 
 Opt-in peer client coordination now retains derived inventory with its cells
@@ -159,10 +159,10 @@ accepted-only commands still require fresh replication.
 
 Both required automatic-client profiles grow 128 acknowledged writes, then exercise
 four clients and 32 concurrent identities across primary death and deletion of its
-data. Each profile reports three full recoveries and 143 retained uses before the
+data. Each profile reports three full recoveries and 145 retained uses before the
 crash, preserves four acknowledgements, resolves 28 requests without acknowledgements,
 and verifies all 162 logical KV writes on both survivors without duplicates.
-Coverage also includes an active SQL session across primary loss, savepoint rollback, atomic schema/row commit, original session results after restart, SQL/object/blob recovery, original certificates, replacement
+Coverage also includes an active SQL session and acknowledged predicate read across primary loss, original read replay and phantom rejection, disjoint SQL commits on both survivors, savepoint rollback, atomic schema/row commit, original session results after restart, SQL/object/blob recovery, original certificates, replacement
 restart, redirects, certificate revocation, quorum loss/restoration, and isolation
 of object-internal pins from user blobs. Separate debug/release stress workloads
 verify 198/774 acknowledged writes, 18 process shutdowns, and three uncertain-write
