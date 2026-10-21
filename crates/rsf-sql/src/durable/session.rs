@@ -8,6 +8,7 @@ mod model;
 mod plan;
 mod validation;
 pub(super) use model::{SessionProposal, SessionRequest, SessionState};
+pub(super) use plan::validate_serializable_snapshot;
 pub(super) use plan::{prepare, propose, read, validate_recovered};
 
 pub const MAX_ACTIVE_SQL_SESSIONS: usize = 128;
@@ -16,6 +17,7 @@ pub const MAX_SQL_SESSION_BYTES: usize = 64 * 1024;
 pub const MAX_SQL_SAVEPOINTS: usize = 32;
 const CONTEXT_MAGIC: &[u8] = b"RSF_SQL_SESSION_V1\n";
 const PROPOSAL_MAGIC: &[u8] = b"RSFSP1";
+const SERIALIZABLE_PROPOSAL_MAGIC: &[u8] = b"RSFSP2";
 const MAX_PROPOSAL_BYTES: usize = 384 * 1024;
 
 fn invalid(message: impl Into<String>) -> RsfError {

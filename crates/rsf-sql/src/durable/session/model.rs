@@ -238,6 +238,12 @@ pub(in crate::durable) struct SessionProposal {
     pub after: Option<SessionState>,
     pub result: SessionResult,
     pub effects: Vec<RowEffect>,
+    // Omission preserves canonical RSFSP1 bytes and their original certificates.
+    #[serde(default, skip_serializing_if = "snapshot_isolation")]
+    pub serializable: bool,
+}
+fn snapshot_isolation(serializable: &bool) -> bool {
+    !serializable
 }
 impl SessionProposal {
     pub fn validate(&self) -> RsfResult<()> {
@@ -267,7 +273,12 @@ impl SessionProposal {
     }
     pub fn encode(&self) -> RsfResult<Vec<u8>> {
         self.validate()?;
-        let mut bytes = PROPOSAL_MAGIC.to_vec();
+        let mut bytes = if self.serializable {
+            SERIALIZABLE_PROPOSAL_MAGIC
+        } else {
+            PROPOSAL_MAGIC
+        }
+        .to_vec();
         bytes.extend(encode(self)?);
         Ok(bytes)
     }
@@ -275,11 +286,20 @@ impl SessionProposal {
         if bytes.len() > MAX_PROPOSAL_BYTES + PROPOSAL_MAGIC.len() {
             return Err(corrupt("SQL session transition exceeds limit"));
         }
-        let value: Self = decode(
-            bytes
-                .strip_prefix(PROPOSAL_MAGIC)
-                .ok_or_else(|| corrupt("invalid SQL session transition format"))?,
-        )?;
+        let (body, serializable) =
+            if let Some(body) = bytes.strip_prefix(SERIALIZABLE_PROPOSAL_MAGIC) {
+                (body, true)
+            } else if let Some(body) = bytes.strip_prefix(PROPOSAL_MAGIC) {
+                (body, false)
+            } else {
+                return Err(corrupt("invalid SQL session transition format"));
+            };
+        let value: Self = decode(body)?;
+        if value.serializable != serializable {
+            return Err(corrupt(
+                "SQL session isolation differs from transition format",
+            ));
+        }
         value.validate()?;
         Ok(value)
     }

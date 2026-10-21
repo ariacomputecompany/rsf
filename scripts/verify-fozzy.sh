@@ -171,9 +171,13 @@ automatic_valid = all(
     and automatic_client_metrics[profile].get("surface_count") == 4
     and automatic_client_metrics[profile].get("active_sql_session_resumed") is True
     and automatic_client_metrics[profile].get("sql_session_original_results_replayed") is True
+    and automatic_client_metrics[profile].get("serializable_sql_phantom_rejected") is True
     for profile in ("debug", "release")
 )
 session_regressions = [
+    "serializable_sessions_reject_write_skew_after_restart_and_follower_recovery",
+    "serializable_sessions_reject_phantoms_and_tombstones_including_read_only_commits",
+    "serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits",
     "durable_sessions_commit_schema_rows_and_savepoints_atomically_and_replay_original_results",
     "durable_sessions_isolate_owners_detect_snapshot_conflicts_and_preserve_unrelated_commits",
     "durable_session_commands_replay_active_transactions_and_indexes_after_each_follower_restart",

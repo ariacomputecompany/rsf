@@ -40,7 +40,7 @@ impl DurableSqlEngine {
         if matches!(parse_statement(statement)?, ParsedStatement::Select { .. }) {
             return read(self, request);
         }
-        let proposal = propose(self, request.clone(), router.latest_version())?;
+        let proposal = propose(self, request.clone(), router.latest_version(), true)?;
         let pending = PendingRequest {
             client: request.client,
             statement: request.statement,

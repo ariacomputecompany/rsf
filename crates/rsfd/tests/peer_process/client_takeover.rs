@@ -333,6 +333,67 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         &session_body,
     );
     let committed = must_execute(address, Sql, "COMMIT", "session-commit", &session_body);
+    let phantom_begin = rsf_sql::SqlSessionContext {
+        name: "phantom-check".into(),
+        transaction: None,
+    }
+    .encode()
+    .unwrap();
+    let reply = must_execute(address, Sql, "BEGIN", "phantom-begin", &phantom_begin);
+    let token = reply
+        .split("session=")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+    let phantom_body = rsf_sql::SqlSessionContext {
+        name: "phantom-check".into(),
+        transaction: Some(token),
+    }
+    .encode()
+    .unwrap();
+    let empty = must_execute(
+        address,
+        Sql,
+        "SELECT * FROM users WHERE name=phantom",
+        "phantom-read",
+        &phantom_body,
+    );
+    assert!(empty.contains("select rows=0"), "{empty}");
+    must_execute(
+        address,
+        Sql,
+        "UPDATE users SET name=must-not-commit WHERE id=1",
+        "phantom-update",
+        &phantom_body,
+    );
+    must_execute(
+        address,
+        Sql,
+        "INSERT INTO users (id, name) VALUES (3, phantom)",
+        "phantom-external",
+        b"",
+    );
+    let rejected = surface_request(address, Sql, "COMMIT", "phantom-commit", &phantom_body);
+    assert!(
+        rejected.starts_with("RSF/1 rejected")
+            && rejected.contains("serializable snapshot conflict"),
+        "{rejected}"
+    );
+    must_execute(address, Sql, "ROLLBACK", "phantom-abort", &phantom_body);
+    let unchanged = must_execute(
+        address,
+        Sql,
+        "SELECT * FROM users WHERE id=1",
+        "phantom-check",
+        b"",
+    );
+    assert!(
+        unchanged.contains(&hex(b"ada")) && !unchanged.contains(&hex(b"must-not-commit")),
+        "{unchanged}"
+    );
     let read = must_execute(
         address,
         Sql,
@@ -504,6 +565,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
             "history_growth_ms":history_growth_ms,"verified_logical_kv_writes":162,"history_growth_writes":128,"surviving_replicas_checked":2,
             "primary_state_deleted":true,"replacement_restarts":1,"surface_count":4,
             "active_sql_session_resumed":true,"sql_session_original_results_replayed":true,
+            "serializable_sql_phantom_rejected":true,
             "elapsed_ms":started.elapsed().as_millis(),
             "scope":"single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification"
         })

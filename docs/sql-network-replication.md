@@ -108,11 +108,30 @@ The pending intent contains the complete proposal, preserving an uncertain COMMI
 through process death. Recovery checks the transition chain, original results,
 row effects, catalog history and active-session inventory.
 
-Isolation is snapshot isolation with write/write conflict detection. It does not
-provide serializable predicate validation: disjoint writes based on a shared
-snapshot can exhibit write skew. A concurrent catalog change invalidates the
-transaction; ROLLBACK remains available. The transaction is pinned to its original
-placement group. Limits per namespace are 128 active sessions, 64 staged mutation
+Current native session commits use serializable namespace snapshot validation.
+After BEGIN, any committed SQL row change in the namespace, including an insert
+or tombstone outside the transaction's write set, makes COMMIT reject. A catalog
+change also invalidates the transaction. If validation succeeds, the BEGIN data
+and catalog are still the namespace state immediately before COMMIT, so all
+snapshot reads and staged writes can serialize at that commit. This closes write
+skew and predicate phantom cases without losing read dependencies on failover.
+It is conservative: unrelated rows can cause retries, and a read-only COMMIT can
+also reject. ROLLBACK remains available. Bounded durable read/predicate metadata
+to allow disjoint concurrent transactions remains performance work; this change
+does not establish transaction throughput or growing-history capacity.
+
+New decisions carry the `RSFSP2` isolation marker inside the complete command and
+its operation digest. Canonical `RSFSP1` snapshot-only commands remain readable;
+their historical certificates and retry results are unchanged. A new COMMIT on
+an older active session uses current serializable validation. Reconciliation
+checks an uncertified pre-upgrade COMMIT against namespace data changes before
+resubmission and retains a conflicting intent for authoritative recovery. A
+previously certified legacy COMMIT retains its original semantics. Upgrade every
+voter and drain uncertain pre-upgrade writes before qualifying serializable
+operation; mixed-version or unresolved legacy execution is not that guarantee.
+
+The transaction is pinned to its original placement group. Limits per namespace
+are 128 active sessions, 64 staged mutation
 statements per transaction, 32 savepoints, 64 KiB of canonical session state and
 384 KiB of canonical transition payload. Limit failures occur before intent or
 protocol submission and preserve the transaction for rollback. There is no
@@ -158,7 +177,7 @@ attempts remain recorded in the scoped journal report; later transport and
 installation fixes are covered by the current full source hash. This is local
 loopback TLS/fsync evidence, not full production qualification.
 
-Bounded result streaming, serializable SQL session isolation, bounded receipt retention,
+Bounded result streaming, concurrency with precise SQL read/predicate conflicts, bounded receipt retention,
 incremental physical planning and growing-table capacity qualification remain
 release work. Multiple pages and atomic row relocation are implemented. Native
 frames are limited to 64 KiB and complete commands to 1 MiB. Certified network

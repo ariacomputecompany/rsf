@@ -273,6 +273,25 @@ impl DurableSqlEngine {
         router: &mut impl FabricRouterPort,
         pending: &PendingRequest,
     ) -> RsfResult<(PreparedSql, ReplicatedFabricCommand)> {
+        // Certified legacy commands retain their historical semantics on replay.
+        // An unresolved pre-upgrade COMMIT must not submit a fresh snapshot-only
+        // decision after unrelated data changed. Reconcile committed history
+        // first; otherwise retain its exact intent and fail closed on conflict.
+        if let Some(proposal) = &pending.session
+            && !proposal.serializable
+            && matches!(
+                parse_statement(&pending.statement)?,
+                ParsedStatement::Commit
+            )
+        {
+            let state = proposal
+                .before
+                .as_ref()
+                .ok_or_else(|| corrupt("legacy SQL commit has no session state"))?;
+            session::validate_serializable_snapshot(self, state.snapshot).map_err(|_| corrupt(
+                "legacy pending SQL COMMIT conflicts with upgraded isolation; recover authoritative protocol history before serving",
+            ))?;
+        }
         let namespace = self
             .namespace
             .as_deref()

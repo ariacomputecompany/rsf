@@ -2,6 +2,8 @@ use super::*;
 use rsf_core::{Epoch, NodeId};
 use rsf_protocol::VsrBackedFabricRouter;
 
+mod serializable;
+
 #[test]
 fn bound_v5_checkpoint_upgrades_without_changing_autocommit_receipts() {
     let root = root("v5");
@@ -481,7 +483,27 @@ fn durable_sessions_isolate_owners_detect_snapshot_conflicts_and_preserve_unrela
         "bob-insert",
     )
     .unwrap();
-    run(&mut sql, &mut router, "bob", &bob, "COMMIT", "bob-commit").unwrap();
+    assert!(run(&mut sql, &mut router, "bob", &bob, "COMMIT", "bob-commit").is_err());
+    run(&mut sql, &mut router, "bob", &bob, "ROLLBACK", "bob-abort").unwrap();
+    let bob = begin(&mut sql, &mut router, "bob", "work", "bob-fresh");
+    run(
+        &mut sql,
+        &mut router,
+        "bob",
+        &bob,
+        "INSERT INTO users (id, name) VALUES (2, barbara)",
+        "bob-fresh-insert",
+    )
+    .unwrap();
+    run(
+        &mut sql,
+        &mut router,
+        "bob",
+        &bob,
+        "COMMIT",
+        "bob-fresh-commit",
+    )
+    .unwrap();
     let SqlOutcome::Selected { rows } = sql.read_snapshot("SELECT * FROM users").unwrap().outcome
     else {
         panic!("SELECT")

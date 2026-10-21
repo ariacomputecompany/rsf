@@ -111,11 +111,31 @@ fn transaction_token(namespace: &str, request: &SessionRequest) -> RsfResult<Str
     identity.extend(encode(request)?);
     Ok(hex_bytes(Digest::blake3_bytes(&identity).as_bytes()))
 }
+pub(in crate::durable) fn validate_serializable_snapshot(
+    sql: &DurableSqlEngine,
+    snapshot: u64,
+) -> RsfResult<()> {
+    if !sql
+        .engine
+        .kv
+        .changes_since(CommitVersion(snapshot))
+        .is_empty()
+    {
+        return Err(invalid(
+            "SQL serializable snapshot conflict; namespace data changed after BEGIN; roll back and retry",
+        ));
+    }
+    Ok(())
+}
 fn effects(
     sql: &DurableSqlEngine,
     state: &SessionState,
     work: &Working,
+    serializable: bool,
 ) -> RsfResult<Vec<RowEffect>> {
+    if serializable {
+        validate_serializable_snapshot(sql, state.snapshot)?;
+    }
     let mut effects = Vec::new();
     for (table, key) in &work.touched {
         let row = work.engine.select_pk(table, key);
@@ -128,20 +148,22 @@ fn effects(
             columns: row.map(|row| row.columns.clone()),
         });
     }
-    let keys = effects
-        .iter()
-        .map(|effect| crate::logical_row_key(&effect.table, &effect.key))
-        .collect::<BTreeSet<_>>();
-    if sql
-        .engine
-        .kv
-        .changes_since(CommitVersion(state.snapshot))
-        .iter()
-        .any(|change| keys.contains(&change.key))
-    {
-        return Err(invalid(
-            "SQL snapshot write conflict; roll back and retry the transaction",
-        ));
+    if !serializable {
+        let keys = effects
+            .iter()
+            .map(|effect| crate::logical_row_key(&effect.table, &effect.key))
+            .collect::<BTreeSet<_>>();
+        if sql
+            .engine
+            .kv
+            .changes_since(CommitVersion(state.snapshot))
+            .iter()
+            .any(|change| keys.contains(&change.key))
+        {
+            return Err(invalid(
+                "SQL snapshot write conflict; roll back and retry the transaction",
+            ));
+        }
     }
     Ok(effects)
 }
@@ -150,6 +172,7 @@ pub(in crate::durable) fn propose(
     sql: &DurableSqlEngine,
     request: SessionRequest,
     begin_snapshot: CommitVersion,
+    serializable: bool,
 ) -> RsfResult<SessionProposal> {
     request.validate()?;
     let parsed = parse_statement(&request.statement)?;
@@ -200,7 +223,10 @@ pub(in crate::durable) fn propose(
         ParsedStatement::Commit => {
             let state = active(sql, &request)?;
             let work = working(&sql.engine, state)?;
-            let effects = effects(sql, state, &work)?;
+            // Without durable predicate read sets, validate the entire namespace
+            // snapshot. An accepted command then serializes at its commit: no
+            // intervening data/schema change can invalidate any earlier read.
+            let effects = effects(sql, state, &work, serializable)?;
             let schemas = state
                 .statements
                 .iter()
@@ -319,6 +345,7 @@ pub(in crate::durable) fn propose(
         }
     };
     let proposal = SessionProposal {
+        serializable,
         request,
         before,
         after,
@@ -345,7 +372,12 @@ pub(in crate::durable) fn prepare(
             "SQL session snapshot is not older than its command",
         ));
     }
-    let expected = propose(sql, proposal.request.clone(), CommitVersion(snapshot))?;
+    let expected = propose(
+        sql,
+        proposal.request.clone(),
+        CommitVersion(snapshot),
+        proposal.serializable,
+    )?;
     if expected != *proposal {
         return Err(corrupt(
             "SQL session transition differs from deterministic replay",
@@ -474,6 +506,15 @@ pub(in crate::durable) fn validate_recovered(sql: &DurableSqlEngine) -> RsfResul
                 ));
             }
             if matches!(proposal.result, SessionResult::Committed { .. }) {
+                if proposal.serializable
+                    && versions.values().flatten().any(|value| {
+                        state.snapshot < value.version.0 && value.version < command.commit.version
+                    })
+                {
+                    return Err(corrupt(
+                        "serializable SQL session committed across a namespace data change",
+                    ));
+                }
                 if state.schema != schema(&catalog)? {
                     return Err(corrupt("SQL session committed across a catalog change"));
                 }
