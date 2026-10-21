@@ -1,0 +1,231 @@
+{
+  "date": "2026-10-21",
+  "source_commit": "f86dfd1d6243f231a26c2bf991f7ec6e03b9db06",
+  "production_qualified": false,
+  "scope": "single-host loopback TLS with fsync; not independent-machine, WAN, capacity or complete production qualification",
+  "status": "all 18 full verification domains passed on unchanged source",
+  "full_trace_directory": "artifacts/verification.vT0PsM",
+  "failed_attempts": [
+    {
+      "trace_directory": "artifacts/verification.McGqoV",
+      "source_sha256": "a7b8fb85d61f83225760070cd4c4d6e4d68b7e5f16343fa3f1830fc66a658a75",
+      "passed_domains": [
+        "storage",
+        "vsr",
+        "membership",
+        "protocol",
+        "peer-rpc",
+        "kv-transactions",
+        "sql",
+        "authentication",
+        "tenancy",
+        "daemon",
+        "automatic-client",
+        "daemon-stress",
+        "release-stress",
+        "object-blob",
+        "recovery",
+        "policy"
+      ],
+      "failed_domains": [
+        "end-to-end",
+        "workspace"
+      ],
+      "cause": "rsf-poc exhaustive SqlOutcome match did not handle SchemaStaged; both end-to-end and workspace failed to compile. Added an explicit staged-schema trace result. Complete workspace compilation and rsf-poc tests then passed."
+    }
+  ],
+  "targeted_evidence": {
+    "sql_tests_passed": 75,
+    "sql_trace": "artifacts/verification.McGqoV/sql.trace.fozzy",
+    "real_process_kill_commit_recovery": true,
+    "debug_and_release_takeover_with_active_session": true,
+    "clippy_targets": [
+      "rsf-sql",
+      "rsf-protocol",
+      "rsfd"
+    ],
+    "clippy_all_targets_no_deps_deny_warnings": true,
+    "clippy_log": "artifacts/sql-session-final-clippy.log",
+    "workspace_test_targets_compile": true,
+    "poc_regressions_pass": true
+  },
+  "limits": [
+    "snapshot isolation with write/write conflict detection; serializable predicate validation remains open",
+    "128 active sessions per namespace; 64 staged mutation statements and 32 savepoints per transaction; 64 KiB session state and 384 KiB transition payload",
+    "bounded result streaming, receipt retention, cold history/capacity, certified membership, independent-group routing and independent-host qualification remain open"
+  ],
+  "all_pass": true,
+  "full_verification": {
+    "all_pass": true,
+    "source_unchanged": true,
+    "source_sha256_before": "47d1906365a2b50368de320b3c501d419cc5b27067d3fd4200fe3f9b57a4a904",
+    "source_sha256_after": "47d1906365a2b50368de320b3c501d419cc5b27067d3fd4200fe3f9b57a4a904",
+    "seed": 20261021,
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "protocol",
+      "peer-rpc",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy",
+      "daemon",
+      "automatic-client",
+      "daemon-stress",
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end",
+      "workspace"
+    ],
+    "failed_domains": [],
+    "trace_directory": "artifacts/verification.vT0PsM",
+    "workload_evidence_valid": true,
+    "workload_metrics": {
+      "daemon-stress": {
+        "abrupt_process_shutdowns": 18,
+        "acknowledged": 198,
+        "clients": 4,
+        "concurrent_write_ops_per_second": 15.135417049322067,
+        "elapsed_ms": 71770,
+        "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+        "latency_us": {
+          "max": 527947,
+          "p50": 257671,
+          "p95": 365265,
+          "p99": 474128
+        },
+        "payload_bytes": 442587,
+        "profile": "debug",
+        "rounds": 3,
+        "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+        "uncertain_writes_resolved": 3,
+        "workload": "native-kv-process-stress"
+      },
+      "release-stress": {
+        "abrupt_process_shutdowns": 18,
+        "acknowledged": 774,
+        "clients": 4,
+        "concurrent_write_ops_per_second": 24.826837656338768,
+        "elapsed_ms": 90374,
+        "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+        "latency_us": {
+          "max": 296988,
+          "p50": 159934,
+          "p95": 210110,
+          "p99": 268879
+        },
+        "payload_bytes": 1769691,
+        "profile": "release",
+        "rounds": 3,
+        "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+        "uncertain_writes_resolved": 3,
+        "workload": "native-kv-process-stress"
+      }
+    },
+    "automatic_client_metrics": {
+      "debug": {
+        "acknowledged_before_crash": 4,
+        "active_sql_session_resumed": true,
+        "concurrent_clients": 4,
+        "coordinator_recoveries_before_crash": 3,
+        "coordinator_reuses_before_crash": 143,
+        "elapsed_ms": 56173,
+        "history_growth_ms": 28612,
+        "history_growth_writes": 128,
+        "primary_state_deleted": true,
+        "profile": "debug",
+        "replacement_restarts": 1,
+        "requests_without_acknowledgement": 28,
+        "retried_requests": 32,
+        "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+        "sql_session_original_results_replayed": true,
+        "submitted_requests": 32,
+        "surface_count": 4,
+        "surviving_replicas_checked": 2,
+        "verified_logical_kv_writes": 162,
+        "workload": "automatic-client-takeover"
+      },
+      "release": {
+        "acknowledged_before_crash": 4,
+        "active_sql_session_resumed": true,
+        "concurrent_clients": 4,
+        "coordinator_recoveries_before_crash": 3,
+        "coordinator_reuses_before_crash": 143,
+        "elapsed_ms": 46018,
+        "history_growth_ms": 24822,
+        "history_growth_writes": 128,
+        "primary_state_deleted": true,
+        "profile": "release",
+        "replacement_restarts": 1,
+        "requests_without_acknowledgement": 28,
+        "retried_requests": 32,
+        "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+        "sql_session_original_results_replayed": true,
+        "submitted_requests": 32,
+        "surface_count": 4,
+        "surviving_replicas_checked": 2,
+        "verified_logical_kv_writes": 162,
+        "workload": "automatic-client-takeover"
+      }
+    },
+    "automatic_client_evidence_valid": true,
+    "sql_session_evidence_valid": true,
+    "sql_session_regressions": {
+      "durable_sessions_commit_schema_rows_and_savepoints_atomically_and_replay_original_results": true,
+      "durable_sessions_isolate_owners_detect_snapshot_conflicts_and_preserve_unrelated_commits": true,
+      "durable_session_commands_replay_active_transactions_and_indexes_after_each_follower_restart": true,
+      "session_context_rejects_noncanonical_unknown_and_oversized_inputs": true,
+      "session_limits_reject_before_intents_and_leave_transactions_usable": true,
+      "session_recovery_rejects_divergent_state_results_and_catalog_and_allows_schema_abort": true,
+      "killed_session_commit_recovers_atomic_rows_schema_and_original_receipt": true,
+      "bound_v5_checkpoint_upgrades_without_changing_autocommit_receipts": true
+    },
+    "coverage_per_passing_domain": [
+      "five-run doctor",
+      "strict deterministic test",
+      "real host recorded run",
+      "strict trace verification",
+      "replay",
+      "CI"
+    ],
+    "production_qualified": false,
+    "source_commit": "f86dfd1d6243f231a26c2bf991f7ec6e03b9db06",
+    "scope": "single-host loopback TLS with fsync; independent-machine, WAN, workload-capacity and complete production qualification remain open",
+    "workspace_regression_audit": {
+      "source_sha256": "47d1906365a2b50368de320b3c501d419cc5b27067d3fd4200fe3f9b57a4a904",
+      "counts": {
+        "passed": 1112,
+        "failed": 0,
+        "ignored": 1,
+        "result_groups": 163
+      },
+      "required_sql_session_regressions": {
+        "durable_sessions_commit_schema_rows_and_savepoints_atomically_and_replay_original_results": true,
+        "durable_sessions_isolate_owners_detect_snapshot_conflicts_and_preserve_unrelated_commits": true,
+        "durable_session_commands_replay_active_transactions_and_indexes_after_each_follower_restart": true,
+        "session_context_rejects_noncanonical_unknown_and_oversized_inputs": true,
+        "session_limits_reject_before_intents_and_leave_transactions_usable": true,
+        "session_recovery_rejects_divergent_state_results_and_catalog_and_allows_schema_abort": true,
+        "killed_session_commit_recovers_atomic_rows_schema_and_original_receipt": true,
+        "bound_v5_checkpoint_upgrades_without_changing_autocommit_receipts": true
+      },
+      "all_pass": true,
+      "verified_prior_regressions": [
+        "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",
+        "only_recovery_requests_retry_a_lost_reply_and_never_more_than_once",
+        "rejected_request_or_bad_authenticated_response_is_not_retried",
+        "torn_staged_batch_recovers_only_the_previous_logical_prefix_and_can_resume",
+        "installation_batches_recover_logical_ordinals_overlap_retries_and_reject_changed_prefixes",
+        "slow_execution_still_delivers_complete_tls_response_and_close_notification",
+        "slow_drips_do_not_renew_the_cumulative_io_budget",
+        "incremental_sql_preserves_checkpoint_bytes_then_reclaims_and_replays_original_results",
+        "killed_writer_recovers_append_head_checkpoint_and_compaction_boundaries",
+        "automatic_client_takeover_recovers_every_surface_routes_followers_and_rechecks_security"
+      ]
+    }
+  }
+}

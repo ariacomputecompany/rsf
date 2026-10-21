@@ -139,6 +139,17 @@ read/write-retry rejection without quorum. The SQL and daemon host-backed Fozzy
 domains execute these tests and record, strictly verify, replay and CI-check their
 traces.
 
+The SQL session regressions cover transaction ownership, snapshot conflicts,
+savepoint recovery, schema invalidation, active-session/statement/savepoint/byte
+limits, checkpoint inventory and catalog validation, V5 compatibility, and a
+real process kill after COMMIT durability before local publication. Both debug
+and release automatic takeover profiles resume an open session after the old
+primary's data is deleted, roll back to its savepoint, commit schema and rows,
+and verify original responses after replacement restart on both surviving stores.
+The full gate requires these named workspace tests and takeover metrics. See
+[session verification](sql-session-verification-2026-10-21.json), including the
+first attempt's missed proof-of-concept result consumer and its correction.
+
 The [current full verification](verification-2026-10-21.json) passes all 18
 domains on unchanged source, including the full workspace suite, native SQL
 network integration and both automatic takeover/stress profiles. The workspace
