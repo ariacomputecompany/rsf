@@ -32,6 +32,16 @@ impl PeerElectionTiming {
         Ok(())
     }
 }
+/// Diagnostic progress only. A phase event never establishes voting authority
+/// or client readiness; only the completed update can report quorum confirmation.
+#[derive(Clone, Copy, Debug)]
+pub struct PeerElectionProgress {
+    pub node: NodeId,
+    pub pg: PlacementGroupId,
+    pub phase: &'static str,
+    pub elapsed: Duration,
+    pub records: Option<u64>,
+}
 #[derive(Debug)]
 pub struct PeerElectionUpdate {
     pub pg: PlacementGroupId,
@@ -66,6 +76,17 @@ impl PeerReplicaServer {
         &mut self,
         timing: PeerElectionTiming,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+    ) -> Result<Option<PeerElectionUpdate>, String> {
+        self.poll_elections_with_progress(timing, apply, &mut |_| {})
+    }
+
+    /// Observe phase boundaries even when a slow durable operation has not yet
+    /// returned an election update. The observer must not block or change state.
+    pub fn poll_elections_with_progress(
+        &mut self,
+        timing: PeerElectionTiming,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+        progress: &mut impl FnMut(PeerElectionProgress),
     ) -> Result<Option<PeerElectionUpdate>, String> {
         for cell in self.cells.values() {
             timing.validate(self.timeout, cell.replicas().len())?;
@@ -107,9 +128,9 @@ impl PeerReplicaServer {
             }
             self.last_control_group = Some(pg);
             let result = if local_primary {
-                self.primary_control(pg, &status, timing, now, apply)
+                self.primary_control(pg, &status, timing, now, apply, progress)
             } else {
-                self.elect(pg, &status, timing, apply)
+                self.elect(pg, &status, timing, apply, progress)
             };
             let clock = self.election_clock.get_mut(&pg).unwrap();
             let delay = if result.is_err() {
@@ -136,7 +157,19 @@ impl PeerReplicaServer {
         status: &VsrReplicaStatus,
         timing: PeerElectionTiming,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+        progress: &mut impl FnMut(PeerElectionProgress),
     ) -> Result<String, String> {
+        let started = Instant::now();
+        let local = self.local;
+        let mut phase = |phase, records| {
+            progress(PeerElectionProgress {
+                node: local,
+                pg,
+                phase,
+                elapsed: started.elapsed(),
+                records,
+            })
+        };
         self.installation_pending.insert(pg);
         self.election_clock.get_mut(&pg).unwrap().confirmed_view = None;
         let same = status
@@ -156,6 +189,7 @@ impl PeerReplicaServer {
                     .map_err(|e| e.message)?
                     == input.records().map_err(|e| e.message)?
             {
+                phase("resume", Some(input.records().map_err(|e| e.message)?));
                 let result = self
                     .control_transport
                     .resume_view_installation(cell, apply)
@@ -194,18 +228,23 @@ impl PeerReplicaServer {
         };
         let cell = self.cells.get_mut(&pg).unwrap();
         let result = (|| {
+            phase("collect", None);
             let (input, snapshots) = self
                 .control_transport
                 .prepare_installation_input(cell, &request)
                 .map_err(|e| e.reason)?;
+            let records = input.records().map_err(|e| e.message)?;
+            phase("stage", Some(records));
             self.control_transport
                 .stage_installation_input(cell, &input, &snapshots)
                 .map_err(|e| e.reason)?;
+            phase("install", Some(records));
             self.control_transport
                 .resume_view_installation(cell, apply)
                 .map_err(|e| e.reason)?;
             Ok(())
         })();
+        phase(if result.is_ok() { "complete" } else { "failed" }, None);
         self.election_result(pg, result, timing)
     }
     fn election_result(

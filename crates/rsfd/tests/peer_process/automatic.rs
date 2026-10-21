@@ -31,6 +31,9 @@ impl AutomaticProcess {
             for line in std::io::BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
                 let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    if line.contains("connection failed:") {
+                        eprintln!("{line}");
+                    }
                     continue;
                 };
                 if event["event"] == "peer.ready" {
@@ -41,6 +44,9 @@ impl AutomaticProcess {
                             .parse::<SocketAddr>()
                             .unwrap(),
                     );
+                }
+                if event["event"] == "peer.control" {
+                    println!("{event}");
                 }
                 if event["event"] == "peer.client_cache" {
                     *cache_events.lock().unwrap() = Some(event.clone());

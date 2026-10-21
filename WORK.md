@@ -125,7 +125,15 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current SQL milestone verification (2026-10-21):
+Current control milestone verification (2026-10-21):
+`docs/control-batching-verification-2026-10-21.json` records 89 passing VSR tests,
+29 RPC tests, 65 daemon unit tests and a passing debug automatic-client workload
+with 128 growth writes, 32 concurrent identities and all 162 logical KV writes
+verified on both survivors after primary data deletion. Bounded history batches,
+completed-installation retry and cumulative socket I/O accounting are implemented.
+The full qualification gate is in progress; production readiness remains unproven.
+
+Previous SQL milestone verification (2026-10-21):
 `docs/sql-journal-verification-2026-10-21.json` records 66 passing SQL tests,
 passing native SQL network integration and strict recorded host trace checks,
 and passing SQL Clippy. The complete gate in `artifacts/verification.4rk14a`
@@ -133,7 +141,7 @@ failed daemon, automatic-client and debug-stress domains: listener collision,
 RPC timeouts and election convergence failures. The isolated automatic-client
 run also failed after completing 128 history-growth writes. The gate was stopped
 during release compilation; later domains and the workspace were not completed.
-These failures remain unassigned and open. Current source is not fully qualified.
+That earlier run remains failed. Phase diagnostics subsequently identified serial per-record transfer/staging and repeated completed-installation work, while connection logs identified application work consuming the socket I/O budget. The current targeted takeover passes after fixes; the listener collision and broader qualification remain open. Current source is not fully qualified.
 
 Last complete successful verification, for the earlier source (2026-10-21): `artifacts/verification.kcOVwm/summary.json`
 passes all 18 domains against unchanged executable sources (SHA-256
@@ -184,7 +192,7 @@ See `docs/primary-failover.md`, `docs/peer-replication.md`, and
 - Implement explicit migration of legacy unscoped daemon data and nonempty metadata-only KV/SQL/object/blob stores into namespace-bound replicated stores while preserving values and request receipts. Establish the purpose and payload history of old unmarked immutable pins before adopting them as dependencies. The secured daemon currently rejects shared top-level surface directories.
 - Add durable SQL sessions and bounded result streaming. Namespace-bound autocommit now appends complete commands and synced acknowledged-history heads, then periodically checkpoints and reclaims covered journal records; unbound legacy persistence still rewrites full state. Replicated planning still rebuilds canonical page placement per mutation. Checkpoint MVCC/receipts and maintenance metadata remain unbounded; growing-table capacity and throughput still need qualification.
 - Define bounded durable request-receipt retention with an explicit retry horizon before reclaiming KV/SQL/object/blob intent/receipt history and unreachable pinned blobs.
-- Resolve the current listener collision, RPC deadline and automatic failover convergence failures recorded in the SQL milestone qualification report, including the isolated takeover failure. Then exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
+- Qualify bounded election batches, completed-installation acknowledgement retry and cumulative socket I/O accounting across all full-suite and stress profiles; resolve the unexplained listener collision from the earlier failed qualification. Then exercise the complete production fault matrix on independent daemon processes and publish latency, throughput, recovery, and rebalance measurements. Structural requirement coverage and scripted process scenarios cannot establish production readiness.
 - Qualify primary request latency and growing-history behavior against the deployment workload. Bounded primary runtime batches and resident peer materializers reduce repeated replay, and the opt-in peer client now retains coordination across scoped requests. Legacy listeners still reconstruct history between batches, and cold recovery/elections still load full histories. Both `tests/stress-host.pass.fozzy.json` and the larger optimized workload in `tests/stress-release-host.pass.fozzy.json` are required release checks. Loopback results alone cannot establish independent-host capacity or machine-failure readiness.
 
 ## Custom Protocol Target

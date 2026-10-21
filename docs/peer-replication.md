@@ -172,10 +172,19 @@ of those control catalogs remains separate release work.
 Client endpoints require unique configured node IDs, nonzero ports, coverage of
 all peer mappings, and a local endpoint equal to `listen`. Automatic elections
 must be enabled, and the process cannot host learner cells. With client service,
-the minimum election timeout also includes the two-second absolute client socket
-deadline. A three-voter example uses top-level `timeout_ms: 500` and elections
-`heartbeat_ms: 200`, `timeout_ms: 5000`, `rank_delay_ms: 1500`. Socket deadlines do
-not preempt fsync or recovery work; growing-history latency still needs qualification.
+the minimum election timeout also includes the two-second cumulative client socket
+I/O budget. TLS handshaking, frame reads, response writes and TLS close notification
+share that budget; individual reads/writes and slow byte drips cannot renew it.
+Once a complete frame has been admitted, synchronous application execution
+suspends socket time accounting so storage work cannot consume the time needed
+to deliver its result. An already expired frame cannot enter execution.
+
+A three-voter example uses top-level `timeout_ms: 500` and elections
+`heartbeat_ms: 200`, `timeout_ms: 5000`, `rank_delay_ms: 1500`. The I/O budget is
+not a request latency SLO or a bound on application work. Socket deadlines do not
+preempt fsync or recovery, and the serialized controller can still be delayed by
+long execution. Growing-history latency and independent scheduling remain release
+qualification work.
 
 Application data stays in the peer's `application/namespaces` stores. Derived
 coordination receipts live under its `client-protocol` directory. Peer control and

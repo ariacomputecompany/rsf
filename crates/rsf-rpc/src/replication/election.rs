@@ -1,7 +1,7 @@
 //! Election preparation authenticates candidates and reporting voters. It
 //! collects frozen recovery inputs; it does not install a view or grant service.
 use super::*;
-use rsf_vsr::{VsrHistoryRecord, VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
+use rsf_vsr::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
 
 impl NetworkVsrTransport {
     pub fn prepare_view_installation(
@@ -43,13 +43,23 @@ impl NetworkVsrTransport {
         let mut query = report.encode().map_err(|err| fail(err.message))?;
         let prefix = query.len();
         let mut records = Vec::new();
-        for ordinal in 0..report.history.records {
+        while (records.len() as u64) < report.history.records {
+            let ordinal = records.len() as u64;
             query.truncate(prefix);
             query.extend_from_slice(&ordinal.to_le_bytes());
             let response = self
-                .exchange_io(replica, VIEW_CHANGE_RECORD, &query)
+                .exchange_io(replica, VIEW_CHANGE_BATCH, &query)
                 .map_err(|err| fail(err.to_string()))?;
-            records.push(VsrHistoryRecord::decode(&response).map_err(|err| fail(err.message))?);
+            let batch =
+                rsf_vsr::VsrHistoryBatch::decode(&response).map_err(|err| fail(err.message))?;
+            if batch.ordinal != ordinal
+                || ordinal + batch.records.len() as u64 > report.history.records
+            {
+                return Err(fail(
+                    "view-change history batch range differs from frozen report".into(),
+                ));
+            }
+            records.extend(batch.records);
         }
         let snapshot = VsrViewChangeSnapshot { report, records };
         snapshot
@@ -164,6 +174,17 @@ impl PeerReplicaServer {
         }
         let ordinal = usize::try_from(ordinal)
             .map_err(|_| invalid("election record ordinal exceeds platform range"))?;
+        if kind == VIEW_CHANGE_BATCH {
+            return rsf_vsr::VsrHistoryBatch::pack(
+                ordinal as u64,
+                snapshot
+                    .records
+                    .get(ordinal..)
+                    .ok_or_else(|| invalid("election batch ordinal is outside snapshot"))?,
+            )
+            .and_then(|batch| batch.encode())
+            .map_err(rsf);
+        }
         snapshot
             .records
             .get(ordinal)

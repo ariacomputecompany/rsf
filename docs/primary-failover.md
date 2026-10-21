@@ -90,6 +90,46 @@ certificates; integrity validation does not select or semantically reconcile a
 new log. Collection currently retains full histories in memory. Incremental
 recovery and checkpointing remain separate requirements.
 
+## Bounded transfer and durable input batches
+
+Current peers fetch frozen election histories in ordered batches of at most 32
+records and 64 KiB of encoded data. A single larger history record retains the
+existing bounded record limit. The report identity and requested ordinal bind
+every response, and full snapshot integrity/semantic validation still precedes
+selection. Batch collection uses peer request kind 17; individual record queries
+remain readable through kind 10.
+
+Local staging and authenticated remote uploads use the same ordered batch codec.
+One outer checksummed WAL record contains a batch; its full sync completes before
+the receiver acknowledges the next logical ordinal. A torn outer record exposes
+none of that batch during recovery. Exact overlapping retries validate their
+retained prefix before appending the missing suffix. Restart accepts mixed legacy
+single-record and batched input while preserving descriptor identity, candidate
+checks and higher-promise fencing. Installation records remain non-authoritative
+until the complete quorum input validates and publication/materialization finish.
+
+A completed installation retry checks the exact input plan against the healthy
+published view, candidate and voter set, and rejects any newer promise. It need
+not select the same plan again. The peer skips materialization only if it was
+already complete and the exact owned cell's mutation token is unchanged across
+finish. Restarted peers and failed materializers remain pending and must apply
+the committed prefix before acknowledging. A response lost after that boundary
+can therefore be retried without repeating the full installation workload.
+
+Batched uploads use request kind 16; the receiver continues to accept legacy kind
+12 single-record uploads. Older peers reject the new request kinds. Deployments
+must account for this capability requirement; the new sender does not silently
+fall back to a slower installation protocol. Older readers cannot resume a new
+batched staging WAL, and the persisted promise continues to fence ordinary
+operations. Published voting generations retain their existing record format.
+
+The daemon emits `peer.control` events at collection, staging, installation and
+resume boundaries, with local node, placement group, elapsed time and available
+record counts. These are diagnostics, not quorum or readiness evidence. Batching
+reduces repeated TLS round trips and full syncs; it does not bound total retained
+history or make the serialized controller independently scheduled. Qualification
+of the current changes is still in progress.
+
 ## Quorum selection and local installation
 
 `VsrViewInstallation::select` semantically replays every frozen history using the

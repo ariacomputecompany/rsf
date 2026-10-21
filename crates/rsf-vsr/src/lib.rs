@@ -7,7 +7,10 @@ mod history;
 mod learner;
 mod transfer;
 pub use learner::LearnerHistoryStore;
-pub use transfer::{VsrHistoryDescriptor, VsrHistoryRecord, VsrHistorySnapshot};
+pub use transfer::{
+    HISTORY_BATCH_TARGET_BYTES, MAX_HISTORY_BATCH_RECORDS, VsrHistoryBatch, VsrHistoryDescriptor,
+    VsrHistoryRecord, VsrHistorySnapshot,
+};
 mod migration;
 mod probe;
 mod replica;

@@ -8,6 +8,7 @@ impl PeerReplicaServer {
         timing: PeerElectionTiming,
         now: Instant,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+        progress: &mut impl FnMut(PeerElectionProgress),
     ) -> Result<String, String> {
         if self.installation_pending.contains(&pg) {
             for entry in self.cells[&pg].committed_prefix().map_err(|e| e.message)? {
@@ -27,14 +28,29 @@ impl PeerReplicaServer {
             if input.is_some_and(|i| {
                 i.request().candidate == self.local && i.request().target_view == status.normal.view
             }) {
+                let started = Instant::now();
+                progress(PeerElectionProgress {
+                    node: self.local,
+                    pg,
+                    phase: "resume",
+                    elapsed: Duration::ZERO,
+                    records: None,
+                });
                 self.resume_installed(pg, apply)?;
+                progress(PeerElectionProgress {
+                    node: self.local,
+                    pg,
+                    phase: "complete",
+                    elapsed: started.elapsed(),
+                    records: None,
+                });
                 return Ok(
                     "durable local installation resumed and confirmed on voting quorum".into(),
                 );
             }
             // A locally installed view without retained upload input must obtain
             // a new reporting quorum; it cannot infer network installation.
-            return self.elect(pg, status, timing, apply);
+            return self.elect(pg, status, timing, apply, progress);
         }
         let mut confirmed = 1;
         let mut newer = false;
@@ -87,7 +103,7 @@ impl PeerReplicaServer {
             && !newer
             && confirmed > status.normal.voters.len() / 2
         {
-            return self.elect(pg, status, timing, apply);
+            return self.elect(pg, status, timing, apply, progress);
         }
         // A selected input remains available after publication so restarted or
         // previously unreachable voters can adopt it without stopping peers.
@@ -107,7 +123,22 @@ impl PeerReplicaServer {
             if input.is_some_and(|i| {
                 i.request().candidate == self.local && i.request().target_view == status.normal.view
             }) {
+                let started = Instant::now();
+                progress(PeerElectionProgress {
+                    node: self.local,
+                    pg,
+                    phase: "resume",
+                    elapsed: Duration::ZERO,
+                    records: None,
+                });
                 self.resume_installed(pg, apply)?;
+                progress(PeerElectionProgress {
+                    node: self.local,
+                    pg,
+                    phase: "complete",
+                    elapsed: started.elapsed(),
+                    records: None,
+                });
                 return Ok("installed quorum confirmed; lagging-voter installation retried".into());
             }
         }

@@ -542,14 +542,18 @@ fn serve_data_stream(
         .ok_or("TLS peer certificate is required")?;
     let fingerprint = crate::tls::certificate_fingerprint(certificate.as_ref());
     let mut stream = rustls::StreamOwned::new(connection, stream);
-    let response = read_data_frame(&mut stream)
-        .and_then(|frame| {
-            codec
-                .decode_and_admit(&frame, adapter)
-                .map_err(|err| err.message)
-        })
-        .map(|decision| data_plane_response(decision, executor, &fingerprint))
-        .unwrap_or_else(|reason| DataPlaneResponse::Corrupt { reason });
+    let admitted = read_data_frame(&mut stream).and_then(|frame| {
+        codec
+            .decode_and_admit(&frame, adapter)
+            .map_err(|err| err.message)
+    });
+    let response = match admitted {
+        Ok(decision) => stream
+            .sock
+            .execute(|| data_plane_response(decision, executor, &fingerprint))
+            .map_err(|err| format!("data I/O deadline expired before execution: {err}"))?,
+        Err(reason) => DataPlaneResponse::Corrupt { reason },
+    };
     let body = render_data_plane_response(&response);
     stream
         .write_all(body.as_bytes())
@@ -1053,6 +1057,74 @@ fn emit_data_plane_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_execution_still_delivers_complete_tls_response_and_close_notification() {
+        use std::io::Read;
+        let state = crate::tests::test_path("io-budget-execution");
+        crate::test_support::provision(&state);
+        let tls = crate::tls::server_config(&state).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let socket = listener.accept().unwrap().0;
+            serve_data_stream(
+                socket,
+                &WireCodec,
+                &WireAdapter,
+                &mut |_, _| {
+                    std::thread::sleep(DATA_CONNECTION_TIMEOUT + Duration::from_millis(100));
+                    DataPlaneResponse::Executed {
+                        protocol: "kv",
+                        operation_kind: "read",
+                        surface: "kv",
+                        version: None,
+                        bytes: 8,
+                        payload: b"finished".to_vec(),
+                        detail: "completed".into(),
+                    }
+                },
+                tls,
+            )
+            .unwrap()
+        });
+        let socket = TcpStream::connect(address).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let connection = rustls::ClientConnection::new(
+            crate::test_support::pki().client.clone(),
+            "localhost".try_into().unwrap(),
+        )
+        .unwrap();
+        let mut stream = rustls::StreamOwned::new(connection, socket);
+        let frame = WireCodec
+            .encode(&rsf_wire::RawFrame::with_body(
+                WireProtocol::Kv,
+                "app-client",
+                Some("app".into()),
+                "GET key",
+                Some("slow-read".into()),
+                vec![],
+            ))
+            .unwrap();
+        stream
+            .write_all(&(frame.len() as u32).to_le_bytes())
+            .unwrap();
+        stream.write_all(&frame).unwrap();
+        stream.flush().unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("RSF/1 executed"), "{response}");
+        assert!(response.contains("payload_hex=66696e6973686564"));
+        assert!(matches!(
+            server.join().unwrap(),
+            DataPlaneResponse::Executed { .. }
+        ));
+    }
 
     #[test]
     fn a_warm_runtime_rechecks_certificate_revocation_and_replication_configuration() {

@@ -129,11 +129,14 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
         }
         if let Some(timing) = service.elections {
             let materializer = &mut service.materializer;
-            if let Some(update) = service.server.poll_elections(timing, &mut |entry| {
+            if let Some(update) = service.server.poll_elections_with_progress(timing, &mut |entry| {
                 if let Some(command) = decode_application_entry(entry)? {
                     materializer.apply(&command)?;
                 }
                 Ok(())
+            }, &mut |progress| {
+                println!("{}", serde_json::json!({"event":"peer.control", "node":progress.node.0, "pg":progress.pg.0, "phase":progress.phase, "elapsed_ms":progress.elapsed.as_millis(), "records":progress.records}));
+                let _ = std::io::stdout().flush();
             })? {
                 let state = (
                     update.view.0,
@@ -253,7 +256,10 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
                     .saturating_add(timing.heartbeat.saturating_mul(3))
                     .saturating_add(crate::data::DATA_CONNECTION_TIMEOUT);
                 if timing.timeout < minimum {
-                    return Err("client election timeout must also cover the absolute data connection deadline".into());
+                    return Err(
+                        "client election timeout must also cover the cumulative data I/O deadline"
+                            .into(),
+                    );
                 }
             }
         }
@@ -372,7 +378,7 @@ impl PeerService {
             materializer.apply(&command)?;
         }
         let listener = TcpListener::bind(config.listen)
-            .map_err(|err| format!("cannot bind peer listener: {err}"))?;
+            .map_err(|err| format!("cannot bind peer listener {}: {err}", config.listen))?;
         if elections.is_some() {
             listener
                 .set_nonblocking(true)

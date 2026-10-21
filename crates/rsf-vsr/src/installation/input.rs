@@ -185,34 +185,68 @@ impl DurableVsrCell {
         ordinal: u64,
         record: VsrHistoryRecord,
     ) -> RsfResult<u64> {
+        self.append_installation_batch(
+            sender,
+            id,
+            crate::VsrHistoryBatch {
+                ordinal,
+                records: vec![record],
+            },
+        )
+    }
+
+    /// Acknowledge a bounded batch only after its single outer WAL record and
+    /// full sync succeed. Recovery exposes its entire logical prefix or none.
+    pub fn append_installation_batch(
+        &mut self,
+        sender: NodeId,
+        id: [u8; 32],
+        batch: crate::VsrHistoryBatch,
+    ) -> RsfResult<u64> {
         self.ensure_healthy()?;
         self.load_installation_input(id)?;
         self.authorize_installation_input(sender)?;
+        let mut encoded = batch.encode()?;
         let stage = self.installation_input.as_mut().unwrap();
-        let encoded = record.encode()?;
         if stage.failed {
             return Err(invalid_input(
                 "restart installation input after a durability failure",
             ));
         }
-        if ordinal > stage.count || ordinal >= stage.descriptor.records()? {
+        let end = batch
+            .ordinal
+            .checked_add(batch.records.len() as u64)
+            .ok_or_else(|| invalid_input("installation batch range overflow"))?;
+        if batch.ordinal > stage.count || end > stage.descriptor.records()? {
             return Err(invalid_input(
                 "installation input ordinal is outside durable prefix",
             ));
         }
-        if ordinal < stage.count {
-            let records = stage.store.recover_current()?.recovery.wal_records;
-            if records.get(ordinal as usize).map(|r| r.payload.as_slice())
-                != Some(encoded.as_slice())
+        let overlap = stage
+            .count
+            .saturating_sub(batch.ordinal)
+            .min(batch.records.len() as u64) as usize;
+        if overlap > 0 {
+            let durable = decode_staged_records(
+                &stage.store.recover_current()?.recovery.wal_records,
+                &stage.descriptor,
+            )?;
+            if durable.get(batch.ordinal as usize..batch.ordinal as usize + overlap)
+                != Some(&batch.records[..overlap])
             {
                 return Err(corrupt(
                     "installation input duplicate differs from durable record",
                 ));
             }
-            return Ok(stage.count);
+            if end <= stage.count {
+                return Ok(stage.count);
+            }
+            encoded = crate::VsrHistoryBatch {
+                ordinal: stage.count,
+                records: batch.records[overlap..].to_vec(),
+            }
+            .encode()?;
         }
-        // Outer epoch is constant: each voter history can restart at an older
-        // epoch. The bounded inner record preserves its original epoch and kind.
         if let Err(err) = stage.store.append_next_wal(
             stage.descriptor.request().pg,
             stage.descriptor.request().target_view,
@@ -222,7 +256,7 @@ impl DurableVsrCell {
             stage.failed = true;
             return Err(err);
         }
-        stage.count += 1;
+        stage.count = end;
         Ok(stage.count)
     }
 
@@ -238,7 +272,10 @@ impl DurableVsrCell {
         if stage.failed || stage.count != stage.descriptor.records()? {
             return Err(invalid_input("installation input is incomplete"));
         }
-        let records = stage.store.recover_current()?.recovery.wal_records;
+        let records = decode_staged_records(
+            &stage.store.recover_current()?.recovery.wal_records,
+            &stage.descriptor,
+        )?;
         let mut records = records.into_iter();
         let mut snapshots = Vec::new();
         for report in &stage.descriptor.reports {
@@ -247,7 +284,7 @@ impl DurableVsrCell {
                 let record = records
                     .next()
                     .ok_or_else(|| corrupt("installation input record disappeared"))?;
-                history.push(VsrHistoryRecord::decode(&record.payload)?);
+                history.push(record);
             }
             snapshots.push(VsrViewChangeSnapshot {
                 report: report.clone(),
@@ -267,6 +304,18 @@ impl DurableVsrCell {
         self.ensure_healthy()?;
         self.load_installation_input(id)?;
         self.authorize_installation_input(sender)?;
+        let stage = self.installation_input.as_ref().unwrap();
+        if !stage.failed
+            && self.view_change.is_none()
+            && stage.count == stage.descriptor.records()?
+            && self.installed_plan == Some(stage.descriptor.plan)
+        {
+            // Authorization already checked the exact installed view, candidate,
+            // voters and absence of a newer promise. The published generation is
+            // authoritative; a lost acknowledgement needs no second selection.
+            self.ensure_active_view()?;
+            return Ok(self.cell.view);
+        }
         let snapshots = self.installation_snapshots(id)?;
         let plan = VsrViewInstallation::select(&snapshots)?;
         self.install_view(&plan)?;
@@ -332,17 +381,8 @@ impl DurableVsrCell {
             options,
         )?;
         let recovered = recovered.recovery;
-        for (ordinal, record) in recovered.wal_records.iter().enumerate() {
-            if record.index != LogIndex(ordinal as u64 + 1)
-                || record.pg != descriptor.request().pg
-                || record.epoch != descriptor.request().target_view
-                || record.kind != WalRecordKind::ViewInstallation
-            {
-                return Err(corrupt("invalid installation input WAL envelope"));
-            }
-            VsrHistoryRecord::decode(&record.payload)?;
-        }
-        let count = recovered.wal_records.len() as u64;
+        let records = decode_staged_records(&recovered.wal_records, &descriptor)?;
+        let count = records.len() as u64;
         if count > descriptor.records()? {
             return Err(corrupt("installation input exceeds descriptor"));
         }
@@ -354,6 +394,35 @@ impl DurableVsrCell {
         })
     }
 }
+fn decode_staged_records(
+    records: &[rsf_core::storage::WalRecord],
+    descriptor: &VsrInstallationInput,
+) -> RsfResult<Vec<VsrHistoryRecord>> {
+    let mut history = Vec::new();
+    for (physical, record) in records.iter().enumerate() {
+        if record.index != LogIndex(physical as u64 + 1)
+            || record.pg != descriptor.request().pg
+            || record.epoch != descriptor.request().target_view
+            || record.kind != WalRecordKind::ViewInstallation
+        {
+            return Err(corrupt("invalid installation input WAL envelope"));
+        }
+        if record.payload.starts_with(b"RSFH1") {
+            history.push(VsrHistoryRecord::decode(&record.payload)?);
+        } else {
+            let batch = crate::VsrHistoryBatch::decode(&record.payload)?;
+            if batch.ordinal != history.len() as u64 {
+                return Err(corrupt("installation batch reorders durable history"));
+            }
+            history.extend(batch.records);
+        }
+        if history.len() as u64 > descriptor.records()? {
+            return Err(corrupt("installation input exceeds descriptor"));
+        }
+    }
+    Ok(history)
+}
+
 fn hex(id: &[u8; 32]) -> String {
     id.iter().map(|b| format!("{b:02x}")).collect()
 }

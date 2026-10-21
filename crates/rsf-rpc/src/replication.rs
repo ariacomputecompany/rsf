@@ -3,7 +3,7 @@
 //! cluster, sender, destination, and protocol version before touching storage.
 mod control;
 mod election;
-pub use control::{PeerElectionTiming, PeerElectionUpdate};
+pub use control::{PeerElectionProgress, PeerElectionTiming, PeerElectionUpdate};
 mod history;
 mod installation;
 mod tls;
@@ -388,9 +388,15 @@ impl PeerReplicaServer {
             self.dispatch_status(sender, payload)
         } else if kind == HEARTBEAT {
             self.dispatch_heartbeat(sender, payload, apply)
-        } else if matches!(kind, INSTALL_BEGIN | INSTALL_RECORD | INSTALL_FINISH) {
+        } else if matches!(
+            kind,
+            INSTALL_BEGIN | INSTALL_RECORD | INSTALL_FINISH | INSTALL_BATCH
+        ) {
             self.dispatch_installation(sender, kind, payload, apply)
-        } else if matches!(kind, VIEW_CHANGE_BEGIN | VIEW_CHANGE_RECORD) {
+        } else if matches!(
+            kind,
+            VIEW_CHANGE_BEGIN | VIEW_CHANGE_RECORD | VIEW_CHANGE_BATCH
+        ) {
             self.dispatch_election(sender, kind, payload)
         } else {
             self.dispatch(sender, kind, payload, apply)

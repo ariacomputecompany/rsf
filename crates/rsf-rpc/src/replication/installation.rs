@@ -43,20 +43,16 @@ impl NetworkVsrTransport {
             .begin_installation_input(self.local, self.local, input.clone())
             .map_err(fail)?;
         let id = input.id().map_err(fail)?;
-        let mut ordinal = 0;
-        for report in input.reports() {
-            let snapshot = snapshots
-                .iter()
-                .find(|s| s.report == *report)
-                .expect("validated report set");
-            for record in &snapshot.records {
-                if ordinal >= count {
-                    count = local
-                        .append_installation_input(self.local, id, ordinal, record.clone())
-                        .map_err(fail)?;
-                }
-                ordinal += 1;
-            }
+        let records = ordered_records(input, snapshots).map_err(|reason| VsrTransportError {
+            replica: self.local,
+            reason,
+        })?;
+        while count < records.len() as u64 {
+            let batch =
+                rsf_vsr::VsrHistoryBatch::pack(count, &records[count as usize..]).map_err(fail)?;
+            count = local
+                .append_installation_batch(self.local, id, batch)
+                .map_err(fail)?;
         }
         // Verify an existing prefix as well as newly appended records.
         local.installation_snapshots(id).map_err(fail)?;
@@ -133,25 +129,22 @@ impl NetworkVsrTransport {
         }
         let mut prefix = input.request().pg.0.to_le_bytes().to_vec();
         prefix.extend_from_slice(&input.id().map_err(|err| fail(err.message))?);
-        let mut ordinal = 0;
-        for snapshot in snapshots {
-            for record in &snapshot.records {
-                if ordinal >= count {
-                    let mut payload = prefix.clone();
-                    payload.extend_from_slice(&ordinal.to_le_bytes());
-                    payload.extend_from_slice(&record.encode().map_err(|err| fail(err.message))?);
-                    let next = self
-                        .request_io(replica, INSTALL_RECORD, &payload)
-                        .map_err(|err| fail(err.to_string()))?;
-                    if next != ordinal + 1 {
-                        return Err(fail(
-                            "remote installation record acknowledgement differs".into(),
-                        ));
-                    }
-                    count = next;
-                }
-                ordinal += 1;
+        let records = ordered_records(input, snapshots).map_err(fail)?;
+        while count < records.len() as u64 {
+            let batch = rsf_vsr::VsrHistoryBatch::pack(count, &records[count as usize..])
+                .map_err(|err| fail(err.message))?;
+            let expected = count + batch.records.len() as u64;
+            let mut payload = prefix.clone();
+            payload.extend_from_slice(&batch.encode().map_err(|err| fail(err.message))?);
+            let next = self
+                .request_io(replica, INSTALL_BATCH, &payload)
+                .map_err(|err| fail(err.to_string()))?;
+            if next != expected {
+                return Err(fail(
+                    "remote installation batch acknowledgement differs".into(),
+                ));
             }
+            count = next;
         }
         let view = self
             .request_io(replica, INSTALL_FINISH, &prefix)
@@ -201,6 +194,18 @@ impl PeerReplicaServer {
                 .try_into()
                 .unwrap();
             match kind {
+                INSTALL_BATCH => cell
+                    .append_installation_batch(
+                        sender,
+                        id,
+                        rsf_vsr::VsrHistoryBatch::decode(
+                            payload
+                                .get(40..)
+                                .ok_or_else(|| invalid("missing installation batch"))?,
+                        )
+                        .map_err(rsf)?,
+                    )
+                    .map_err(rsf)?,
                 INSTALL_RECORD => cell
                     .append_installation_input(
                         sender,
@@ -215,10 +220,18 @@ impl PeerReplicaServer {
                     )
                     .map_err(rsf)?,
                 INSTALL_FINISH if payload.len() == 40 => {
+                    let materialized = !self.installation_pending.contains(&pg);
+                    let before = if cell.view_change_promise().is_none() {
+                        Some(cell.state_token().map_err(rsf)?)
+                    } else {
+                        None
+                    };
                     self.installation_pending.insert(pg);
                     let view = cell.finish_installation_input(sender, id).map_err(rsf)?;
-                    for entry in cell.committed_prefix().map_err(rsf)? {
-                        apply(&entry).map_err(invalid)?;
+                    if !materialized || before != Some(cell.state_token().map_err(rsf)?) {
+                        for entry in cell.committed_prefix().map_err(rsf)? {
+                            apply(&entry).map_err(invalid)?;
+                        }
                     }
                     self.installation_pending.remove(&pg);
                     view.0
@@ -228,4 +241,24 @@ impl PeerReplicaServer {
         };
         Ok(count.to_le_bytes().to_vec())
     }
+}
+
+// Descriptor reports define the canonical concatenation, irrespective of the
+// order in which network reports arrived or which voter became candidate.
+fn ordered_records(
+    input: &VsrInstallationInput,
+    snapshots: &[VsrViewChangeSnapshot],
+) -> Result<Vec<VsrHistoryRecord>, String> {
+    let mut records = Vec::new();
+    for report in input.reports() {
+        let snapshot = snapshots
+            .iter()
+            .find(|snapshot| snapshot.report == *report)
+            .ok_or("installation descriptor has no matching snapshot")?;
+        if snapshot.records.len() as u64 != report.history.records {
+            return Err("installation snapshot record count differs".into());
+        }
+        records.extend(snapshot.records.iter().cloned());
+    }
+    Ok(records)
 }

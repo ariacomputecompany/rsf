@@ -62,9 +62,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         .output()
         .unwrap();
     assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8_lossy(&rejected.stderr).contains("absolute data connection deadline")
-    );
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("cumulative data I/O deadline"));
     assert!(!state(&root, 0).exists());
     drop(client_reservations);
     let mut processes = (0..3)

@@ -991,6 +991,197 @@ fn installation_input_validates_all_histories_before_publication() {
 }
 
 #[test]
+fn installation_batches_recover_logical_ordinals_overlap_retries_and_reject_changed_prefixes() {
+    let path = root("input-batches");
+    let (mut first, second, snapshots) = fixture(&path);
+    let input = VsrInstallationInput::from_snapshots(&snapshots).unwrap();
+    let id = input.id().unwrap();
+    let records = input
+        .reports()
+        .iter()
+        .flat_map(|report| {
+            snapshots
+                .iter()
+                .find(|snapshot| snapshot.report == *report)
+                .unwrap()
+                .records
+                .iter()
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+    first
+        .begin_installation_input(NodeId(1), NodeId(1), input.clone())
+        .unwrap();
+    // Start with the old one-record WAL representation, then mix in batches.
+    drop(first);
+    let directory = path
+        .join("1/vsr-install-input")
+        .join(id.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    let mut store = SegmentStore::open(directory.join("records")).unwrap();
+    store
+        .append_next_wal(
+            PlacementGroupId(1),
+            Epoch(2),
+            WalRecordKind::ViewInstallation,
+            &records[0].encode().unwrap(),
+        )
+        .unwrap();
+    drop(store);
+    let mut first = open(&path.join("1"));
+    assert_eq!(
+        first
+            .begin_installation_input(NodeId(1), NodeId(1), input.clone())
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        first
+            .append_installation_batch(
+                NodeId(1),
+                id,
+                crate::VsrHistoryBatch {
+                    ordinal: 0,
+                    records: records[..3].to_vec()
+                }
+            )
+            .unwrap(),
+        3
+    );
+    drop(first);
+    let mut first = open(&path.join("1"));
+    assert_eq!(
+        first
+            .begin_installation_input(NodeId(1), NodeId(1), input)
+            .unwrap(),
+        3
+    );
+    let mut changed = records[..3].to_vec();
+    changed[1].payload.push(0);
+    assert!(
+        first
+            .append_installation_batch(
+                NodeId(1),
+                id,
+                crate::VsrHistoryBatch {
+                    ordinal: 0,
+                    records: changed
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(
+        first
+            .append_installation_batch(
+                NodeId(1),
+                id,
+                crate::VsrHistoryBatch {
+                    ordinal: 1,
+                    records: records[1..].to_vec()
+                }
+            )
+            .unwrap(),
+        records.len() as u64
+    );
+    let restored = first.installation_snapshots(id).unwrap();
+    assert_eq!(restored.len(), snapshots.len());
+    for (restored, original) in restored.iter().zip(&snapshots) {
+        assert_eq!(restored.report, original.report);
+        assert_eq!(restored.records, original.records);
+    }
+    let recovered = SegmentStore::recover(directory.join("records")).unwrap();
+    assert_eq!(recovered.recovery.wal_records.len(), 3);
+    assert_eq!(
+        first.finish_installation_input(NodeId(1), id).unwrap(),
+        Epoch(2)
+    );
+    drop(first);
+    assert_eq!(open(&path.join("1")).committed_tail(), LogIndex(1));
+    drop(second);
+}
+
+#[test]
+fn torn_staged_batch_recovers_only_the_previous_logical_prefix_and_can_resume() {
+    let path = root("torn-input-batch");
+    let (mut first, second, snapshots) = fixture(&path);
+    let input = VsrInstallationInput::from_snapshots(&snapshots).unwrap();
+    let id = input.id().unwrap();
+    let records = input
+        .reports()
+        .iter()
+        .flat_map(|report| {
+            snapshots
+                .iter()
+                .find(|s| s.report == *report)
+                .unwrap()
+                .records
+                .iter()
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+    first
+        .begin_installation_input(NodeId(1), NodeId(1), input.clone())
+        .unwrap();
+    first
+        .append_installation_input(NodeId(1), id, 0, records[0].clone())
+        .unwrap();
+    first
+        .append_installation_batch(
+            NodeId(1),
+            id,
+            crate::VsrHistoryBatch {
+                ordinal: 1,
+                records: records[1..].to_vec(),
+            },
+        )
+        .unwrap();
+    drop(first);
+    let directory = path
+        .join("1/vsr-install-input")
+        .join(id.iter().map(|b| format!("{b:02x}")).collect::<String>())
+        .join("records");
+    let store = SegmentStore::open(&directory).unwrap();
+    let segment = directory
+        .join("segments")
+        .join(&store.active_segment().file_name);
+    drop(store);
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(segment)
+        .unwrap();
+    file.set_len(file.metadata().unwrap().len() - 1).unwrap();
+    file.sync_all().unwrap();
+    drop(file);
+    let mut first = open(&path.join("1"));
+    assert_eq!(
+        first
+            .begin_installation_input(NodeId(1), NodeId(1), input)
+            .unwrap(),
+        1
+    );
+    assert!(first.finish_installation_input(NodeId(1), id).is_err());
+    assert_eq!(first.view(), Epoch(1));
+    first
+        .append_installation_batch(
+            NodeId(1),
+            id,
+            crate::VsrHistoryBatch {
+                ordinal: 1,
+                records: records[1..].to_vec(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        first.finish_installation_input(NodeId(1), id).unwrap(),
+        Epoch(2)
+    );
+    assert_eq!(
+        first.request_commit(&VsrClientRequestId::new("original", 1)),
+        Some(LogIndex(1))
+    );
+    drop(second);
+}
+
+#[test]
 fn missing_selected_installation_input_cannot_be_recreated_silently() {
     let path = root("input-missing");
     let (mut first, second, snapshots) = fixture(&path);

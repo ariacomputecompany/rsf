@@ -1476,6 +1476,14 @@ fn installed_peer_requires_successful_materialization_before_normal_traffic() {
     assert_eq!(response, 2u64.to_le_bytes());
     assert_eq!(applied, vec![LogIndex(1)]);
     assert!(!server.installation_pending.contains(&PlacementGroupId(1)));
+    assert_eq!(
+        server
+            .dispatch_installation(NodeId(1), INSTALL_FINISH, &prefix, &mut |_| panic!(
+                "a completed unchanged installation must not rematerialize"
+            ))
+            .unwrap(),
+        2u64.to_le_bytes()
+    );
     server
         .cell(NodeId(1), PlacementGroupId(1), &mut |_| {
             panic!("already materialized")

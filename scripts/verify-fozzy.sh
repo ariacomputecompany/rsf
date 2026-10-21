@@ -117,9 +117,10 @@ for name in ("daemon-stress", "release-stress"):
     trace = Path(root, name + ".trace.fozzy")
     if not trace.exists():
         continue
-    for event in json.loads(trace.read_text()).get("events", []):
-        fields = event.get("fields", {})
-        if event.get("name") != "proc_spawn" or fields.get("exit_code") != 0:
+    # Event summaries truncate stdout. Decisions retain the complete recorded
+    # process result, including metrics after verbose fault diagnostics.
+    for fields in json.loads(trace.read_text()).get("decisions", []):
+        if fields.get("kind") != "proc_spawn" or fields.get("exit_code") != 0:
             continue
         for line in fields.get("stdout", "").splitlines():
             start = line.find("{")
@@ -143,9 +144,8 @@ workloads_valid = all(
 )
 automatic_trace = Path(root, "automatic-client.trace.fozzy")
 if automatic_trace.exists():
-    for event in json.loads(automatic_trace.read_text()).get("events", []):
-        fields = event.get("fields", {})
-        if event.get("name") != "proc_spawn" or fields.get("exit_code") != 0:
+    for fields in json.loads(automatic_trace.read_text()).get("decisions", []):
+        if fields.get("kind") != "proc_spawn" or fields.get("exit_code") != 0:
             continue
         for line in fields.get("stdout", "").splitlines():
             try:
