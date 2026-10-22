@@ -400,3 +400,24 @@ and strict Clippy pass. Implementation 307cbcd is pushed to remote main; scoped
 evidence is in `docs/membership-continuation-verification-2026-10-21.json`. This completes
 only the exact-proposal old-quorum continuation path: abort/conflict lifecycle,
 new-quorum installation/activation, learner promotion and control/admission remain.
+
+## Transition-only membership plan consensus (qualification running)
+
+Implemented a separately owned, full-sync decision store backed by canonical
+old-quorum input descriptors and bounded history batches. New-quorum round
+promises preserve accepted plans across coordinator loss. The coordinator binds
+its nomination durably before relay; higher rounds must retain the highest
+accepted plan reported by their new quorum. A distinct new majority forms a
+chosen-input proof, which remains pinned on restart. Authority, accepted inputs,
+bootstrap and monotonic journal state are replay-validated before reuse.
+
+All 106 VSR, 35 RPC and 57 protocol targeted tests pass, with strict Clippy for
+VSR/RPC/protocol/daemon. Evidence includes all four-voter quorum intersections,
+exact/overlapping retries, torn batches, old-store deletion and a real process
+killed after nomination sync before reply. The full Fozzy gate is expanded to
+20 domains and seven required decision regressions; full qualification is pending.
+
+This is transition-only library consensus, not active configuration installation.
+Peer orchestration, application materialization/acknowledgement, active generation
+publication, activation, learner promotion, retired roles, abort/conflict handling
+and atomic distributed control admission remain required release work.

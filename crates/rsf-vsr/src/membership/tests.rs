@@ -1,6 +1,6 @@
 use super::*;
 use std::path::Path;
-fn root(label: &str) -> std::path::PathBuf {
+pub(super) fn root(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "rsf-membership-{label}-{}-{}",
         std::process::id(),
@@ -10,7 +10,7 @@ fn root(label: &str) -> std::path::PathBuf {
             .as_nanos()
     ))
 }
-fn proposal() -> VsrMembershipProposal {
+pub(super) fn proposal() -> VsrMembershipProposal {
     VsrMembershipProposal {
         election: VsrViewChangeRequest {
             pg: PlacementGroupId(1),
@@ -33,7 +33,7 @@ fn open(path: &Path) -> DurableVsrCell {
     )
     .unwrap()
 }
-fn fixture(path: &Path) -> Vec<DurableVsrCell> {
+pub(super) fn fixture(path: &Path) -> Vec<DurableVsrCell> {
     let mut cells = (0..3)
         .map(|node| open(&path.join(node.to_string())))
         .collect::<Vec<_>>();

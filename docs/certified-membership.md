@@ -2,7 +2,8 @@
 
 Status: durable old-quorum approval, report recovery and exact-proposal
 continuation from a surviving minority report are implemented.
-New-quorum activation, learner promotion and control-metadata publication remain
+Transition-only new-quorum plan consensus is implemented as a library store.
+Peer orchestration, active configuration publication, learner promotion and control-metadata publication remain
 unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
 Local configuration methods and reachability probes do not install network
@@ -44,7 +45,9 @@ Recovery must resolve a partly published configuration without permitting old
 and new majorities to acknowledge competing histories. It cannot blindly raise
 the election view while discarding the configuration transition. A previously
 removed node must learn current authority before resuming service. Learners
-must remain non-voting until verified installation, regardless of their log height.
+must remain non-voting for application operations until verified installation,
+regardless of their log height. Proposed voters may separately participate in
+transition-only plan consensus after verified old-quorum approval.
 
 The current installation protocol authenticates the original candidate as the
 uploader. Generalizing membership therefore also requires a verified handoff or
@@ -189,5 +192,54 @@ accepted operations, original certificates and client mappings through the same
 validator used on reopen. New-quorum acknowledgement must bind that exact plan
 and verified committed-application materialization. Only a replay-validated
 completion proof may advance voting roles, and client readiness must additionally
-require the matching durable control-metadata admission. These states and their
-crash boundaries are not implemented by old-quorum approval or continuation.
+require the matching durable control-metadata admission. Old-quorum approval and continuation do not implement those activation states.
+The transition-only decision store below now implements the plan-selection part;
+application publication/materialization and admission remain unfinished.
+
+## Implemented transition-only installation decision store
+
+`MembershipDecisionStore` has its own exclusive owner lock, full-sync authority
+journal and bounded batch input stores. Opening a new acceptor requires verified
+old-quorum approval and a proposed voter identity. Reopen independently validates
+the retained original authority, bootstrap, monotonic round/accepted/chosen state,
+and complete accepted input histories. It does not contact the original primary.
+Missing authority or accepted input fails closed; staging cannot silently recreate
+a missing referenced input. The active application WAL and voter set are untouched.
+
+`VsrMembershipInput` canonically orders the old-quorum reports, binding every full
+history by its existing count/digest and canonical report bytes. Different report
+subsets may have different input IDs for the same membership proposal. Complete
+input replay uses the original membership approval validator. Bounded synced WAL
+batches retain logical ordinals, accept exact/overlapping retries, reject changed
+prefixes/gaps and recover only the preceding complete batch after a torn write.
+
+A `VsrMembershipRound` orders a counter and proposed-voter coordinator ID. Promises
+persist before reply and retain the highest accepted input across restart. A
+`VsrMembershipDecision` requires a distinct new voting majority at one round and
+must retain the highest accepted input from those authenticated reports. Conflicting
+reports from any accepted round reject. The coordinator first persists its own
+nomination; reusing cached promises after restart cannot nominate a different input
+at that same round. Other acceptors bind the received nomination to that coordinator,
+proposal, round and exact input. Complete authority replay precedes acceptance.
+
+`VsrMembershipChosen` requires a distinct new majority accepting one exact input
+at one round. Retaining this proof pins that input across subsequent recovery
+rounds. A minority nomination alone is insufficient. Report identities remain
+part of the authenticated crash-fault model; caller-supplied node IDs are not
+independently verifiable signatures. Peer wiring must authenticate each promise,
+nomination and acceptance before using these library constructors/methods.
+
+Targeted tests pass all 106 VSR, 35 RPC and 57 protocol checks. Strict Clippy passes
+for VSR/RPC/protocol/daemon all-targets/no-deps with warnings denied. New tests cover
+canonical bounded codecs and truncation, old-quorum input ordering/identity,
+minority nomination recovery after deleting old stores, durable same-round binding,
+all four-voter majority intersections and report rotations, retained chosen input,
+restartable overlapping batches, torn input recovery, bad roles/authority/state,
+and process death after synced nomination before acknowledgement.
+
+The production gate adds a dedicated decision domain and requires all seven new
+meaningful regressions in actual workspace output; the full 20-domain report is
+pending. This is library plan consensus only. It does not acknowledge application
+materialization, publish a new VSR cell, promote a learner or admit clients. Peer
+RPC orchestration, generation publication, activation, removed-voter handling,
+abort/conflict resolution and atomic distributed control admission remain open.

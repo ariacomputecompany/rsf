@@ -88,6 +88,7 @@ run_domain() {
 run_domain storage tests/storage-host.pass.fozzy.json
 run_domain vsr tests/vsr-host.pass.fozzy.json
 run_domain membership tests/membership-host.pass.fozzy.json
+run_domain membership-decision tests/membership-decision-host.pass.fozzy.json
 run_domain protocol tests/protocol-host.pass.fozzy.json
 run_domain peer-rpc tests/rpc-host.pass.fozzy.json
 run_domain kv-transactions tests/kv-txn-host.pass.fozzy.json
@@ -302,8 +303,15 @@ membership_approval_evidence = {
     for name in membership_approval_names
 }
 membership_approval_valid = all(membership_approval_evidence.values())
+membership_decision_names = ['membership_input_and_decision_codecs_bind_exact_quorums_and_reject_truncation', 'membership_higher_round_retains_minority_nomination_and_chosen_plan_after_old_data_loss', 'membership_upload_retries_are_atomic_bounded_and_fenced_by_new_rounds', 'membership_decision_rejects_missing_proofs_wrong_roles_and_malformed_durable_state', 'killed_membership_coordinator_recovers_synced_nomination_before_reply', 'every_new_quorum_intersection_preserves_chosen_input_across_recovery_rounds', 'torn_membership_input_batch_recovers_previous_prefix_and_cannot_be_accepted']
+membership_decision_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in membership_decision_names
+}
+membership_decision_valid = all(membership_decision_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -315,6 +323,9 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "membership_decision_evidence_valid": membership_decision_valid,
+    "membership_decision_regressions": membership_decision_evidence,
+    "membership_decision_scope": "transition-only library plan consensus; peer RPC orchestration, active configuration publication, learner promotion and client admission remain unfinished",
     "membership_approval_evidence_valid": membership_approval_valid,
     "membership_approval_regressions": membership_approval_evidence,
     "membership_approval_scope": "old-quorum approval only; new-quorum activation, learner promotion and complete membership qualification remain unfinished",

@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "rsf-membership-decision-host-backed-tests",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsf-vsr",
+        "membership::decision",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsf-vsr",
+        "membership::decision",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

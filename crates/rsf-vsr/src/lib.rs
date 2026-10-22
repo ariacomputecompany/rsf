@@ -3,7 +3,9 @@ mod installation;
 mod membership;
 pub use installation::{VsrInstallationInput, VsrViewInstallation};
 pub use membership::{
-    VsrMembershipApproval, VsrMembershipProposal, VsrMembershipReport, VsrMembershipSnapshot,
+    MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen,
+    VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipProposal,
+    VsrMembershipReport, VsrMembershipRound, VsrMembershipSnapshot,
 };
 mod replay;
 pub use election::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
