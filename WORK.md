@@ -125,24 +125,24 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current verification (2026-10-21): `artifacts/verification.tVxLRa/summary.json`
-passes all 19 domains against unchanged executable sources (SHA-256
-`1218bbb24645f80106c4c49b091fd307c8500b6999cd1de3c22ed98b142b51ff`).
-The workspace host run passes 1,159 tests; its one opt-in stress test is exercised
+Current verification (2026-10-21): `artifacts/verification.pInTn9/summary.json`
+passes all 20 domains against unchanged executable sources (SHA-256
+`02f757b43890d1522763a3c024c1d753cafa8d3e29c8188937e8ab659c76d131`).
+The workspace host run passes 1,167 tests; its one opt-in stress test is exercised
 separately by both required stress domains. Named regression audit confirms the
 new SQL journal crash boundaries, torn installation batches, completed-installation
 retries, real TLS acknowledgement loss, learner restart and cumulative socket
-I/O deadline checks were executed in the full workspace run. All eleven membership-approval/continuation regressions, six indexed-candidate regressions, ten SQL streaming regressions, both required KV atomicity regressions and all 24 required SQL/key regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
+I/O deadline checks were executed in the full workspace run. All seven membership-decision regressions, eleven membership-approval/continuation regressions, six indexed-candidate regressions, ten SQL streaming regressions, both required KV atomicity regressions and all 24 required SQL/key regressions also ran, including real process-kill COMMIT recovery, state/capacity validation, V5 compatibility, serializable write skew/phantom rejection, legacy isolation recovery, durable read dependencies, savepoint read retention, disjoint commits and process-kill read recovery. Each domain passes
 five-run doctor, strict deterministic orchestration, recorded host execution,
 strict trace verification, replay and CI checks. The recorded host processes
 supply the Rust test evidence; scripted expectations alone do not establish it.
 
-Includes 98 VSR tests, 57 protocol tests, 35 RPC tests, 98 SQL tests, 68 daemon
+Includes 106 VSR tests, 57 protocol tests, 35 RPC tests, 98 SQL tests, 68 daemon
 unit tests and all regular peer-process integration tests. Strict Clippy passes
 for core, index, write, relational commit, SQL, SQL DML/transactions, protocol and daemon targets with `--all-targets --no-deps -D warnings`.
 Workspace-wide lint cleanliness remains separate work. The complete summary is
 saved in `docs/verification-2026-10-21.json`; scoped recovery evidence is in
-`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`; key-identity and index-rebuild evidence is in `docs/sql-key-identity-verification-2026-10-21.json`; shared KV atomicity evidence is in `docs/kv-atomic-batch-verification-2026-10-21.json`; SQL streaming evidence is in `docs/sql-stream-verification-2026-10-21.json`; indexed-candidate evidence is in `docs/sql-index-verification-2026-10-21.json`; membership-approval evidence is in `docs/membership-approval-verification-2026-10-21.json`; current continuation evidence is in `docs/membership-continuation-verification-2026-10-21.json`. Production qualification remains
+`docs/recovery-rpc-verification-2026-10-21.json`; SQL session evidence and the corrected earlier failed attempt are in `docs/sql-session-verification-2026-10-21.json`; earlier serializable isolation evidence is in `docs/sql-serializable-verification-2026-10-21.json`; read-dependency/concurrency evidence is in `docs/sql-read-dependencies-verification-2026-10-21.json`; key-identity and index-rebuild evidence is in `docs/sql-key-identity-verification-2026-10-21.json`; shared KV atomicity evidence is in `docs/kv-atomic-batch-verification-2026-10-21.json`; SQL streaming evidence is in `docs/sql-stream-verification-2026-10-21.json`; indexed-candidate evidence is in `docs/sql-index-verification-2026-10-21.json`; membership-approval evidence is in `docs/membership-approval-verification-2026-10-21.json`; continuation evidence is in `docs/membership-continuation-verification-2026-10-21.json`; current plan-decision evidence is in `docs/membership-decision-verification-2026-10-21.json`. Production qualification remains
 incomplete because the release blockers below remain open.
 
 Opt-in peer client coordination now retains derived inventory with its cells
@@ -401,7 +401,7 @@ evidence is in `docs/membership-continuation-verification-2026-10-21.json`. This
 only the exact-proposal old-quorum continuation path: abort/conflict lifecycle,
 new-quorum installation/activation, learner promotion and control/admission remain.
 
-## Transition-only membership plan consensus (qualification running)
+## Transition-only membership plan consensus (qualified locally)
 
 Implemented a separately owned, full-sync decision store backed by canonical
 old-quorum input descriptors and bounded history batches. New-quorum round
@@ -415,7 +415,13 @@ All 106 VSR, 35 RPC and 57 protocol targeted tests pass, with strict Clippy for
 VSR/RPC/protocol/daemon. Evidence includes all four-voter quorum intersections,
 exact/overlapping retries, torn batches, old-store deletion and a real process
 killed after nomination sync before reply. The full Fozzy gate is expanded to
-20 domains and seven required decision regressions; full qualification is pending.
+20 domains and seven required decision regressions. All 20 domains and 1,167 workspace
+tests pass on unchanged executable sources with zero failures. All seven decision
+regressions appear in both the dedicated host trace and full workspace output.
+Debug/release takeover and SQL streaming pass; crash stress preserves 198/774
+acknowledgements with 18 abrupt shutdowns and three uncertain-write resolutions
+per profile. Implementation c0d357d is pushed to remote main. Scoped evidence is
+in `docs/membership-decision-verification-2026-10-21.json`.
 
 This is transition-only library consensus, not active configuration installation.
 Peer orchestration, application materialization/acknowledgement, active generation

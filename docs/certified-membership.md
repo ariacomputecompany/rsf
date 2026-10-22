@@ -238,8 +238,27 @@ restartable overlapping batches, torn input recovery, bad roles/authority/state,
 and process death after synced nomination before acknowledgement.
 
 The production gate adds a dedicated decision domain and requires all seven new
-meaningful regressions in actual workspace output; the full 20-domain report is
-pending. This is library plan consensus only. It does not acknowledge application
+meaningful regressions in actual workspace output. All 20 domains and 1,167 workspace
+tests pass with zero failures on unchanged source. All seven new regressions
+appear in both the dedicated recorded host run and the full workspace trace.
+See [plan-decision verification](membership-decision-verification-2026-10-21.json). This is library plan consensus only. It does not acknowledge application
 materialization, publish a new VSR cell, promote a learner or admit clients. Peer
 RPC orchestration, generation publication, activation, removed-voter handling,
 abort/conflict resolution and atomic distributed control admission remain open.
+
+## Peer integration admission boundaries
+
+Decision-store initialization must use an explicitly configured placement-group
+path and local node identity. After a bounded authority upload, bind the validated
+old-quorum proof to the existing cell or published learner's original bootstrap,
+historical configuration chain and committed prefix before acknowledging a round
+promise. A descriptor or endpoint list alone cannot create authority for a new
+group. A configured learner may participate in transition-only consensus after
+this check; it still cannot acknowledge application prepares, commits or probes.
+
+Recovery RPCs must bind reports to authenticated node/cluster identities and
+preserve the highest accepted input across coordinator changes. They must support
+resending complete retained proof/history after both endpoints restart. Selection
+of input is separate from application materialization, active generation publication,
+new-quorum installation acknowledgement and matching durable control admission.
+Failures or crashes between those boundaries must leave client readiness closed.

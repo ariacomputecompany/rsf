@@ -1,13 +1,14 @@
 {
   "all_pass": true,
   "source_unchanged": true,
-  "source_sha256_before": "1218bbb24645f80106c4c49b091fd307c8500b6999cd1de3c22ed98b142b51ff",
-  "source_sha256_after": "1218bbb24645f80106c4c49b091fd307c8500b6999cd1de3c22ed98b142b51ff",
+  "source_sha256_before": "02f757b43890d1522763a3c024c1d753cafa8d3e29c8188937e8ab659c76d131",
+  "source_sha256_after": "02f757b43890d1522763a3c024c1d753cafa8d3e29c8188937e8ab659c76d131",
   "seed": 20261021,
   "passed_domains": [
     "storage",
     "vsr",
     "membership",
+    "membership-decision",
     "protocol",
     "peer-rpc",
     "kv-transactions",
@@ -26,21 +27,21 @@
     "workspace"
   ],
   "failed_domains": [],
-  "trace_directory": "artifacts/verification.tVxLRa",
+  "trace_directory": "artifacts/verification.pInTn9",
   "workload_evidence_valid": true,
   "workload_metrics": {
     "daemon-stress": {
       "abrupt_process_shutdowns": 18,
       "acknowledged": 198,
       "clients": 4,
-      "concurrent_write_ops_per_second": 14.555653427162714,
-      "elapsed_ms": 70586,
+      "concurrent_write_ops_per_second": 13.835080792908656,
+      "elapsed_ms": 75231,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 582549,
-        "p50": 264988,
-        "p95": 310221,
-        "p99": 519545
+        "max": 562503,
+        "p50": 276970,
+        "p95": 333212,
+        "p99": 493626
       },
       "payload_bytes": 442587,
       "profile": "debug",
@@ -53,14 +54,14 @@
       "abrupt_process_shutdowns": 18,
       "acknowledged": 774,
       "clients": 4,
-      "concurrent_write_ops_per_second": 21.712573587389294,
-      "elapsed_ms": 96673,
+      "concurrent_write_ops_per_second": 21.854018061833724,
+      "elapsed_ms": 101294,
       "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
       "latency_us": {
-        "max": 398311,
-        "p50": 176164,
-        "p95": 247933,
-        "p99": 311150
+        "max": 307803,
+        "p50": 177551,
+        "p95": 218137,
+        "p99": 276942
       },
       "payload_bytes": 1769691,
       "profile": "release",
@@ -78,8 +79,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 150,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 65876,
-      "history_growth_ms": 30212,
+      "elapsed_ms": 65649,
+      "history_growth_ms": 31101,
       "history_growth_writes": 128,
       "indexed_sql_after_takeover": true,
       "precrash_sql_read_dependency_recovered": true,
@@ -106,8 +107,8 @@
       "coordinator_recoveries_before_crash": 3,
       "coordinator_reuses_before_crash": 150,
       "disjoint_sql_sessions_committed": true,
-      "elapsed_ms": 53385,
-      "history_growth_ms": 25054,
+      "elapsed_ms": 53180,
+      "history_growth_ms": 24103,
       "history_growth_writes": 128,
       "indexed_sql_after_takeover": true,
       "precrash_sql_read_dependency_recovered": true,
@@ -129,6 +130,17 @@
     }
   },
   "automatic_client_evidence_valid": true,
+  "membership_decision_evidence_valid": true,
+  "membership_decision_regressions": {
+    "membership_input_and_decision_codecs_bind_exact_quorums_and_reject_truncation": true,
+    "membership_higher_round_retains_minority_nomination_and_chosen_plan_after_old_data_loss": true,
+    "membership_upload_retries_are_atomic_bounded_and_fenced_by_new_rounds": true,
+    "membership_decision_rejects_missing_proofs_wrong_roles_and_malformed_durable_state": true,
+    "killed_membership_coordinator_recovers_synced_nomination_before_reply": true,
+    "every_new_quorum_intersection_preserves_chosen_input_across_recovery_rounds": true,
+    "torn_membership_input_batch_recovers_previous_prefix_and_cannot_be_accepted": true
+  },
+  "membership_decision_scope": "transition-only library plan consensus; peer RPC orchestration, active configuration publication, learner promotion and client admission remain unfinished",
   "membership_approval_evidence_valid": true,
   "membership_approval_regressions": {
     "surviving_minority_report_completes_exact_old_quorum_after_primary_loss": true,
@@ -171,7 +183,7 @@
       "buffered_overflow_rejected": true,
       "bytes": 264960,
       "chunk_bound": 4096,
-      "elapsed_ms": 91294,
+      "elapsed_ms": 91978,
       "indexed_queries_verified": true,
       "profile": "debug",
       "quorum_loss_rejected": true,
@@ -183,7 +195,7 @@
       "buffered_overflow_rejected": true,
       "bytes": 264960,
       "chunk_bound": 4096,
-      "elapsed_ms": 25151,
+      "elapsed_ms": 25792,
       "indexed_queries_verified": true,
       "profile": "release",
       "quorum_loss_rejected": true,
@@ -234,12 +246,12 @@
   ],
   "production_qualified": false,
   "membership_complete": false,
-  "source_commit": "307cbcd940598f1ff215e98c85caa9e97cc348db",
+  "source_commit": "c0d357db901c9ce2170b536fdddf52f9746d73b2",
   "scope": "single-host loopback TLS with fsync; independent-machine, WAN, workload-capacity and complete production qualification remain open",
   "workspace_regression_audit": {
-    "source_sha256": "1218bbb24645f80106c4c49b091fd307c8500b6999cd1de3c22ed98b142b51ff",
+    "source_sha256": "02f757b43890d1522763a3c024c1d753cafa8d3e29c8188937e8ab659c76d131",
     "counts": {
-      "passed": 1159,
+      "passed": 1167,
       "failed": 0,
       "ignored": 1,
       "result_groups": 163
@@ -306,6 +318,15 @@
       "malformed_membership_fence_envelopes_fail_repeated_recovery_without_rewrite": true,
       "killed_membership_writer_recovers_synced_fence_before_acknowledgement": true,
       "membership_approval_recovers_from_real_old_voters_after_primary_loss": true
+    },
+    "required_membership_decision_regressions": {
+      "membership_input_and_decision_codecs_bind_exact_quorums_and_reject_truncation": true,
+      "membership_higher_round_retains_minority_nomination_and_chosen_plan_after_old_data_loss": true,
+      "membership_upload_retries_are_atomic_bounded_and_fenced_by_new_rounds": true,
+      "membership_decision_rejects_missing_proofs_wrong_roles_and_malformed_durable_state": true,
+      "killed_membership_coordinator_recovers_synced_nomination_before_reply": true,
+      "every_new_quorum_intersection_preserves_chosen_input_across_recovery_rounds": true,
+      "torn_membership_input_batch_recovers_previous_prefix_and_cannot_be_accepted": true
     },
     "verified_prior_regressions": [
       "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",
