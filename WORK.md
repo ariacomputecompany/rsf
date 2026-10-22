@@ -46,6 +46,31 @@ free disk fell to 89 MiB. Stable host resources are required before the final
 daemon and full 22-domain reruns. See
 `docs/client-transport-verification-2026-10-21.json`.
 
+The final shared-budget source subsequently passes all six focused client checks
+(three scenarios in each build profile) with five-run doctor, strict orchestration,
+recorded real host execution, strict trace verification, replay and CI. Both normal
+takeover profiles used zero client/commit retries; fault regressions deliberately
+exercise uncertainty. This does not replace the incomplete final daemon/full gate.
+
+### Next implementation: active membership publication and promotion
+
+- Publish the exact staged/materialized chosen prefix only with a matching new
+  voting-majority staged proof. Authoritative cold replay and history transfer
+  must validate the activation evidence, original bootstrap and historical
+  configurations; preserve committed data, client receipts and uncommitted tails.
+- Reuse immutable generation sealing and synced pointer publication with a durable
+  fallback fence. Test process death before/after seal, rename and parent sync;
+  missing or corrupt proof must fail repeated recovery without silent recreation.
+- Promote an already anchored learner through configured owned storage, retain
+  removed-voter fencing, and support ordinary election on the new voter set after
+  permanent loss of the originally selected candidate. Validate repeated changes.
+- Keep native client admission closed until replicated control/catalog authority
+  and application materialization agree on the same installed membership. Do not
+  enable an operator membership command ahead of that integration and its gates.
+- Complete final daemon/full-source qualification when host resources are stable;
+  independent-group routing, bounded retention/migration and independent-host/
+  region numerical capacity/fault qualification remain required afterward.
+
 ### Production-leaning but incomplete
 
 - `crates/rsf-core`
