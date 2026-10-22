@@ -1,3 +1,4 @@
+mod cache;
 mod deadline;
 pub(crate) mod execution;
 mod sql_stream;
@@ -29,7 +30,7 @@ pub struct DataPlaneListener {
     listener: TcpListener,
     codec: WireCodec,
     adapter: WireAdapter,
-    state: PathBuf,
+    executor: DataPlaneExecutor,
     tls: std::sync::Arc<rustls::ServerConfig>,
 }
 
@@ -46,7 +47,7 @@ impl DataPlaneListener {
             listener,
             codec: WireCodec,
             adapter: WireAdapter,
-            state,
+            executor: DataPlaneExecutor::new(state),
             tls,
         })
     }
@@ -58,14 +59,20 @@ impl DataPlaneListener {
     }
 
     pub fn serve_pending(&self, out: &mut impl Write) -> Result<usize, String> {
-        let executor = DataPlaneExecutor::new(self.state.clone());
-        self.serve_with(
+        let result = self.serve_with(
             MAX_DATA_REQUESTS_PER_TICK,
             &mut |envelope, fingerprint, output| {
-                executor.execute_with_output(envelope, fingerprint, output)
+                self.executor
+                    .execute_with_output(envelope, fingerprint, output)
             },
             out,
-        )
+        );
+        // Keep one application writer warm, but relinquish protocol ownership
+        // before health/status recovery and independently configured observers.
+        self.executor
+            .park_application()
+            .map_err(|err| err.message)?;
+        result
     }
 
     /// One connection per peer-control tick bounds application admission work.
@@ -165,6 +172,8 @@ pub enum DataPlaneResponse {
 pub struct DataPlaneExecutor {
     state: PathBuf,
     cached: RefCell<Option<CachedRuntime>>,
+    parked: RefCell<Option<cache::ParkedApplication>>,
+    cache_failure: RefCell<Option<String>>,
 }
 
 impl DataPlaneExecutor {
@@ -172,6 +181,8 @@ impl DataPlaneExecutor {
         Self {
             state: state.into(),
             cached: RefCell::new(None),
+            parked: RefCell::new(None),
+            cache_failure: RefCell::new(None),
         }
     }
 
@@ -190,6 +201,13 @@ impl DataPlaneExecutor {
                 protocol: envelope.protocol.as_str(),
                 mutation: MutationOutcome::NotAttempted,
                 reason: err.message,
+            };
+        }
+        if let Some(reason) = self.cache_failure.borrow().as_ref() {
+            return DataPlaneResponse::Rejected {
+                protocol: envelope.protocol.as_str(),
+                mutation: MutationOutcome::NotAttempted,
+                reason: format!("application cache is fenced; reopen before continuing: {reason}"),
             };
         }
         let protocol = envelope.protocol;
@@ -367,8 +385,22 @@ impl DataPlaneExecutor {
         namespace: &str,
         surface: rsf_protocol::ApplicationSurface,
     ) -> RsfResult<Option<Runtime>> {
-        let Some(mut cached) = self.cached.borrow_mut().take() else {
-            return Ok(None);
+        let cached = self.cached.borrow_mut().take();
+        let Some(mut cached) = cached else {
+            let parked = self.parked.borrow_mut().take();
+            return match parked {
+                Some(parked) if parked.matches(namespace, surface) => {
+                    let (router, _) = self.open_router()?;
+                    let restored = parked.restore(router);
+                    if let Err(error) = &restored
+                        && error.code == ErrorCode::CorruptionDetected
+                    {
+                        *self.cache_failure.borrow_mut() = Some(error.message.clone());
+                    }
+                    restored.map(Some)
+                }
+                _ => Ok(None),
+            };
         };
         if cached.namespace != namespace || cached.runtime.surface() != surface {
             return Ok(None);

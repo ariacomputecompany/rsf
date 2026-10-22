@@ -358,8 +358,15 @@ membership_activation_evidence = {
     for name in membership_activation_names
 }
 membership_activation_valid = all(membership_activation_evidence.values())
+idle_application_names = ['idle_sql_writer_survives_polls_while_status_and_transport_checks_remain_fresh', 'idle_application_rejects_same_version_divergent_protocol_history_repeatedly']
+idle_application_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in idle_application_names
+}
+idle_application_valid = all(idle_application_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -379,6 +386,9 @@ summary = {
     "uncertain_sql_begin_workspace": uncertain_begin_workspace,
     "uncertain_sql_begin_profile_runs": uncertain_begin_profile_runs,
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
+    "idle_application_evidence_valid": idle_application_valid,
+    "idle_application_regressions": idle_application_evidence,
+    "idle_application_scope": "one owned application writer survives idle polls; protocol ownership is released and reopens against exact history, current authority, transport and per-request authorization",
     "membership_activation_evidence_valid": membership_activation_valid,
     "membership_activation_regressions": membership_activation_evidence,
     "membership_activation_scope": "proof-bound active VSR generation publication and replay; learner promotion factory, native peer publication, atomic control admission and complete production qualification remain unfinished",

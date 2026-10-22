@@ -2035,6 +2035,7 @@ mod tests {
         assert!(set_output.contains("status=executed"));
         assert!(set_output.contains("surface=kv"));
 
+        drop(listener);
         let reopened = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
             &state,
@@ -2119,6 +2120,7 @@ mod tests {
         assert!(insert_output.contains("status=executed"));
         assert!(insert_output.contains("surface=sql"));
 
+        drop(listener);
         let reopened = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
             &state,
@@ -2227,6 +2229,7 @@ mod tests {
         assert!(put_output.contains("status=executed"));
         assert!(put_output.contains("surface=blob"));
 
+        drop(listener);
         let reopened = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
             &state,
@@ -2317,6 +2320,7 @@ mod tests {
         assert!(put_output.contains("status=executed"));
         assert!(put_output.contains("surface=object"));
 
+        drop(listener);
         let reopened = data::DataPlaneListener::bind(
             "127.0.0.1:0".parse().expect("data listener addr"),
             &state,

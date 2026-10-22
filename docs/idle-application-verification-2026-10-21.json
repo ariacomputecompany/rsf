@@ -1,0 +1,346 @@
+{
+  "production_qualified": false,
+  "full_release_gate_passed": false,
+  "focused_qualification_passed": true,
+  "source_parent_commit": "2208ebee5e42c150a4f67172d68c4e98bc37d212",
+  "source_sha256_before": "3f377ec31817d82cb41341072d0626996780e179399318110a25e4d236c4bab3",
+  "source_sha256_after": "3f377ec31817d82cb41341072d0626996780e179399318110a25e4d236c4bab3",
+  "source_unchanged": true,
+  "change": "The standalone data listener retains one exclusive application writer across idle polls. It releases protocol ownership after each poll, reopens authority/transport next time, verifies the exact retained command prefix, and materializes only newer commands. Authorization still runs on every request. Prefix corruption fences the executor until reopen.",
+  "regressions": [
+    "idle_sql_writer_survives_polls_while_status_and_transport_checks_remain_fresh",
+    "idle_application_rejects_same_version_divergent_protocol_history_repeatedly"
+  ],
+  "tests_passed": 97,
+  "tests_failed": 0,
+  "tests_ignored": 1,
+  "coverage": {
+    "daemon": {
+      "passed": true,
+      "trace": "artifacts/idle-application-daemon.trace.fozzy",
+      "doctor_runs": 5,
+      "strict_orchestration": "artifacts/idle-application-daemon-strict.json",
+      "strict_trace_verification": "artifacts/idle-application-daemon-trace-verify.json",
+      "replay": "artifacts/idle-application-daemon-replay.json",
+      "ci": "artifacts/idle-application-daemon-ci.json",
+      "processes": [
+        {
+          "args": [
+            "test",
+            "-p",
+            "rsfd"
+          ],
+          "passed": 87,
+          "ignored": 1,
+          "metrics": []
+        }
+      ]
+    },
+    "sql-stream": {
+      "passed": true,
+      "trace": "artifacts/idle-application-sql-stream.trace.fozzy",
+      "doctor_runs": 5,
+      "strict_orchestration": "artifacts/idle-application-sql-stream-strict.json",
+      "strict_trace_verification": "artifacts/idle-application-sql-stream-trace-verify.json",
+      "replay": "artifacts/idle-application-sql-stream-replay.json",
+      "ci": "artifacts/idle-application-sql-stream-ci.json",
+      "processes": [
+        {
+          "args": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_sql_streams_large_results_and_bounds_legacy_responses",
+            "--",
+            "--nocapture"
+          ],
+          "passed": 1,
+          "ignored": 0,
+          "metrics": [
+            {
+              "buffered_overflow_rejected": true,
+              "bytes": 264960,
+              "chunk_bound": 4096,
+              "elapsed_ms": 42941,
+              "indexed_queries_verified": true,
+              "profile": "debug",
+              "quorum_loss_rejected": true,
+              "rows": 128,
+              "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+              "workload": "native-sql-stream"
+            }
+          ]
+        },
+        {
+          "args": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_sql_streams_large_results_and_bounds_legacy_responses",
+            "--",
+            "--nocapture"
+          ],
+          "passed": 1,
+          "ignored": 0,
+          "metrics": [
+            {
+              "buffered_overflow_rejected": true,
+              "bytes": 264960,
+              "chunk_bound": 4096,
+              "elapsed_ms": 14597,
+              "indexed_queries_verified": true,
+              "profile": "release",
+              "quorum_loss_rejected": true,
+              "rows": 128,
+              "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+              "workload": "native-sql-stream"
+            }
+          ]
+        }
+      ]
+    },
+    "automatic-client": {
+      "passed": true,
+      "trace": "artifacts/idle-application-automatic-client.trace.fozzy",
+      "doctor_runs": 5,
+      "strict_orchestration": "artifacts/idle-application-automatic-client-strict.json",
+      "strict_trace_verification": "artifacts/idle-application-automatic-client-trace-verify.json",
+      "replay": "artifacts/idle-application-automatic-client-replay.json",
+      "ci": "artifacts/idle-application-automatic-client-ci.json",
+      "processes": [
+        {
+          "args": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "automatic_client_takeover",
+            "--",
+            "--nocapture"
+          ],
+          "passed": 3,
+          "ignored": 0,
+          "metrics": [
+            {
+              "acknowledged_before_crash": 4,
+              "active_sql_session_resumed": true,
+              "client_transport_retries": 0,
+              "commit_confirmation_retries": 0,
+              "concurrent_clients": 4,
+              "coordinator_recoveries_before_crash": 3,
+              "coordinator_reuses_before_crash": 150,
+              "disjoint_sql_sessions_committed": true,
+              "elapsed_ms": 67306,
+              "history_growth_ms": 31238,
+              "history_growth_writes": 128,
+              "indexed_sql_after_takeover": true,
+              "precrash_sql_read_dependency_recovered": true,
+              "primary_state_deleted": true,
+              "profile": "debug",
+              "replacement_restarts": 1,
+              "requests_without_acknowledgement": 28,
+              "retried_requests": 32,
+              "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+              "serializable_sql_phantom_rejected": true,
+              "sql_key_components_isolated": true,
+              "sql_session_original_results_replayed": true,
+              "sql_stream_after_takeover": true,
+              "submitted_requests": 32,
+              "surface_count": 4,
+              "surviving_replicas_checked": 2,
+              "verified_logical_kv_writes": 162,
+              "workload": "automatic-client-takeover"
+            }
+          ]
+        },
+        {
+          "args": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "automatic_client_takeover",
+            "--",
+            "--nocapture"
+          ],
+          "passed": 3,
+          "ignored": 0,
+          "metrics": [
+            {
+              "acknowledged_before_crash": 4,
+              "active_sql_session_resumed": true,
+              "client_transport_retries": 0,
+              "commit_confirmation_retries": 0,
+              "concurrent_clients": 4,
+              "coordinator_recoveries_before_crash": 3,
+              "coordinator_reuses_before_crash": 150,
+              "disjoint_sql_sessions_committed": true,
+              "elapsed_ms": 53632,
+              "history_growth_ms": 24207,
+              "history_growth_writes": 128,
+              "indexed_sql_after_takeover": true,
+              "precrash_sql_read_dependency_recovered": true,
+              "primary_state_deleted": true,
+              "profile": "release",
+              "replacement_restarts": 1,
+              "requests_without_acknowledgement": 28,
+              "retried_requests": 32,
+              "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+              "serializable_sql_phantom_rejected": true,
+              "sql_key_components_isolated": true,
+              "sql_session_original_results_replayed": true,
+              "sql_stream_after_takeover": true,
+              "submitted_requests": 32,
+              "surface_count": 4,
+              "surviving_replicas_checked": 2,
+              "verified_logical_kv_writes": 162,
+              "workload": "automatic-client-takeover"
+            }
+          ]
+        }
+      ]
+    },
+    "daemon-stress": {
+      "passed": true,
+      "trace": "artifacts/idle-application-daemon-stress.trace.fozzy",
+      "doctor_runs": 5,
+      "strict_orchestration": "artifacts/idle-application-daemon-stress-strict.json",
+      "strict_trace_verification": "artifacts/idle-application-daemon-stress-trace-verify.json",
+      "replay": "artifacts/idle-application-daemon-stress-replay.json",
+      "ci": "artifacts/idle-application-daemon-stress-ci.json",
+      "processes": [
+        {
+          "args": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_kv_stress",
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "passed": 1,
+          "ignored": 0,
+          "metrics": [
+            {
+              "abrupt_process_shutdowns": 18,
+              "acknowledged": 198,
+              "clients": 4,
+              "concurrent_write_ops_per_second": 13.259153891955298,
+              "elapsed_ms": 75396,
+              "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+              "latency_us": {
+                "max": 747996,
+                "p50": 272962,
+                "p95": 400846,
+                "p99": 733392
+              },
+              "payload_bytes": 442587,
+              "profile": "debug",
+              "rounds": 3,
+              "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+              "uncertain_writes_resolved": 3,
+              "workload": "native-kv-process-stress"
+            }
+          ]
+        }
+      ]
+    },
+    "release-stress": {
+      "passed": true,
+      "trace": "artifacts/idle-application-release-stress.trace.fozzy",
+      "doctor_runs": 5,
+      "strict_orchestration": "artifacts/idle-application-release-stress-strict.json",
+      "strict_trace_verification": "artifacts/idle-application-release-stress-trace-verify.json",
+      "replay": "artifacts/idle-application-release-stress-replay.json",
+      "ci": "artifacts/idle-application-release-stress-ci.json",
+      "processes": [
+        {
+          "args": [
+            "CARGO_BUILD_JOBS=2",
+            "RSF_STRESS_WRITES_PER_CLIENT=64",
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_kv_stress",
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "passed": 1,
+          "ignored": 0,
+          "metrics": [
+            {
+              "abrupt_process_shutdowns": 18,
+              "acknowledged": 774,
+              "clients": 4,
+              "concurrent_write_ops_per_second": 18.690659437859434,
+              "elapsed_ms": 103764,
+              "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+              "latency_us": {
+                "max": 559818,
+                "p50": 191975,
+                "p95": 333930,
+                "p99": 484302
+              },
+              "payload_bytes": 1769691,
+              "profile": "release",
+              "rounds": 3,
+              "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+              "uncertain_writes_resolved": 3,
+              "workload": "native-kv-process-stress"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "strict_daemon_clippy_passed": true,
+  "clippy_log": "artifacts/idle-application-final-clippy.log",
+  "clippy_scope": "rsfd all-targets no-deps with warnings denied",
+  "format_and_gate_syntax_checks_passed": true,
+  "prior_failure": "The unchanged-source 13ed2d8 full gate passed 22/23 domains. Its workspace exhausted three 3-second transport attempts on stream-91, with 1192 passed, 1 failed, 1 ignored. That failure remains recorded in docs/membership-activation-full-verification-2026-10-21.json.",
+  "profile_evidence": {
+    "unmodified_source_commit": "2208ebee5e42c150a4f67172d68c4e98bc37d212",
+    "unmodified_trace": "artifacts/sql-stream-profile-baseline.trace.fozzy",
+    "late_stack_sample": "artifacts/sql-stream-primary-61579-late.sample.txt",
+    "sample": "602 of 1143 main-thread samples descend through SQL open_replicated; repeated journal replay/planning is visible. Early launch samples had missing thread state and are not used as CPU evidence.",
+    "observed_before_elapsed_ms": {
+      "debug": 101375,
+      "release": 29449
+    },
+    "interpretation": "Host timings and stack samples support removing repeated SQL recovery. They are not a controlled performance benchmark, independent-host capacity/p99 qualification or proof the full workspace failure is resolved."
+  },
+  "restart_fixtures": "Four existing listener recovery tests now drop their original listener/application writer before creating its replacement. Data assertions are retained; the first attempt failed these four ownership checks and is preserved as artifacts/idle-application-attempt1-daemon.trace.fozzy.",
+  "limits": [
+    "At most one application namespace/surface is retained; switching evicts it",
+    "Retained application history/state memory remains unbounded by production capacity policy",
+    "Protocol and health paths still reopen/recover histories; checkpoint/retention remains unfinished",
+    "Deadlines, retry budget, row count, payload size and test scheduling are unchanged",
+    "Strict Fozzy orchestration/record replay does not establish deterministic Rust thread/socket scheduling",
+    "Full 23-domain/workspace gate on this source remains required",
+    "Learner promotion/native membership publication, atomic control admission, independent-group routing/migration/retention and independent-host/region qualification remain unfinished"
+  ]
+}

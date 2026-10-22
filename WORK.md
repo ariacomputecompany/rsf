@@ -70,6 +70,26 @@ and pending-versus-new completion remain to investigate. The full gate remains f
 See `docs/membership-activation-full-verification-2026-10-21.json`; targeted kernel
 evidence is in `docs/membership-activation-verification-2026-10-21.json`.
 
+The standalone listener now retains one exclusive application writer between
+idle polls, while releasing its protocol writer for health/status snapshots.
+Each poll reopens protocol authority/transport and validates the exact retained
+application-command prefix before applying newer commands. Per-request
+fingerprint/namespace authorization is unchanged. Divergent same-version history
+fences the cache; namespace/surface changes evict its one retained store. Two new
+regressions cover ownership across empty polls, health access, transport refresh,
+restart receipts and repeated history rejection. Four existing restart fixtures
+now release the original listener before opening its replacement.
+
+A frozen-source five-domain Fozzy qualification passes 97 tests with one ignored:
+complete daemon, SQL streaming and automatic clients in debug/release, and both
+KV restart stress profiles. Strict daemon Clippy, doctor, strict orchestration,
+recorded host trace verification, replay and CI pass. The unchanged 128-row SQL
+stream workload takes about 43 seconds debug/15 seconds release, versus an earlier
+profiled 101/29 seconds. These shared-host observations are not a controlled
+capacity benchmark. The full 23-domain gate on this source is still required;
+the prior workspace failure is not cleared by these focused passes. Evidence:
+`docs/idle-application-verification-2026-10-21.json`.
+
 ### Next implementation: native membership publication and promotion
 
 - Promote an already anchored learner through configured owned storage, with a
