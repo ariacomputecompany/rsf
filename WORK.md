@@ -52,15 +52,23 @@ recorded real host execution, strict trace verification, replay and CI. Both nor
 takeover profiles used zero client/commit retries; fault regressions deliberately
 exercise uncertainty. This does not replace the incomplete final daemon/full gate.
 
-The VSR active membership kernel now passes 279 affected-package tests and strict
-storage/VSR/RPC/protocol/daemon Clippy. A frozen-source Fozzy run includes five-run
-doctor, strict orchestration, real host execution, strict trace verification,
-replay and CI. It covers process death at three publication boundaries, repeated
-voter growth/shrink, historical authority/receipt preservation, and fail-closed
-missing-pointer recovery. Native peer publication/promotion and atomic control
-admission remain unfinished. The expanded full gate now has 23 domains; it has
-not yet passed on this source. Evidence:
-`docs/membership-activation-verification-2026-10-21.json`.
+The VSR active membership kernel passes 279 affected-package tests and strict
+storage/VSR/RPC/protocol/daemon Clippy, with frozen-source Fozzy doctor, strict
+orchestration, host trace verification, replay and CI. Its full expanded gate on
+`13ed2d8` passes 22/23 domains, including complete daemon, automatic client and
+SQL stream debug/release checks, and both restart stress profiles. The final
+workspace has 1,192 passes, one failure and one ignored test: the large SQL stream
+setup exhausts all three same-frame attempts on INSERT `stream-91`. All nine new
+activation regressions pass in that workspace. Its failed trace verifies and
+replays the failed outcome; CI integrity does not turn it into a test pass. A
+checksum-verified copy of the actual failed fixture is preserved. Host swap was
+about 23 GiB used. A separate copied-fixture TLS recovery completes `stream-91`
+at version/log index 100, rejects changed SQL under that identity and preserves
+its duplicate result across all three daemon restarts. Its first recovered reply
+is `replayed=false`, so prior durable completion is not established. Latency cause
+and pending-versus-new completion remain to investigate. The full gate remains failed and production remains unqualified.
+See `docs/membership-activation-full-verification-2026-10-21.json`; targeted kernel
+evidence is in `docs/membership-activation-verification-2026-10-21.json`.
 
 ### Next implementation: native membership publication and promotion
 
@@ -75,9 +83,10 @@ not yet passed on this source. Evidence:
 - Keep native client admission closed until replicated control/catalog authority
   and application materialization agree on the same installed membership. Do not
   enable an operator membership command ahead of that integration and its gates.
-- Complete final daemon/full-source qualification when host resources are stable;
-  independent-group routing, bounded retention/migration and independent-host/
-  region numerical capacity/fault qualification remain required afterward.
+- Resolve the workspace SQL setup latency/retry failure and complete the full
+  expanded gate; preserve the failed fixture and unchanged client deadlines.
+  Independent-group routing, bounded retention/migration and independent-host/
+  region numerical capacity/fault qualification also remain required.
 
 ### Production-leaning but incomplete
 

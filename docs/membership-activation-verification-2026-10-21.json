@@ -72,5 +72,15 @@
     "Full 23-domain/workspace verification on final source",
     "Independent-host/region fault, capacity and p99 qualification for SQL/KV/object/blob"
   ],
-  "prior_full_gate": "The older f8c16c7 run passed 21/22 domains and 1181 workspace tests. Later full attempts encountered client transport uncertainty or host resource exhaustion. Focused final client uncertainty checks passed; no complete current-source release gate is claimed."
+  "prior_full_gate": "The older f8c16c7 run passed 21/22 domains and 1181 workspace tests. Later full attempts encountered client transport uncertainty or host resource exhaustion. Focused final client uncertainty checks passed; no complete current-source release gate is claimed.",
+  "source_commit": "13ed2d8c12e07837c45e73262dc3f715f983be19",
+  "subsequent_full_gate": {
+    "passed": false,
+    "passed_domains": 22,
+    "total_domains": 23,
+    "workspace_passed": 1192,
+    "workspace_failed": 1,
+    "workspace_ignored": 1,
+    "report": "docs/membership-activation-full-verification-2026-10-21.json"
+  }
 }

@@ -442,3 +442,18 @@ publisher, learner promotion factory, role custody and replicated atomic client
 admission are unfinished. This kernel API does not enable an operator membership
 command or mark a cluster-wide transition complete. Scoped evidence is recorded
 in `membership-activation-verification-2026-10-21.json`.
+
+
+The subsequent immutable-source full gate passes 22/23 domains and all nine new
+activation regressions in the workspace. The complete daemon domain and isolated
+SQL streaming debug/release runs pass, but workspace SQL setup exhausts its three
+same-frame transport attempts at INSERT `stream-91`: 1,192 tests pass, one fails,
+one is ignored. The failed trace and checksum-verified fixture are retained.
+This is an unresolved qualification failure; neither isolated passes nor trace
+integrity clear it. See `membership-activation-full-verification-2026-10-21.json`.
+
+A separate working copy recovers `stream-91` at version/log index 100, rejects
+changed SQL under that identity and preserves its duplicate result across all
+three daemon restarts. The first recovered response is `replayed=false`; this
+establishes recoverable retry behavior, not prior durable completion before the
+original timeout. The original and preserved fixture checksums remain unchanged.
