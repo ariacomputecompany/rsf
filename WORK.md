@@ -523,3 +523,9 @@ Peer RPC logs now identify total service time, materialization time/count and la
 group/index. These changes do not eliminate fsync/scheduling latency or qualify
 a capacity/p99 target. Run the full expanded gate on this final source; it now
 requires the new uncertainty regression in workspace and both build profiles.
+
+The attempted full gate on `0f1eb7a` (`verification.oLAzTk`) terminated with host
+ENOSPC and no summary; it does not qualify a release. Subsequent process inspection
+found no surviving RSF gate children. At failure the host had about 53 MiB free,
+while RSF's generated target directory was 1.4 GiB. A stable-headroom full rerun
+remains required. Evidence: `docs/uncertain-sql-begin-full-attempt-2026-10-21.json`.

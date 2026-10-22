@@ -1,0 +1,15 @@
+{
+  "source_commit": "0f1eb7a32f12aa7081d34f1a67ed002a67966d50",
+  "source_sha256": "f2ef738109fb984b492c277ef784724ad66381f3568e30735600ac47d516555e",
+  "artifact_root": "artifacts/verification.oLAzTk",
+  "log": "artifacts/uncertain-sql-begin-full-qualification-20261021.log",
+  "status": "incomplete_host_disk_exhaustion",
+  "exit_code": 1,
+  "summary_exists": false,
+  "full_release_gate_passed": false,
+  "production_qualified": false,
+  "failure": "Host filesystem exhausted with ENOSPC while the gate was executing. The gate terminated without a complete summary. No RSF gate children remained in the subsequent process inspection.",
+  "observed_free_space_mib": 53,
+  "rsf_target_size_gib": 1.4,
+  "required_next_step": "Recover stable host disk headroom and rerun all 22 domains on unchanged source. Preserve this incomplete attempt and the separately passing focused traces."
+}
