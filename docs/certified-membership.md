@@ -306,7 +306,11 @@ The expanded release gate requires these regressions plus inbox restart coverage
 Targeted qualification passes all 202 affected tests on unchanged source, including
 all four required inbox/TLS regressions. Five-run doctor, strict deterministic
 orchestration, recorded host execution, strict trace verification, replay and CI
-pass; strict lint is green. The full workspace run is still running.
+pass; strict lint is green. The full workspace run passes 1,171 tests with zero
+failures and one opt-in stress test ignored. All 74 required regressions are
+present, and the workspace doctor/strict/host/trace/replay/CI checks pass on
+unchanged source. Fresh release stress qualification remains pending. See
+[peer orchestration verification](membership-peer-verification-2026-10-21.json).
 The full release gate now has 21 domains;
 a complete run on this source remains pending. Active history merge/publication,
 application materialization and installation acknowledgements, activation/promotion,

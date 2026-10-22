@@ -428,7 +428,7 @@ Peer orchestration, application materialization/acknowledgement, active generati
 publication, activation, learner promotion, retired roles, abort/conflict handling
 and atomic distributed control admission remain required release work.
 
-## Authenticated membership peer orchestration (targeted qualified; workspace running)
+## Authenticated membership peer orchestration (targeted and workspace qualified)
 
 Added configured transition paths, a full-sync restartable authority inbox and
 bootstrap/history/committed-prefix checks for existing voters and published
@@ -444,7 +444,13 @@ without a second durable vote. The complete gate is expanded to 21 domains;
 targeted host qualification passes all 202 affected tests, strict five-run doctor,
 strict deterministic orchestration, recorded host execution, strict trace verification,
 replay and CI. Strict Clippy passes for VSR/RPC/protocol/daemon. The full workspace
-recorded host run is running. Evidence is in `artifacts/membership-peer.lusqwzzd`. The prior
+recorded host run passes 1,171 tests with zero failures and one opt-in stress test
+ignored; fresh release stress qualification on this source remains pending. All
+74 required regressions appear in recorded workspace output. Workspace doctor,
+strict test, strict trace verification, replay and CI also pass on unchanged
+source. Implementation 1685f4c is pushed to remote main. Evidence is in
+`docs/membership-peer-verification-2026-10-21.json` and
+`artifacts/membership-peer.lusqwzzd`. The prior
 complete 20-domain release report above remains scoped to its recorded source.
 
 This chooses input only. Active history merging/publication, application
