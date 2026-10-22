@@ -5,6 +5,8 @@ use super::automatic::{
 };
 use super::*;
 use rsf_wire::WireProtocol::{Blob, Kv, Object, Sql};
+static COMMIT_CONFIRMATION_RETRIES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -16,12 +18,27 @@ fn must_execute(
     request: &str,
     bytes: &[u8],
 ) -> String {
-    let response = surface_request(address, protocol, operation, request, bytes);
-    assert!(
-        response.starts_with("RSF/1 executed"),
-        "{operation}: {response}"
-    );
-    response
+    for attempt in 0..3 {
+        let response = surface_request(address, protocol, operation, request, bytes);
+        if response.starts_with("RSF/1 executed") {
+            return response;
+        }
+        // A missing commit observation is an uncertain mutation, not an abort.
+        // Preserve every request field and keep transport deadlines unchanged.
+        // Semantic rejection and persistent quorum failure must still fail.
+        assert!(
+            attempt < 2
+                && response.starts_with("RSF/1 rejected")
+                && response.contains("mutation=unknown reason=durable commit evidence reached"),
+            "request={request}, {operation}, attempt={attempt}: {response}"
+        );
+        COMMIT_CONFIRMATION_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        eprintln!(
+            "same-identity commit-confirmation retry request={request}, attempt={}",
+            attempt + 1
+        );
+    }
+    unreachable!("bounded retry either returns a result or fails")
 }
 fn begin_session(address: SocketAddr, name: &str, id: &str) -> Vec<u8> {
     let body = rsf_sql::SqlSessionContext {
@@ -757,6 +774,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         "{}",
         serde_json::json!({
             "workload":"automatic-client-takeover",
+            "commit_confirmation_retries":COMMIT_CONFIRMATION_RETRIES.load(std::sync::atomic::Ordering::Relaxed),
             "profile":if cfg!(debug_assertions) {"debug"} else {"release"},
             "coordinator_reuses_before_crash":reuses,"coordinator_recoveries_before_crash":recoveries,
         "concurrent_clients":4,"submitted_requests":32,"acknowledged_before_crash":acknowledged,

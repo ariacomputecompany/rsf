@@ -45,7 +45,10 @@ impl AutomaticProcess {
                             .unwrap(),
                     );
                 }
-                if event["event"] == "peer.control" {
+                if event["event"] == "peer.control"
+                    || (event["event"] == "peer.rpc"
+                        && event["elapsed_ms"].as_u64().is_some_and(|ms| ms >= 100))
+                {
                     println!("{event}");
                 }
                 if event["event"] == "peer.client_cache" {

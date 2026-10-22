@@ -27,6 +27,8 @@ mod sql_stream;
 mod stress;
 #[path = "peer_process/takeover.rs"]
 mod takeover;
+#[path = "peer_process/uncertain_begin.rs"]
+mod uncertain_begin;
 
 struct Process {
     child: Child,

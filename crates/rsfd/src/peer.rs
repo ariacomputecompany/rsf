@@ -67,6 +67,7 @@ impl ElectionConfig {
 }
 
 struct PeerService {
+    local: NodeId,
     listener: TcpListener,
     server: PeerReplicaServer,
     _lock: rsf_storage::ExclusiveFileLock,
@@ -102,22 +103,36 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
                 Err(err) => return Err(format!("peer accept failed: {err}")),
             };
             let materializer = &mut service.materializer;
-            match service
+            let rpc_started = std::time::Instant::now();
+            let mut materialize_time = Duration::ZERO;
+            let mut materialize_count = 0_u64;
+            let mut last_entry = None;
+            let result = service
                 .server
                 .serve_connection_with_apply(socket, &mut |entry| {
-                    if let Some(command) = decode_application_entry(entry)? {
-                        materializer.apply(&command)?;
-                    }
-                    Ok(())
-                }) {
-                Ok(()) => println!(
-                    "{}",
-                    serde_json::json!({"event":"peer.rpc","outcome":"accepted","remote":address.to_string()})
-                ),
-                Err(reason) => eprintln!(
-                    "{}",
-                    serde_json::json!({"event":"peer.rpc","outcome":"rejected","remote":address.to_string(),"reason":reason})
-                ),
+                    let apply_started = std::time::Instant::now();
+                    let result = (|| {
+                        if let Some(command) = decode_application_entry(entry)? {
+                            materializer.apply(&command)?;
+                        }
+                        Ok(())
+                    })();
+                    materialize_time += apply_started.elapsed();
+                    materialize_count += 1;
+                    last_entry = Some((entry.prepare.pg.0, entry.prepare.index.0));
+                    result
+                });
+            let event = serde_json::json!({
+                "event":"peer.rpc", "node":service.local.0,
+                "outcome":if result.is_ok() { "accepted" } else { "rejected" },
+                "remote":address.to_string(), "elapsed_ms":rpc_started.elapsed().as_millis(),
+                "materialize_ms":materialize_time.as_millis(), "materialize_count":materialize_count,
+                "last_entry":last_entry, "reason":result.as_ref().err()
+            });
+            if result.is_ok() {
+                println!("{event}");
+            } else {
+                eprintln!("{event}");
             }
             if service.elections.is_none()
                 || service
@@ -385,6 +400,7 @@ impl PeerService {
                 .map_err(|err| err.to_string())?;
         }
         Ok(Self {
+            local,
             listener,
             server,
             elections,

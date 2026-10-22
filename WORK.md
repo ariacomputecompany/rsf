@@ -24,13 +24,16 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status on `f8c16c7`: **not qualified**. The current immutable-source
-gate passes 21/22 domains and all 1,181 workspace tests, but release automatic
-client takeover rejects a post-loss SQL BEGIN after commit evidence misses the
-peer deadline. A focused release rerun subsequently passes unchanged source and
-deadlines; cause and resolution remain open. See
-`docs/membership-staging-verification-2026-10-21.json`. The complete 20-domain
-report below is historical evidence for its explicitly recorded source.
+Current release status: **not production qualified**. The prior `f8c16c7` gate
+passed 21/22 domains and 1,181 workspace tests. Its release SQL BEGIN failure
+returned the documented uncertain-mutation outcome. Recovery of a copy of that
+actual fixture preserves the original session token/result across both survivor
+restarts and rejects changed payload. The qualification client now permits at
+most three same-identity attempts only for missing commit confirmation; runtime
+deadlines remain unchanged. A forced lost-observation regression passes against
+real TLS peers in debug/release and across two restarts. Full new-source gate is
+pending. Evidence: `docs/uncertain-sql-begin-verification-2026-10-21.json`.
+The complete 20-domain report below remains historical evidence for its source.
 
 ### Production-leaning but incomplete
 
@@ -501,3 +504,22 @@ Resolve the release automatic-client failure and rerun the complete gate. Active
 generation publication, native application publication, activation/learner
 promotion, retired roles, conflict/abort/repeated-generation lifecycle, atomic
 control admission and independent-host workload/fault qualification remain open.
+
+## Uncertain SQL BEGIN client contract and diagnostics
+
+A copy of the actual failed fixture recovers the original `parallel-left-begin`
+result, exact session token and replay identity across both survivor restarts,
+with changed-payload rejection. The preserved original intent hash is unchanged.
+A repeatable regression withholds both caller commit observations only after real
+TLS peers durably commit/materialize BEGIN. Exact retry retains its certified
+version/token across two peer restarts and adds no commit entries.
+
+The qualification client performs at most three identical attempts only for
+missing durable commit confirmation; semantic errors and persistent quorum
+failure still fail. Normal debug/release takeover and the forced regression pass
+in recorded host runs with strict trace verification, replay and CI. Normal runs
+required zero commit-confirmation retries. Strict daemon all-target Clippy passes.
+Peer RPC logs now identify total service time, materialization time/count and last
+group/index. These changes do not eliminate fsync/scheduling latency or qualify
+a capacity/p99 target. Run the full expanded gate on this final source; it now
+requires the new uncertainty regression in workspace and both build profiles.

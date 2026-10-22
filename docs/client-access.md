@@ -109,6 +109,14 @@ already committed. A changed-payload retry cannot replace the original write.
 `mutation=not-attempted` describes only this attempt and never revokes a success
 from an earlier attempt using the same key.
 
+Bound retries by the client's own attempt/time budget. A peer RPC deadline is
+not a guarantee that an application write aborts when that deadline expires.
+The local takeover qualifier permits at most three unchanged attempts for missing
+durable commit confirmation; persistent quorum failure and semantic rejection
+still fail qualification. A real-peer BEGIN regression retains the original
+certified session token/version after both commit observations are withheld and
+both peers restart twice. See `uncertain-sql-begin-verification-2026-10-21.json`.
+
 ## Revoke and rotate access
 
 ```sh
