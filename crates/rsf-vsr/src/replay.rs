@@ -25,9 +25,18 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
     for (position, record) in records.iter().enumerate() {
         if record.kind == WalRecordKind::ViewInstallation {
             if membership_fence.is_some() {
-                return Err(corrupt(
-                    "ordinary view installation cannot discard a membership fence",
-                ));
+                membership::staging::activation::replay_activation(
+                    &mut cell,
+                    &mut history,
+                    (&mut view_change, &mut membership_fence),
+                    records,
+                    position,
+                    &mut delta_start,
+                )?;
+                if membership_fence.is_none() {
+                    installed_authority = true;
+                }
+                continue;
             }
             installation::replay_installation(
                 &mut cell,

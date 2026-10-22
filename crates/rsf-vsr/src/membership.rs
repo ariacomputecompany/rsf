@@ -3,7 +3,7 @@
 //! quorum evidence, not independent node signatures.
 use super::*;
 mod authority;
-mod staging;
+pub(crate) mod staging;
 pub use staging::{
     MembershipStagingStore, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
     VsrMembershipStagedReport,
@@ -184,7 +184,7 @@ impl VsrMembershipSnapshot {
         Ok(state)
     }
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VsrMembershipApproval {
     proposal: VsrMembershipProposal,
     snapshots: Vec<VsrMembershipSnapshot>,

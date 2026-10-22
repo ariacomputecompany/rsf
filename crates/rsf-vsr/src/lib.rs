@@ -359,6 +359,7 @@ pub struct DurableVsrCell {
     root: std::path::PathBuf,
     options: SegmentStoreOptions,
     installed_plan: Option<[u8; 32]>,
+    quorum_history: bool,
     installation_input: Option<installation::input::Stage>,
     cell: VsrCell,
     history: history::ConfigurationHistory,
@@ -670,8 +671,10 @@ impl DurableVsrCell {
     }
 
     /// Whether this store has published a quorum-selected generation.
+    /// Includes transferred logical quorum history without a local generation
+    /// pointer. This disables unilateral shortcuts; it does not admit clients.
     pub fn has_installed_view(&self) -> bool {
-        self.installed_plan.is_some()
+        self.installed_plan.is_some() || self.quorum_history
     }
 
     /// Open an authoritative existing history without accepting a caller's
@@ -817,6 +820,15 @@ impl DurableVsrCell {
             })
             .collect::<Vec<_>>();
         let (cell, history, view_change, membership_fence) = replay::recover(cell, &replay)?;
+        if active.plan.is_some() {
+            // Finish the publication fence before a recovered writer can serve.
+            // A crash before this fence could not acknowledge later operations.
+            installation::publication::mark_published(path, pg)?;
+        }
+        let quorum_history = records.iter().any(|record| {
+            record.kind == WalRecordKind::ViewInstallation
+                && installation::is_activation_marker(&record.payload)
+        });
 
         let mut durable = Self {
             state_identity: std::sync::Arc::new(()),
@@ -824,6 +836,7 @@ impl DurableVsrCell {
             root: path.to_path_buf(),
             options,
             installed_plan: active.plan,
+            quorum_history,
             installation_input: None,
             cell,
             history,
@@ -1220,7 +1233,11 @@ impl DurableVsrCell {
         }
         let result =
             installation::publication::active(&self.root, self.cell.pg).and_then(|active| {
-                if active.plan != self.installed_plan || active.path != self.store.root() {
+                if active.plan != self.installed_plan
+                    || active.path != self.store.root()
+                    || (active.plan.is_some()
+                        && !installation::publication::publication_marked(&self.root))
+                {
                     Err(corrupt(
                         "active VSR generation changed while this writer owned the store",
                     ))

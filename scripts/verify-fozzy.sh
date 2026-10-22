@@ -91,6 +91,7 @@ run_domain membership tests/membership-host.pass.fozzy.json
 run_domain membership-decision tests/membership-decision-host.pass.fozzy.json
 run_domain membership-peer tests/membership-peer-host.pass.fozzy.json
 run_domain membership-staging tests/membership-staging-host.pass.fozzy.json
+run_domain membership-activation tests/membership-activation-host.pass.fozzy.json
 run_domain protocol tests/protocol-host.pass.fozzy.json
 run_domain peer-rpc tests/rpc-host.pass.fozzy.json
 run_domain kv-transactions tests/kv-txn-host.pass.fozzy.json
@@ -350,8 +351,15 @@ membership_staging_evidence = {
     for name in membership_staging_names
 }
 membership_staging_valid = all(membership_staging_evidence.values())
+membership_activation_names = ['membership_activation_preserves_certificates_receipts_pending_data_and_later_commits', 'membership_activation_requires_boot_materialization_matching_quorum_and_root_fence', 'membership_activation_replay_rejects_truncation_corrupt_boundaries_and_ordinary_markers', 'membership_activation_publication_boundaries_recover_old_fence_or_complete_new_authority', 'copied_membership_activation_history_retains_quorum_authority_guards', 'killed_membership_activation_recovers_sealed_authority_before_any_reply', 'successive_membership_activations_preserve_authority_and_fence_removed_voters', 'copied_view_installation_history_retains_quorum_authority_guards', 'published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker']
+membership_activation_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in membership_activation_names
+}
+membership_activation_valid = all(membership_activation_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -371,6 +379,9 @@ summary = {
     "uncertain_sql_begin_workspace": uncertain_begin_workspace,
     "uncertain_sql_begin_profile_runs": uncertain_begin_profile_runs,
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
+    "membership_activation_evidence_valid": membership_activation_valid,
+    "membership_activation_regressions": membership_activation_evidence,
+    "membership_activation_scope": "proof-bound active VSR generation publication and replay; learner promotion factory, native peer publication, atomic control admission and complete production qualification remain unfinished",
     "membership_staging_evidence_valid": membership_staging_valid,
     "membership_staging_regressions": membership_staging_evidence,
     "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts; active generation publication, promotion and control admission remain unfinished",

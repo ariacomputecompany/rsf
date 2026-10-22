@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 const POINTER: &str = "VSR_ACTIVE";
 const GENERATIONS: &str = "vsr-views";
 const SEAL: &str = "VSR_SEAL";
+const PUBLISHED: &str = "VSR_PUBLISHED";
 
 #[derive(Clone, Copy)]
-pub(super) enum Boundary {
+pub(crate) enum Boundary {
     Staged,
     Renamed,
     Published,
@@ -51,10 +52,38 @@ fn write_synced(path: &Path, bytes: &[u8]) -> RsfResult<()> {
     file.sync_all().map_err(io_error)
 }
 
+pub(crate) fn publication_marked(root: &Path) -> bool {
+    root.join(PUBLISHED).is_file()
+}
+
+pub(crate) fn mark_published(root: &Path, pg: PlacementGroupId) -> RsfResult<()> {
+    match fs::read(root.join(PUBLISHED)) {
+        Ok(bytes) => {
+            checked_file(&bytes, b"VSP1", 44)?;
+            if read_u64(&bytes, 4)? != pg.0 {
+                return Err(corrupt("VSR publication marker belongs to another group"));
+            }
+            return Ok(());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(io_error(error)),
+    }
+    let mut bytes = b"VSP1".to_vec();
+    bytes.extend_from_slice(&pg.0.to_le_bytes());
+    checksum(&mut bytes);
+    let temporary = root.join(".VSR_PUBLISHED.tmp");
+    write_synced(&temporary, &bytes)?;
+    fs::rename(temporary, root.join(PUBLISHED)).map_err(io_error)?;
+    sync(root)
+}
+
 pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
     let bytes = match fs::read(root.join(POINTER)) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if root.join(PUBLISHED).exists() {
+                return Err(corrupt("published VSR generation lost its active pointer"));
+            }
             if root.join(GENERATIONS).exists() && !root.join("MANIFEST").is_file() {
                 return Err(corrupt(
                     "VSR generation history exists without root authority or an active pointer",
@@ -121,8 +150,7 @@ pub(crate) fn validate_active(
         .collect::<Vec<_>>();
     if prefix.iter().any(|record| record.pg != pg)
         || !prefix.last().is_some_and(|record| {
-            record.kind == WalRecordKind::ViewInstallation
-                && (record.payload.starts_with(b"VSRI1") || record.payload.starts_with(b"VSRI2"))
+            record.kind == WalRecordKind::ViewInstallation && is_activation_marker(&record.payload)
         })
         || transfer::history_digest(&history)?.bytes != id
     {
@@ -194,7 +222,6 @@ impl DurableVsrCell {
                 ));
             }
         }
-        let next_revision = self.next_state_revision()?;
         // Preserve receiver-local durable request receipts even when their
         // original primary was outside the election quorum.
         let mut records = plan.records.clone();
@@ -233,7 +260,22 @@ impl DurableVsrCell {
             ..last
         });
         let recovered = recover_records(&records)?;
-        let id = transfer::history_digest(&records)?.bytes;
+        self.publish_generation(plan.id, &records, recovered, hook)
+    }
+
+    // Callers validate the complete logical records with authoritative replay
+    // before entering this shared physical publication transaction.
+    pub(crate) fn publish_generation(
+        &mut self,
+        plan_id: [u8; 32],
+        records: &[VsrHistoryRecord],
+        recovered: replay::Recovered,
+        hook: &mut impl FnMut(Boundary) -> RsfResult<()>,
+    ) -> RsfResult<()> {
+        self.ensure_healthy()?;
+        let next_revision = self.next_state_revision()?;
+        let pg = self.cell.pg;
+        let id = transfer::history_digest(records)?.bytes;
         let parent = self.root.join(GENERATIONS);
         fs::create_dir_all(&parent).map_err(io_error)?;
         sync(&self.root)?;
@@ -247,8 +289,8 @@ impl DurableVsrCell {
         let (mut store, previous) = SegmentStore::open_recovered(&path, self.options)?;
         let existing = &previous.recovery.wal_records;
         if existing.len() > records.len()
-            || existing.iter().zip(&records).any(|(old, next)| {
-                old.pg != plan.request.pg
+            || existing.iter().zip(records).any(|(old, next)| {
+                old.pg != pg
                     || old.epoch != next.epoch
                     || old.kind != next.kind
                     || old.payload.as_slice() != next.payload.as_slice()
@@ -257,21 +299,21 @@ impl DurableVsrCell {
             return Err(corrupt("staged VSR generation conflicts with installation"));
         }
         for record in records.iter().skip(existing.len()) {
-            store.append_next_wal(plan.request.pg, record.epoch, record.kind, &record.payload)?;
+            store.append_next_wal(pg, record.epoch, record.kind, &record.payload)?;
         }
         let mut seal = b"VSS1".to_vec();
-        seal.extend_from_slice(&plan.request.pg.0.to_le_bytes());
+        seal.extend_from_slice(&pg.0.to_le_bytes());
         seal.extend_from_slice(&id);
-        seal.extend_from_slice(&plan.id);
+        seal.extend_from_slice(&plan_id);
         seal.extend_from_slice(&(records.len() as u64).to_le_bytes());
         checksum(&mut seal);
         write_synced(&path.join(SEAL), &seal)?;
         sync(&path)?;
         hook(Boundary::Staged)?;
         let mut pointer = b"VSA1".to_vec();
-        pointer.extend_from_slice(&plan.request.pg.0.to_le_bytes());
+        pointer.extend_from_slice(&pg.0.to_le_bytes());
         pointer.extend_from_slice(&id);
-        pointer.extend_from_slice(&plan.id);
+        pointer.extend_from_slice(&plan_id);
         checksum(&mut pointer);
         let temporary = self.root.join(".VSR_ACTIVE.tmp");
         write_synced(&temporary, &pointer)?;
@@ -288,6 +330,7 @@ impl DurableVsrCell {
         // handle until reopen resolves the authoritative pointer.
         let publication = hook(Boundary::Renamed)
             .and_then(|()| sync(&self.root))
+            .and_then(|()| mark_published(&self.root, pg))
             .and_then(|()| hook(Boundary::Published));
         if let Err(err) = publication {
             *self
@@ -303,7 +346,8 @@ impl DurableVsrCell {
         self.history = recovered.1;
         self.view_change = recovered.2;
         self.membership_fence = recovered.3;
-        self.installed_plan = Some(plan.id);
+        self.installed_plan = Some(plan_id);
+        self.quorum_history = true;
         self.reclaim_inactive_views()?;
         Ok(())
     }

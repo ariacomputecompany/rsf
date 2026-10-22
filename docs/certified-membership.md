@@ -5,8 +5,9 @@ continuation from a surviving minority report are implemented.
 Transition-only new-quorum plan consensus is implemented as a library store.
 Authenticated peer plan orchestration is implemented over configured transition paths.
 Sealed chosen-prefix staging and trusted materialization receipts are implemented.
-Active configuration publication, learner promotion and control-metadata publication remain
-unimplemented. Current application operation still uses a fixed admitted voter
+Proof-bound active generation publication and cold replay are implemented in the
+VSR storage kernel. Native peer publication, learner promotion and control-metadata
+publication remain unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
 Local configuration methods and reachability probes do not install network
 membership. Installed histories reject local authority shortcuts both live and
@@ -400,8 +401,44 @@ replay or directory rewrites. Reopen still fully validates proof from disk;
 missing chosen input rejects without recreation. Payload, deadline and retry count
 remain unchanged.
 
-Active generation publication, native application installation/publication,
-activation/learner promotion, removed-voter roles, abort/conflict handling, repeated
-generations and atomic distributed control admission remain unfinished. Retained
+Native application installation/publication, learner promotion, removed-voter
+role integration, abort/conflict handling, repeated network membership lifecycles
+and atomic distributed control admission remain unfinished. Retained
 proof memory/access and independent-host/region capacity/fault qualification
 remain required before production readiness.
+
+
+## Active generation storage kernel
+
+`DurableVsrCell::install_membership` accepts an exact staged/materialized chosen
+prefix and matching new voting-majority staged proof. Its existing root must hold
+the same durable old-quorum proposal fence. A compact `VSRMAI1` activation record
+binds the old-quorum input descriptor, chosen decision, staged quorum, local
+materialization receipt and canonical prefix boundary. Replay validates source
+history identity, historical commit certificates, receipt mappings and exact
+canonical/physical stage identities before installing the new authority.
+
+The immutable generation is sealed and synced, its active pointer is renamed
+and parent synced, and a checked `VSR_PUBLISHED` fence is synced before the writer
+exposes the new state. A missing active pointer after publication fails recovery
+instead of restoring older root authority. Existing valid generations acquire the
+fence before a recovered writer is returned. Publication errors after rename
+fence the live handle until reopen. Copied logical quorum histories retain the
+same protection against unilateral local configuration shortcuts.
+
+The kernel preserves original certificates, receiver-local receipts and accepted
+uncommitted data, clears stale uncommitted acknowledgements, and preserves later
+commits on an exact warm retry. Tests grow and shrink the voter set across two
+activations, retain removed voters' old fence and then perform an ordinary view
+change using the new voter set. Real child processes are killed at the sealed,
+renamed and published boundaries and recover without an early completion reply.
+These are local host crash tests; independent machine power loss is unqualified.
+
+Report identities retain the authenticated crash-fault trust model. They are not
+independent signatures or Byzantine quorum proofs. Activation records retain the
+existing history-record size limit; proposal orchestration still needs to
+preflight that combined proof budget before old-quorum fencing. The native peer
+publisher, learner promotion factory, role custody and replicated atomic client
+admission are unfinished. This kernel API does not enable an operator membership
+command or mark a cluster-wide transition complete. Scoped evidence is recorded
+in `membership-activation-verification-2026-10-21.json`.

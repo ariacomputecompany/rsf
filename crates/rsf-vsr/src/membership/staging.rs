@@ -2,6 +2,7 @@
 use super::decision::{Reader, put_bytes, put_u64};
 use super::*;
 use rsf_core::Digest;
+pub(crate) mod activation;
 mod store;
 pub use store::MembershipStagingStore;
 mod proof;
@@ -173,4 +174,11 @@ impl VsrMembershipStagedPlan {
         self.records = records.to_vec();
         Ok(())
     }
+}
+
+fn physical_stage_id(plan: [u8; 32], records: &[VsrHistoryRecord]) -> RsfResult<[u8; 32]> {
+    let mut bytes = b"RSF staged membership prefix v1".to_vec();
+    bytes.extend_from_slice(&plan);
+    bytes.extend_from_slice(transfer::history_digest(records)?.as_bytes());
+    Ok(Digest::blake3_bytes(&bytes).bytes)
 }

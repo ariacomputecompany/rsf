@@ -393,3 +393,13 @@ pub(super) fn replay_installation(
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn is_membership_delta(payload: &[u8]) -> bool {
+    codec::is_delta(payload)
+}
+
+pub(super) fn is_activation_marker(payload: &[u8]) -> bool {
+    payload.starts_with(b"VSRI1")
+        || payload.starts_with(b"VSRI2")
+        || payload.starts_with(b"VSRMAI1")
+}

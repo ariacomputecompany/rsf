@@ -1372,3 +1372,82 @@ fn replay_rejects_unilateral_authority_records_after_quorum_installation() {
         std::fs::remove_dir_all(path).unwrap();
     }
 }
+
+#[test]
+fn copied_view_installation_history_retains_quorum_authority_guards() {
+    let path = root("copied-quorum-authority");
+    let (mut first, second, snapshots) = fixture(&path);
+    first
+        .install_view(&VsrViewInstallation::select(&snapshots).unwrap())
+        .unwrap();
+    let records = first.history_snapshot().unwrap().records;
+    let copied = path.join("copied");
+    let mut store = SegmentStore::open(&copied).unwrap();
+    for r in records {
+        store
+            .append_next_wal(PlacementGroupId(1), r.epoch, r.kind, &r.payload)
+            .unwrap();
+    }
+    drop(store);
+    let mut cell = open(&copied);
+    assert!(cell.has_installed_view());
+    assert!(matches!(
+        cell.view_change(Epoch(3), NodeId(2)),
+        VsrDecision::Rejected { .. }
+    ));
+    assert!(matches!(
+        cell.reconfigure(Epoch(3), NodeId(1), [NodeId(1)]),
+        VsrDecision::Rejected { .. }
+    ));
+    drop(cell);
+    drop(first);
+    drop(second);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker() {
+    let path = root("publication-marker");
+    let (mut first, second, snapshots) = fixture(&path);
+    first
+        .install_view(&VsrViewInstallation::select(&snapshots).unwrap())
+        .unwrap();
+    let pointer = std::fs::read(path.join("1/VSR_ACTIVE")).unwrap();
+    let marker = std::fs::read(path.join("1/VSR_PUBLISHED")).unwrap();
+    drop(first);
+    std::fs::remove_file(path.join("1/VSR_ACTIVE")).unwrap();
+    for _ in 0..2 {
+        assert!(DurableVsrCell::open_existing(path.join("1"), PlacementGroupId(1)).is_err());
+    }
+    std::fs::write(path.join("1/VSR_ACTIVE"), &pointer).unwrap();
+    let mut damaged = marker.clone();
+    damaged[12] ^= 1;
+    std::fs::write(path.join("1/VSR_PUBLISHED"), &damaged).unwrap();
+    for _ in 0..2 {
+        assert!(DurableVsrCell::open_existing(path.join("1"), PlacementGroupId(1)).is_err());
+        assert_eq!(
+            std::fs::read(path.join("1/VSR_PUBLISHED")).unwrap(),
+            damaged
+        );
+    }
+    // A legacy active pointer without the new fence is validated in full and
+    // fenced before the writer is returned; it cannot serve in the upgrade gap.
+    std::fs::remove_file(path.join("1/VSR_PUBLISHED")).unwrap();
+    let mut recovered = DurableVsrCell::open_existing(path.join("1"), PlacementGroupId(1)).unwrap();
+    assert_eq!(std::fs::read(path.join("1/VSR_PUBLISHED")).unwrap(), marker);
+    std::fs::remove_file(path.join("1/VSR_PUBLISHED")).unwrap();
+    assert!(
+        recovered
+            .prepare(
+                NodeId(1),
+                VsrOperation::ProtocolOperation {
+                    operation_id: OperationId(3)
+                },
+                1
+            )
+            .is_err()
+    );
+    drop(recovered);
+    drop(second);
+    std::fs::remove_dir_all(path).unwrap();
+}

@@ -321,11 +321,9 @@ fn encode_meta(
     Ok(bytes)
 }
 fn stage_id(plan: &VsrMembershipStagedPlan) -> RsfResult<[u8; 32]> {
-    let mut bytes = b"RSF staged membership prefix v1".to_vec();
-    bytes.extend_from_slice(&plan.id);
-    bytes.extend_from_slice(transfer::history_digest(&plan.records)?.as_bytes());
-    Ok(Digest::blake3_bytes(&bytes).bytes)
+    physical_stage_id(plan.id, &plan.records)
 }
+
 fn lock(root: &Path) -> RsfResult<rsf_storage::ExclusiveFileLock> {
     rsf_storage::ExclusiveFileLock::acquire(
         OpenOptions::new()

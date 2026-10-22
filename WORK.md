@@ -43,7 +43,7 @@ Strict daemon Clippy passes. An earlier complete daemon host run passed 85 tests
 the final shared-budget source's daemon run terminated under host pressure without
 a usable trace/result and is not qualified. Host swap reached about 19 GiB and
 free disk fell to 89 MiB. Stable host resources are required before the final
-daemon and full 22-domain reruns. See
+daemon and full expanded-domain reruns. See
 `docs/client-transport-verification-2026-10-21.json`.
 
 The final shared-budget source subsequently passes all six focused client checks
@@ -52,18 +52,26 @@ recorded real host execution, strict trace verification, replay and CI. Both nor
 takeover profiles used zero client/commit retries; fault regressions deliberately
 exercise uncertainty. This does not replace the incomplete final daemon/full gate.
 
-### Next implementation: active membership publication and promotion
+The VSR active membership kernel now passes 279 affected-package tests and strict
+storage/VSR/RPC/protocol/daemon Clippy. A frozen-source Fozzy run includes five-run
+doctor, strict orchestration, real host execution, strict trace verification,
+replay and CI. It covers process death at three publication boundaries, repeated
+voter growth/shrink, historical authority/receipt preservation, and fail-closed
+missing-pointer recovery. Native peer publication/promotion and atomic control
+admission remain unfinished. The expanded full gate now has 23 domains; it has
+not yet passed on this source. Evidence:
+`docs/membership-activation-verification-2026-10-21.json`.
 
-- Publish the exact staged/materialized chosen prefix only with a matching new
-  voting-majority staged proof. Authoritative cold replay and history transfer
-  must validate the activation evidence, original bootstrap and historical
-  configurations; preserve committed data, client receipts and uncommitted tails.
-- Reuse immutable generation sealing and synced pointer publication with a durable
-  fallback fence. Test process death before/after seal, rename and parent sync;
-  missing or corrupt proof must fail repeated recovery without silent recreation.
-- Promote an already anchored learner through configured owned storage, retain
-  removed-voter fencing, and support ordinary election on the new voter set after
-  permanent loss of the originally selected candidate. Validate repeated changes.
+### Next implementation: native membership publication and promotion
+
+- Promote an already anchored learner through configured owned storage, with a
+  durable bootstrap/owner identity and resumable initialization. Integrate the
+  verified kernel publisher into authenticated peer orchestration with trusted
+  application materialization and new-quorum publication acknowledgements.
+- Retain removed-voter fencing and support ordinary election on the new voter
+  set after permanent loss of the original candidate through actual TLS peers.
+  Qualify repeated membership lifecycles and partial-proposal conflict/abort.
+- Preflight the bounded activation proof size before fencing an old quorum.
 - Keep native client admission closed until replicated control/catalog authority
   and application materialization agree on the same installed membership. Do not
   enable an operator membership command ahead of that integration and its gates.

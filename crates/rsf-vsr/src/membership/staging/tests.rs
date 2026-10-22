@@ -473,7 +473,7 @@ fn membership_staging_child() {
 }
 fn write_application(path: &Path, entry: &VsrCommittedEntry) -> RsfResult<()> {
     let directory = path.join("application");
-    fs::create_dir_all(&directory).map_err(io_error)?;
+    rsf_storage::create_dir_all_synced(&directory).map_err(io_error)?;
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -545,3 +545,6 @@ fn killed_membership_stage_recovers_receipt_and_replays_materialization_before_r
     assert!(!path.join("application/3").exists());
     assert_eq!(recovered.plan().accepted_tail(), LogIndex(3));
 }
+
+#[path = "activation_tests.rs"]
+mod activation_tests;
