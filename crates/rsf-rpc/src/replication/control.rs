@@ -57,6 +57,9 @@ pub(super) struct Clock {
     last_repair: Instant,
     own_failures: u32,
     confirmed_view: Option<Epoch>,
+    // Authenticated inventory is a lower bound for the next proposal, not
+    // evidence that a view is installed or application service is permitted.
+    highest_observed: Epoch,
 }
 impl Clock {
     pub(super) fn new(now: Instant) -> Self {
@@ -66,6 +69,7 @@ impl Clock {
             last_repair: now,
             own_failures: 0,
             confirmed_view: None,
+            highest_observed: Epoch(0),
         }
     }
 }
@@ -175,7 +179,10 @@ impl PeerReplicaServer {
         let same = status
             .promise
             .as_ref()
-            .filter(|p| p.candidate == self.local)
+            .filter(|p| {
+                p.candidate == self.local
+                    && p.target_view >= self.election_clock[&pg].highest_observed
+            })
             .cloned();
         let failures = self.election_clock[&pg].own_failures;
         if let Some(request) = &same
@@ -203,6 +210,7 @@ impl PeerReplicaServer {
             let mut highest = status.promise.as_ref().map_or(status.normal.view.0, |p| {
                 p.target_view.0.max(status.normal.view.0)
             });
+            highest = highest.max(self.election_clock[&pg].highest_observed.0);
             for replica in status
                 .normal
                 .voters
@@ -218,6 +226,7 @@ impl PeerReplicaServer {
                         .max(remote.promise.map_or(0, |p| p.target_view.0));
                 }
             }
+            self.election_clock.get_mut(&pg).unwrap().highest_observed = Epoch(highest);
             VsrViewChangeRequest {
                 pg,
                 previous_view: Epoch(1),
@@ -246,6 +255,16 @@ impl PeerReplicaServer {
         })();
         phase(if result.is_ok() { "complete" } else { "failed" }, None);
         self.election_result(pg, result, timing)
+    }
+
+    fn observe_view(&mut self, pg: PlacementGroupId, status: &VsrReplicaStatus) -> Epoch {
+        let view = status
+            .normal
+            .view
+            .max(status.promise.as_ref().map_or(Epoch(0), |p| p.target_view));
+        let clock = self.election_clock.get_mut(&pg).unwrap();
+        clock.highest_observed = clock.highest_observed.max(view);
+        view
     }
     fn election_result(
         &mut self,

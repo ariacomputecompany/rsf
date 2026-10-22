@@ -10,6 +10,7 @@ impl PeerReplicaServer {
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
         progress: &mut impl FnMut(PeerElectionProgress),
     ) -> Result<String, String> {
+        let local = self.local;
         if self.installation_pending.contains(&pg) {
             for entry in self.cells[&pg].committed_prefix().map_err(|e| e.message)? {
                 apply(&entry)?;
@@ -28,6 +29,17 @@ impl PeerReplicaServer {
             if input.is_some_and(|i| {
                 i.request().candidate == self.local && i.request().target_view == status.normal.view
             }) {
+                let mut superseded = false;
+                for replica in status.normal.voters.iter().copied().filter(|n| *n != local) {
+                    if let Ok(remote) = self.control_transport.replica_status(replica, pg)
+                        && remote.normal.voters == status.normal.voters
+                    {
+                        superseded |= self.observe_view(pg, &remote) > status.normal.view;
+                    }
+                }
+                if superseded || self.election_clock[&pg].own_failures >= 2 {
+                    return self.elect(pg, status, timing, apply, progress);
+                }
                 let started = Instant::now();
                 progress(PeerElectionProgress {
                     node: self.local,
@@ -36,7 +48,11 @@ impl PeerReplicaServer {
                     elapsed: Duration::ZERO,
                     records: None,
                 });
-                self.resume_installed(pg, apply)?;
+                if let Err(error) = self.resume_installed(pg, apply) {
+                    let clock = self.election_clock.get_mut(&pg).unwrap();
+                    clock.own_failures = clock.own_failures.saturating_add(1);
+                    return Err(error);
+                }
                 progress(PeerElectionProgress {
                     node: self.local,
                     pg,
@@ -60,7 +76,7 @@ impl PeerReplicaServer {
             .voters
             .iter()
             .copied()
-            .filter(|node| *node != self.local)
+            .filter(|node| *node != local)
         {
             // A status query is deliberately read-only. Only a normal-view
             // heartbeat or accepted protocol progress refreshes follower timers.
@@ -76,11 +92,7 @@ impl PeerReplicaServer {
             match heartbeat {
                 Ok(remote) => {
                     reachable_lag |= remote.normal != status.normal || remote.promise.is_some();
-                    newer |= remote.normal.view > status.normal.view
-                        || remote
-                            .promise
-                            .as_ref()
-                            .is_some_and(|p| p.target_view > status.normal.view);
+                    newer |= self.observe_view(pg, &remote) > status.normal.view;
                     if remote.normal == status.normal && remote.promise.is_none() {
                         confirmed += 1;
                     }
@@ -90,11 +102,7 @@ impl PeerReplicaServer {
                     // an active heartbeat/materialization acknowledgement.
                     if let Ok(remote) = self.control_transport.replica_status(replica, pg) {
                         reachable_lag = true;
-                        newer |= remote.normal.view > status.normal.view
-                            || remote
-                                .promise
-                                .as_ref()
-                                .is_some_and(|p| p.target_view > status.normal.view);
+                        newer |= self.observe_view(pg, &remote) > status.normal.view;
                     }
                 }
             }
@@ -143,11 +151,19 @@ impl PeerReplicaServer {
             }
         }
         if confirmed <= status.normal.voters.len() / 2 {
+            if now.saturating_duration_since(self.election_clock[&pg].last_contact)
+                >= timing.timeout
+            {
+                return self.elect(pg, status, timing, apply, progress);
+            }
             return Err(format!(
                 "primary status lacks matching installed quorum ({confirmed}/{})",
                 status.normal.voters.len()
             ));
         }
+        let clock = self.election_clock.get_mut(&pg).unwrap();
+        clock.last_contact = Instant::now();
+        clock.own_failures = 0;
         Ok("current view and committed tip confirmed by voting quorum".into())
     }
 

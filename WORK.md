@@ -24,33 +24,26 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The complete workspace now
-passes 1,195 tests with zero failures and one ignored test, including the large SQL
-stream case and both idle-application regressions. A frozen-source Fozzy run passes
-five-run doctor, strict orchestration, actual host execution, strict trace
-verification, replay and CI. The data listener retains one owned application
-writer between polls, releases protocol ownership for health/status, and restores
-only against matching retained history and fresh authority/transport. Per-request
-authorization and all existing workload/deadline/retry settings remain intact.
+Current release status: **not production qualified**. The latest complete
+23-domain run on `22b045b` passes 22 domains. Workspace passes 1,195 tests with
+zero failures and one ignored test; automatic-client fails its debug takeover
+convergence deadline. Preserved durable peer histories identify an installed
+primary retrying an older retained installation after a higher promise supersedes
+it. The controller now observes authenticated higher views and starts a fresh
+ordinary quorum election; a previously confirmed primary also retries election
+after losing matching quorum for the existing timeout.
 
-The full `df63521` invocation passes all 22 individual domains, both client and
-SQL stream profiles, and both process restart stress profiles. Fozzy's workspace
-stderr capture failed after Cargo exit without recording a Cargo result. That
-invocation remains failed; its missing workspace counts are not treated as a
-pass. The capture harness now writes inherited output to a file, replays its full
-log and preserves the original exit code. Real smoke commands prove both exit 0
-and exit 17 propagation. The complete workspace retry passes using this capture;
-a fresh single 23-domain invocation on the harness source remains required.
+Two real TLS regressions fail on the previous controller and pass with this fix,
+preserving committed data and receipts through cold recovery. RPC/daemon Clippy
+with warnings denied passes. Broad final-source host qualification, both native
+automatic takeover profiles, and a fresh complete 23-domain gate remain required.
+No request deadline, wire retry budget, workload or convergence deadline changed.
+See `docs/preempted-primary-verification-2026-10-21.json` for scoped evidence.
 
-Current evidence: `docs/workspace-capture-verification-2026-10-21.json` and
-`docs/idle-application-verification-2026-10-21.json`. The incomplete full capture
-is retained in `docs/idle-application-full-incomplete-verification-2026-10-21.json`.
-The prior SQL timeout, recovery fixture and historical source reports remain
-preserved in their scoped verification documents. Kernel activation is verified;
-native peer membership publication/promotion and atomic control admission remain
-unfinished. Growing-history memory, cold protocol recovery, retention/migration,
-independent-group routing, and independent-host/region workload/fault qualification
-also remain open.
+Kernel activation is verified; native peer membership publication/promotion and
+atomic control admission remain unfinished. Growing-history memory, cold protocol
+recovery, retention/migration, independent-group routing, and independent-host/
+region workload/fault qualification also remain open.
 
 ### Next implementation: native membership publication and promotion
 
