@@ -459,7 +459,7 @@ removed roles, abort/conflict lifecycle, repeated generations and atomic control
 admission remain unfinished. Retained-prefix access and growing-history proof
 transfer capacity also remain to be qualified and optimized.
 
-## Sealed membership staging and peer materialization (full qualification running)
+## Sealed membership staging and peer materialization (full qualification pending)
 
 Added deterministic chosen-prefix merge using the shared view-installation union,
 original historical certificates, preserved uncommitted tails and receiver-local
@@ -480,8 +480,12 @@ All 268 targeted checks pass (59 storage, 113 VSR, 39 RPC, 57 protocol), as does
 strict Clippy for storage/VSR/RPC/protocol/daemon all-targets/no-deps with warnings
 denied. Coverage includes a real process kill after durable receipt before reply,
 corrupt/missing/torn stage rejection and a materialized staged quorum after loss
-of the originally selected primary. Full 22-domain Fozzy qualification is running
-on unchanged executable source; the eight new required regressions are in the gate.
+of the originally selected primary. The first full 22-domain Fozzy run stopped
+with host ENOSPC and exited 1 without a summary; it does not qualify this source.
+The incomplete attempt is preserved in
+`docs/membership-staging-incomplete-verification-2026-10-21.json`. A complete rerun
+is required after reclaiming rebuildable compilation outputs. The eight new
+required regressions remain in the gate.
 
 No active generation or voting-role change is published yet. Native publication,
 activation/promotion, retired roles, conflict/abort/repeated-generation lifecycle,

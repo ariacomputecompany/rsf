@@ -1,0 +1,25 @@
+{
+  "status": "incomplete_host_resource_failure",
+  "source_commit": "14d5697b347b744591a4337479e743a56aaa207c",
+  "artifact_root": "artifacts/verification.DN6gCa",
+  "log": "artifacts/membership-staging-full-qualification-20261021.log",
+  "log_sha256": "5972006d386947c9917c413d4a6759f6a6e940ee559e83dd25a0551731d1114b",
+  "full_release_gate_passed": false,
+  "production_qualified": false,
+  "failure": "Host filesystem exhausted (ENOSPC, os error 28); gate exited 1 without a summary. Partial domains do not qualify this source.",
+  "recovery": "Remove only rebuildable RSF compilation outputs; rerun all 22 domains with CARGO_INCREMENTAL=0.",
+  "preserved_trace_files": [
+    "authentication.trace.fozzy",
+    "kv-transactions.trace.fozzy",
+    "membership-decision.trace.fozzy",
+    "membership-peer.trace.fozzy",
+    "membership-staging.trace.fozzy",
+    "membership.trace.fozzy",
+    "peer-rpc.trace.fozzy",
+    "protocol.trace.fozzy",
+    "sql.trace.fozzy",
+    "storage.trace.fozzy",
+    "tenancy.trace.fozzy",
+    "vsr.trace.fozzy"
+  ]
+}

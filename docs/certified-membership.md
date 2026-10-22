@@ -378,8 +378,11 @@ stages, a real process killed after synced receipt before reply, derived-file
 rebuild after loss, explicit-materializer rejection, 128 KiB binary TLS delivery,
 peer restart and a staged quorum after the originally selected primary is lost.
 
-The expanded 22-domain full release gate is running on frozen source and requires
-all eight new directory/staging regressions. Its final report is pending. Active
+The first expanded 22-domain full release gate stopped with host ENOSPC and exited
+1 without a summary; partial results do not qualify the source. The failed attempt
+is preserved in `membership-staging-incomplete-verification-2026-10-21.json`.
+A full rerun after build-cache recovery must pass all eight new directory/staging
+regressions. Active
 generation publication, native application installation/publication integration,
 activation/learner promotion, removed-voter roles, abort/conflict handling, repeated
 generations and atomic distributed control admission remain unfinished. Growing
