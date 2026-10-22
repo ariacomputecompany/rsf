@@ -24,6 +24,14 @@ The standard is strict:
 
 ## Current State Audit
 
+Current release status on `f8c16c7`: **not qualified**. The current immutable-source
+gate passes 21/22 domains and all 1,181 workspace tests, but release automatic
+client takeover rejects a post-loss SQL BEGIN after commit evidence misses the
+peer deadline. A focused release rerun subsequently passes unchanged source and
+deadlines; cause and resolution remain open. See
+`docs/membership-staging-verification-2026-10-21.json`. The complete 20-domain
+report below is historical evidence for its explicitly recorded source.
+
 ### Production-leaning but incomplete
 
 - `crates/rsf-core`
@@ -459,45 +467,37 @@ removed roles, abort/conflict lifecycle, repeated generations and atomic control
 admission remain unfinished. Retained-prefix access and growing-history proof
 transfer capacity also remain to be qualified and optimized.
 
-## Sealed membership staging and peer materialization (full qualification pending)
+## Sealed membership staging and peer materialization
 
-Added deterministic chosen-prefix merge using the shared view-installation union,
-original historical certificates, preserved uncommitted tails and receiver-local
-request mappings. Separate full-sync stage stores replay complete proof on open,
-seal input/count/content identities and cannot become writable VSR cells. Staged
-receipts require successful trusted materialization on this boot and a synced
-receipt. New-majority staged proofs bind the exact chosen input and canonical
-prefix. Peer STAGE requires an explicit materializer; learners remain non-voting.
+Chosen-prefix merge uses the shared view-installation union, original historical
+certificates, accepted uncommitted tails and receiver-local request mappings.
+Separate full-sync stage stores replay complete proof on open, seal exact
+input/count/content identities and cannot become writable VSR cells. Receipts
+require trusted materialization on this boot and a synced receipt. New-majority
+proofs bind chosen input and canonical prefix; learners remain non-voting.
 
-The 128 KiB TLS case reproduced a deadline failure after durable work completed.
-Same-boot receipt reuse now binds exact voter recovery stamps or published learner
-snapshot IDs. Payload/deadlines stay unchanged; warm retry avoids repeated
-application work and restart reconstructs deleted derived files. New root creation
-also syncs newly created directories and parent links, with initial segment-store
-root publication guarded before first use. Test materializers sync parent links.
+Same-boot receipt reuse binds exact voter recovery stamps or published learner
+snapshot IDs. Immutable approvals retain private replay-validated states; exact
+chosen-input and staged source-copy checks compare complete bytes with validated
+proof without redundant replay or directory rewrites. Reopen fully validates all
+proof, and missing chosen input rejects without recreation. Original 128 KiB TLS
+payload, 800 ms deadlines and one retry remain unchanged. Warm retries avoid
+repeated application work; restart rebuilds deleted derived files. New directory
+creation syncs new directories and parent links before durable publication.
 
-All 268 targeted checks pass (59 storage, 113 VSR, 39 RPC, 57 protocol), as does
-strict Clippy for storage/VSR/RPC/protocol/daemon all-targets/no-deps with warnings
-denied. Coverage includes a real process kill after durable receipt before reply,
-corrupt/missing/torn stage rejection and a materialized staged quorum after loss
-of the originally selected primary. The first full 22-domain Fozzy run stopped
-with host ENOSPC and exited 1 without a summary; it does not qualify this source.
-The incomplete attempt is preserved in
-`docs/membership-staging-incomplete-verification-2026-10-21.json`. A complete rerun
-is required after reclaiming rebuildable compilation outputs. The eight new
-required regressions remain in the gate.
+All 269 affected tests and strict affected-target Clippy pass. The frozen-source
+full workspace passes 1,181 tests with zero failures, including all nine required
+staging/directory/retention cases and the previously failing TLS staging case.
+The full gate passes 21/22 domains, including both native-KV stress profiles,
+streaming, object/blob, recovery and end-to-end checks. Release automatic-client
+takeover fails on a post-loss SQL BEGIN with insufficient durable peer commit
+evidence before the deadline; its debug profile passes. This remains an unresolved
+release failure; an isolated rerun passes, but does not clear the failed full
+gate. Current evidence is in
+`docs/membership-staging-verification-2026-10-21.json`; earlier disk exhaustion and
+workspace-staging failures remain preserved separately.
 
-No active generation or voting-role change is published yet. Native publication,
-activation/promotion, retired roles, conflict/abort/repeated-generation lifecycle,
-atomic control admission and workload/fault capacity qualification remain open.
-
-The disk-recovery rerun (`verification.ZN4Y2J`) passed 21 domains but failed the
-final workspace run at cold TLS staging. Diagnostics measured a 1.564-second
-service path with the unchanged 800 ms request deadline. Immutable approvals now
-retain their replay-validated states, and exact chosen-input retention verifies
-existing bytes without recreating directories or redoing semantic replay. Staging
-compares its recovered copy against the already validated exact input. Disk reopen
-still performs full proof validation. A new regression rejects a missing chosen
-input without recreating it. All 269 affected tests and strict affected-target
-Clippy pass; complete new-source qualification is pending. The full gate now
-requires nine staging/directory/retention regressions.
+Resolve the release automatic-client failure and rerun the complete gate. Active
+generation publication, native application publication, activation/learner
+promotion, retired roles, conflict/abort/repeated-generation lifecycle, atomic
+control admission and independent-host workload/fault qualification remain open.

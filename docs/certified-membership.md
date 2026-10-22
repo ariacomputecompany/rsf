@@ -370,7 +370,7 @@ roots avoid that creation work on the normal append path. Materializer fixtures
 sync their file and parent directory entries before reporting success. This is
 code/host-test evidence, not independent machine power-loss qualification.
 
-Targeted verification passes 59 storage, 113 VSR, 39 RPC and 57 protocol tests.
+Targeted verification passes 59 storage, 114 VSR, 39 RPC and 57 protocol tests.
 Strict Clippy passes for storage/VSR/RPC/protocol/daemon all-targets/no-deps with
 warnings denied. Coverage includes split commit/receipt evidence, alternate
 choice-proof subsets, local receipts, uncommitted tails, corrupt/torn/missing
@@ -378,21 +378,30 @@ stages, a real process killed after synced receipt before reply, derived-file
 rebuild after loss, explicit-materializer rejection, 128 KiB binary TLS delivery,
 peer restart and a staged quorum after the originally selected primary is lost.
 
-The first expanded 22-domain full release gate stopped with host ENOSPC and exited
-1 without a summary; partial results do not qualify the source. The failed attempt
-is preserved in `membership-staging-incomplete-verification-2026-10-21.json`.
-A full rerun after build-cache recovery must pass all eight new directory/staging
-regressions. Active
-generation publication, native application installation/publication integration,
-activation/learner promotion, removed-voter roles, abort/conflict handling, repeated
-generations and atomic distributed control admission remain unfinished. Growing
-history proof access/memory and independent-host/region capacity/fault qualification
-remain required before production readiness.
+Current immutable-source verification passes 21 of 22 domains and 1,181 workspace
+tests with zero failures, including all nine required staging/directory/retention
+regressions. Each passing domain includes five-run doctor, strict deterministic
+orchestration, recorded host execution, strict trace verification, replay and CI.
+The previously failing TLS staging test passes in the full workspace. Current
+evidence is in `membership-staging-verification-2026-10-21.json` and
+`artifacts/verification.sDhlKQ`.
 
-The subsequent disk-recovery gate passed 21 domains but failed final workspace
-cold staging under its unchanged 800 ms deadline. In-process approvals now retain
-private replay-validated states; exact chosen-input retries compare retained bytes
-without rewriting inputs, and stage source-copy verification compares complete
-bytes against the validated proof. Reopen still validates all proof from disk.
-A missing chosen input fails without recreation. All 269 affected tests and
-strict affected-target Clippy pass; full new-source qualification is pending.
+The full release gate remains failed: release automatic-client takeover rejects a
+post-loss SQL BEGIN when durable commit evidence reaches only one replica before
+the peer deadline. Debug and a subsequent focused release rerun pass; the
+intermittent failure remains unresolved and the complete gate remains failed. Both native-KV
+stress profiles pass separately. Earlier ENOSPC and workspace-staging failures
+remain in `membership-staging-incomplete-verification-2026-10-21.json`.
+
+The workspace staging deadline failure led to private replay-validated states
+retained inside immutable approvals. Exact chosen-input retention and staged
+source-copy checks compare complete bytes with validated proof without redundant
+replay or directory rewrites. Reopen still fully validates proof from disk;
+missing chosen input rejects without recreation. Payload, deadline and retry count
+remain unchanged.
+
+Active generation publication, native application installation/publication,
+activation/learner promotion, removed-voter roles, abort/conflict handling, repeated
+generations and atomic distributed control admission remain unfinished. Retained
+proof memory/access and independent-host/region capacity/fault qualification
+remain required before production readiness.
