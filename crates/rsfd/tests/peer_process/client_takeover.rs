@@ -18,8 +18,10 @@ fn must_execute(
     request: &str,
     bytes: &[u8],
 ) -> String {
-    for attempt in 0..3 {
-        let response = surface_request(address, protocol, operation, request, bytes);
+    let mut budget = 3;
+    while budget > 0 {
+        let response =
+            surface_request_with_budget(address, protocol, operation, request, bytes, &mut budget);
         if response.starts_with("RSF/1 executed") {
             return response;
         }
@@ -27,15 +29,14 @@ fn must_execute(
         // Preserve every request field and keep transport deadlines unchanged.
         // Semantic rejection and persistent quorum failure must still fail.
         assert!(
-            attempt < 2
+            budget > 0
                 && response.starts_with("RSF/1 rejected")
                 && response.contains("mutation=unknown reason=durable commit evidence reached"),
-            "request={request}, {operation}, attempt={attempt}: {response}"
+            "request={request}, {operation}, attempts_remaining={budget}: {response}"
         );
         COMMIT_CONFIRMATION_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         eprintln!(
-            "same-identity commit-confirmation retry request={request}, attempt={}",
-            attempt + 1
+            "same-identity commit-confirmation retry request={request}, attempts_remaining={budget}"
         );
     }
     unreachable!("bounded retry either returns a result or fails")
@@ -775,6 +776,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
         serde_json::json!({
             "workload":"automatic-client-takeover",
             "commit_confirmation_retries":COMMIT_CONFIRMATION_RETRIES.load(std::sync::atomic::Ordering::Relaxed),
+            "client_transport_retries":surface_transport_retries(),
             "profile":if cfg!(debug_assertions) {"debug"} else {"release"},
             "coordinator_reuses_before_crash":reuses,"coordinator_recoveries_before_crash":recoveries,
         "concurrent_clients":4,"submitted_requests":32,"acknowledged_before_crash":acknowledged,
@@ -793,7 +795,7 @@ fn automatic_client_takeover_recovers_every_surface_routes_followers_and_recheck
     );
     std::fs::remove_dir_all(root).unwrap();
 }
-fn crate_namespace(peer_state: &Path) -> PathBuf {
+pub(super) fn crate_namespace(peer_state: &Path) -> PathBuf {
     use sha2::{Digest, Sha256};
     peer_state
         .join("application/namespaces")

@@ -111,11 +111,15 @@ from an earlier attempt using the same key.
 
 Bound retries by the client's own attempt/time budget. A peer RPC deadline is
 not a guarantee that an application write aborts when that deadline expires.
-The local takeover qualifier permits at most three unchanged attempts for missing
-durable commit confirmation; persistent quorum failure and semantic rejection
+The local takeover qualifier shares at most three unchanged wire attempts across
+eligible transport loss and missing durable commit confirmation; persistent failure and semantic rejection
 still fail qualification. A real-peer BEGIN regression retains the original
 certified session token/version after both commit observations are withheld and
 both peers restart twice. See `uncertain-sql-begin-verification-2026-10-21.json`.
+The transport regression completes a real SQL INSERT before forcing the original
+client read timeout and an empty TLS response. Its identical-frame retries retain
+the result across all daemon restarts and add no replica commits. See
+`client-transport-verification-2026-10-21.json` for the exact verification scope.
 
 ## Revoke and rotate access
 

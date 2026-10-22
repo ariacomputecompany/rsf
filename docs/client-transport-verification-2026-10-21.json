@@ -1,0 +1,65 @@
+{
+  "production_qualified": false,
+  "full_release_gate_passed": false,
+  "source_parent_commit": "7b985a8041364a62f345ce888f80dda36ab1cf66",
+  "source_sha256": "df49592f7404e188b10aa081c39b55840e113c2f7bf99864243998f7a06eff75",
+  "change": "The qualification client preserves its serialized request across eligible transport failures and shares one three-attempt budget with missing commit-confirmation retries. Client and server deadlines are unchanged. Semantic rejection is returned unchanged; persistent failures exhaust the budget.",
+  "regression": {
+    "name": "automatic_client_takeover_transport_loss_preserves_exact_sql_mutation_after_restart",
+    "final_release_passed": true,
+    "release_log": "artifacts/client-transport-final-release.log",
+    "debug_shared_budget_regression_passed_before_local_budget_variable_refactor": true,
+    "debug_log": "artifacts/client-transport-shared-budget-regression.log",
+    "fault": "A real SQL backend commits the INSERT. The front TLS connection then retains the completed result beyond the unchanged three-second client read timeout, followed by an empty TLS response on the second attempt.",
+    "transport_retries": 2,
+    "wire_frames_identical": true,
+    "original_result_replayed_after_all_three_daemons_restart": true,
+    "changed_payload_rejected": true,
+    "one_row_and_no_additional_replica_commits": true
+  },
+  "prior_complete_daemon_check": {
+    "source_sha256": "77b11f0696cc1da4eb6dffd490fbdf8d9316c6e656daede5633275c174ae6994",
+    "scope": "Transport retries before the final shared total-budget refinement",
+    "passed": 85,
+    "failed": 0,
+    "ignored": 1,
+    "trace": "artifacts/client-transport-daemon.trace.fozzy",
+    "audit": "artifacts/client-transport-daemon-audit.json",
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "strict_trace_verification": "artifacts/client-transport-daemon-trace-verify.json",
+    "replay": "artifacts/client-transport-daemon-replay.json",
+    "ci": "artifacts/client-transport-daemon-ci.json"
+  },
+  "final_source_checks": {
+    "strict_clippy_passed": true,
+    "clippy": "artifacts/client-transport-final-clippy.log",
+    "doctor": "artifacts/client-transport-final-doctor.json",
+    "strict_orchestration": "artifacts/client-transport-final-strict.json",
+    "daemon_host_exit_code": 101,
+    "daemon_host_result_usable": false,
+    "daemon_host_trace_available": false,
+    "daemon_host_log": "artifacts/client-transport-final-daemon-host.json",
+    "failure_classification": "Terminal run under severe host memory/disk pressure; no usable trace or JSON result was saved. The missing result does not prove any final-source daemon pass."
+  },
+  "prior_full_attempt": {
+    "source_commit": "7b985a8041364a62f345ce888f80dda36ab1cf66",
+    "source_sha256": "f2ef738109fb984b492c277ef784724ad66381f3568e30735600ac47d516555e",
+    "artifact_root": "artifacts/verification.okXEsr",
+    "observed_daemon_exit_code": 101,
+    "failure": "The SQL stream setup INSERT stream-118 hit the three-second client read timeout and the old helper panicked on WouldBlock instead of applying the documented same-key transport retry contract.",
+    "gate_exit_code": 143,
+    "gate_stopped_after_observed_failure": true,
+    "summary_exists": false,
+    "no_remaining_process_group_members_after_stop": true
+  },
+  "host_observation": {
+    "swap_total_mib": 19456,
+    "swap_used_mib": 18964.62,
+    "vm_volume_size_gib": 19,
+    "free_space_mib_during_terminal_run": 89,
+    "no_remaining_rsf_test_processes_after_terminal_run": true
+  },
+  "qualification_requirement": "Recover stable host memory/disk headroom, rerun the final concurrent daemon check and all 22 domains on this source, and verify the new regression in workspace and both build profiles. No complete new-source release gate is claimed.",
+  "remaining_production_work": "Active membership publication/promotion, distributed control and routing, retention/migration, growing-history capacity, and independent-host/region fault and workload qualification remain incomplete."
+}

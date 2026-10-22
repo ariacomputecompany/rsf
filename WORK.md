@@ -35,6 +35,17 @@ real TLS peers in debug/release and across two restarts. Full new-source gate is
 pending. Evidence: `docs/uncertain-sql-begin-verification-2026-10-21.json`.
 The complete 20-domain report below remains historical evidence for its source.
 
+Transport uncertainty is now also exercised through a real SQL client timeout and
+empty TLS response. All retry layers share one three-attempt budget and retain
+the original request frame. The optimized regression preserves the exact result
+across all daemon restarts, rejects changed payload and adds no replica commits.
+Strict daemon Clippy passes. An earlier complete daemon host run passed 85 tests;
+the final shared-budget source's daemon run terminated under host pressure without
+a usable trace/result and is not qualified. Host swap reached about 19 GiB and
+free disk fell to 89 MiB. Stable host resources are required before the final
+daemon and full 22-domain reruns. See
+`docs/client-transport-verification-2026-10-21.json`.
+
 ### Production-leaning but incomplete
 
 - `crates/rsf-core`

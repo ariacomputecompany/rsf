@@ -235,6 +235,18 @@ if automatic_trace.exists():
         if decision.get("kind") == "proc_spawn" and decision.get("exit_code") == 0
     )
 uncertain_begin_valid = uncertain_begin_workspace and uncertain_begin_profile_runs == 2
+client_transport_name = "automatic_client_takeover_transport_loss_preserves_exact_sql_mutation_after_restart"
+client_transport_workspace = any(line.startswith("test ") and f"::{client_transport_name} ... ok" in line
+                                 for line in workspace_stdout.splitlines())
+client_transport_profile_runs = 0
+if automatic_trace.exists():
+    client_transport_profile_runs = sum(
+        any(line.startswith("test ") and f"::{client_transport_name} ... ok" in line
+            for line in decision.get("stdout", "").splitlines())
+        for decision in json.loads(automatic_trace.read_text()).get("decisions", [])
+        if decision.get("kind") == "proc_spawn" and decision.get("exit_code") == 0
+    )
+client_transport_valid = client_transport_workspace and client_transport_profile_runs == 2
 kv_batch_evidence = {
     name: any(line.startswith("test ") and f"::{name} ... ok" in line
               for line in workspace_stdout.splitlines())
@@ -339,7 +351,7 @@ membership_staging_evidence = {
 }
 membership_staging_valid = all(membership_staging_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -351,6 +363,10 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "client_transport_evidence_valid": client_transport_valid,
+    "client_transport_workspace": client_transport_workspace,
+    "client_transport_profile_runs": client_transport_profile_runs,
+    "client_transport_scope": "real native SQL commit before client timeout and empty TLS response; identical retries, exact result across all daemon restarts and no additional commits",
     "uncertain_sql_begin_evidence_valid": uncertain_begin_valid,
     "uncertain_sql_begin_workspace": uncertain_begin_workspace,
     "uncertain_sql_begin_profile_runs": uncertain_begin_profile_runs,

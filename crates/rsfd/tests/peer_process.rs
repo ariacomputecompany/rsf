@@ -19,6 +19,8 @@ const PEER_TIMEOUT_MS: u64 = 2_000;
 
 #[path = "peer_process/automatic.rs"]
 mod automatic;
+#[path = "peer_process/client_retry.rs"]
+mod client_retry;
 #[path = "peer_process/client_takeover.rs"]
 mod client_takeover;
 #[path = "peer_process/sql_stream.rs"]
@@ -29,6 +31,14 @@ mod stress;
 mod takeover;
 #[path = "peer_process/uncertain_begin.rs"]
 mod uncertain_begin;
+
+thread_local! {
+    static SURFACE_TRANSPORT_RETRIES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn surface_transport_retries() -> u64 {
+    SURFACE_TRANSPORT_RETRIES.with(std::cell::Cell::get)
+}
 
 struct Process {
     child: Child,
@@ -363,6 +373,17 @@ fn surface_request(
     request: &str,
     value: &[u8],
 ) -> String {
+    let mut budget = 3;
+    surface_request_with_budget(address, protocol, operation, request, value, &mut budget)
+}
+fn surface_request_with_budget(
+    address: SocketAddr,
+    protocol: rsf_wire::WireProtocol,
+    operation: &str,
+    request: &str,
+    value: &[u8],
+    budget: &mut u8,
+) -> String {
     let frame = rsf_wire::RawFrame::with_body(
         protocol,
         "app-client",
@@ -371,12 +392,43 @@ fn surface_request(
         Some(request.into()),
         value.to_vec(),
     );
-    test_support::send(
-        address,
-        &rsf_wire::WireCodec.encode(&frame).unwrap(),
-        test_support::pki().client.clone(),
-    )
-    .unwrap_or_else(|err| panic!("{protocol:?} operation {operation}, request {request}: {err}"))
+    let frame = rsf_wire::WireCodec.encode(&frame).unwrap();
+    while *budget > 0 {
+        *budget -= 1;
+        let attempt = 3 - *budget;
+        let result = test_support::send(address, &frame, test_support::pki().client.clone())
+            .and_then(|response| {
+                if response.is_empty() {
+                    Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
+                } else {
+                    Ok(response)
+                }
+            });
+        match result {
+            Ok(response) => return response,
+            Err(error) => {
+                assert!(
+                    *budget > 0
+                        && matches!(
+                            error.kind(),
+                            std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::UnexpectedEof
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::BrokenPipe
+                        ),
+                    "{protocol:?} operation {operation}, request {request}, attempt={attempt}: {error}"
+                );
+                SURFACE_TRANSPORT_RETRIES.with(|count| count.set(count.get() + 1));
+                eprintln!(
+                    "same-frame transport retry request={request}, attempt={}, reason={error}",
+                    attempt
+                );
+            }
+        }
+    }
+    unreachable!("bounded client transport retry returns or fails")
 }
 fn follower_kv(root: &Path, node: u64) -> rsf_kv::DurableKvEngine {
     use sha2::{Digest, Sha256};
