@@ -55,7 +55,7 @@ verify_domain() {
   # host backend. Cargo's output includes timing and test scheduling; retain the
   # real proc_spawn exit assertions without comparing them to empty mock output.
   host_scenario="$artifact_root/$name.host.fozzy.json"
-  python3 - "$scenario" "$host_scenario" <<'PY'
+  python3 - "$scenario" "$host_scenario" "$name" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -66,6 +66,14 @@ scenario["steps"] = [step for step in scenario["steps"] if step["type"] != "proc
 processes = [step for step in scenario["steps"] if step["type"] == "proc_spawn"]
 if not processes or any(step.get("expect_exit") != 0 for step in processes):
     raise SystemExit("host verification requires process success assertions")
+if sys.argv[3] == "workspace":
+    # Preserve Cargo's raw log and exact status even if a descendant retains
+    # stderr after Cargo exits. This does not alter tests or their scheduling.
+    for step in processes:
+        step["args"] = ["scripts/capture-host-process.sh",
+                        str(Path(sys.argv[2]).with_name("workspace.process.log")),
+                        step["cmd"], *step.get("args", [])]
+        step["cmd"] = "sh"
 Path(sys.argv[2]).write_text(json.dumps(scenario, indent=2) + "\n")
 PY
   [ "$?" -eq 0 ] || return 1

@@ -24,71 +24,33 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The prior `f8c16c7` gate
-passed 21/22 domains and 1,181 workspace tests. Its release SQL BEGIN failure
-returned the documented uncertain-mutation outcome. Recovery of a copy of that
-actual fixture preserves the original session token/result across both survivor
-restarts and rejects changed payload. The qualification client now permits at
-most three same-identity attempts only for missing commit confirmation; runtime
-deadlines remain unchanged. A forced lost-observation regression passes against
-real TLS peers in debug/release and across two restarts. Full new-source gate is
-pending. Evidence: `docs/uncertain-sql-begin-verification-2026-10-21.json`.
-The complete 20-domain report below remains historical evidence for its source.
+Current release status: **not production qualified**. The complete workspace now
+passes 1,195 tests with zero failures and one ignored test, including the large SQL
+stream case and both idle-application regressions. A frozen-source Fozzy run passes
+five-run doctor, strict orchestration, actual host execution, strict trace
+verification, replay and CI. The data listener retains one owned application
+writer between polls, releases protocol ownership for health/status, and restores
+only against matching retained history and fresh authority/transport. Per-request
+authorization and all existing workload/deadline/retry settings remain intact.
 
-Transport uncertainty is now also exercised through a real SQL client timeout and
-empty TLS response. All retry layers share one three-attempt budget and retain
-the original request frame. The optimized regression preserves the exact result
-across all daemon restarts, rejects changed payload and adds no replica commits.
-Strict daemon Clippy passes. An earlier complete daemon host run passed 85 tests;
-the final shared-budget source's daemon run terminated under host pressure without
-a usable trace/result and is not qualified. Host swap reached about 19 GiB and
-free disk fell to 89 MiB. Stable host resources are required before the final
-daemon and full expanded-domain reruns. See
-`docs/client-transport-verification-2026-10-21.json`.
+The full `df63521` invocation passes all 22 individual domains, both client and
+SQL stream profiles, and both process restart stress profiles. Fozzy's workspace
+stderr capture failed after Cargo exit without recording a Cargo result. That
+invocation remains failed; its missing workspace counts are not treated as a
+pass. The capture harness now writes inherited output to a file, replays its full
+log and preserves the original exit code. Real smoke commands prove both exit 0
+and exit 17 propagation. The complete workspace retry passes using this capture;
+a fresh single 23-domain invocation on the harness source remains required.
 
-The final shared-budget source subsequently passes all six focused client checks
-(three scenarios in each build profile) with five-run doctor, strict orchestration,
-recorded real host execution, strict trace verification, replay and CI. Both normal
-takeover profiles used zero client/commit retries; fault regressions deliberately
-exercise uncertainty. This does not replace the incomplete final daemon/full gate.
-
-The VSR active membership kernel passes 279 affected-package tests and strict
-storage/VSR/RPC/protocol/daemon Clippy, with frozen-source Fozzy doctor, strict
-orchestration, host trace verification, replay and CI. Its full expanded gate on
-`13ed2d8` passes 22/23 domains, including complete daemon, automatic client and
-SQL stream debug/release checks, and both restart stress profiles. The final
-workspace has 1,192 passes, one failure and one ignored test: the large SQL stream
-setup exhausts all three same-frame attempts on INSERT `stream-91`. All nine new
-activation regressions pass in that workspace. Its failed trace verifies and
-replays the failed outcome; CI integrity does not turn it into a test pass. A
-checksum-verified copy of the actual failed fixture is preserved. Host swap was
-about 23 GiB used. A separate copied-fixture TLS recovery completes `stream-91`
-at version/log index 100, rejects changed SQL under that identity and preserves
-its duplicate result across all three daemon restarts. Its first recovered reply
-is `replayed=false`, so prior durable completion is not established. Latency cause
-and pending-versus-new completion remain to investigate. The full gate remains failed and production remains unqualified.
-See `docs/membership-activation-full-verification-2026-10-21.json`; targeted kernel
-evidence is in `docs/membership-activation-verification-2026-10-21.json`.
-
-The standalone listener now retains one exclusive application writer between
-idle polls, while releasing its protocol writer for health/status snapshots.
-Each poll reopens protocol authority/transport and validates the exact retained
-application-command prefix before applying newer commands. Per-request
-fingerprint/namespace authorization is unchanged. Divergent same-version history
-fences the cache; namespace/surface changes evict its one retained store. Two new
-regressions cover ownership across empty polls, health access, transport refresh,
-restart receipts and repeated history rejection. Four existing restart fixtures
-now release the original listener before opening its replacement.
-
-A frozen-source five-domain Fozzy qualification passes 97 tests with one ignored:
-complete daemon, SQL streaming and automatic clients in debug/release, and both
-KV restart stress profiles. Strict daemon Clippy, doctor, strict orchestration,
-recorded host trace verification, replay and CI pass. The unchanged 128-row SQL
-stream workload takes about 43 seconds debug/15 seconds release, versus an earlier
-profiled 101/29 seconds. These shared-host observations are not a controlled
-capacity benchmark. The full 23-domain gate on this source is still required;
-the prior workspace failure is not cleared by these focused passes. Evidence:
-`docs/idle-application-verification-2026-10-21.json`.
+Current evidence: `docs/workspace-capture-verification-2026-10-21.json` and
+`docs/idle-application-verification-2026-10-21.json`. The incomplete full capture
+is retained in `docs/idle-application-full-incomplete-verification-2026-10-21.json`.
+The prior SQL timeout, recovery fixture and historical source reports remain
+preserved in their scoped verification documents. Kernel activation is verified;
+native peer membership publication/promotion and atomic control admission remain
+unfinished. Growing-history memory, cold protocol recovery, retention/migration,
+independent-group routing, and independent-host/region workload/fault qualification
+also remain open.
 
 ### Next implementation: native membership publication and promotion
 
@@ -103,10 +65,9 @@ the prior workspace failure is not cleared by these focused passes. Evidence:
 - Keep native client admission closed until replicated control/catalog authority
   and application materialization agree on the same installed membership. Do not
   enable an operator membership command ahead of that integration and its gates.
-- Resolve the workspace SQL setup latency/retry failure and complete the full
-  expanded gate; preserve the failed fixture and unchanged client deadlines.
+- Complete the single 23-domain invocation on the reliable capture harness.
   Independent-group routing, bounded retention/migration and independent-host/
-  region numerical capacity/fault qualification also remain required.
+  region numerical capacity/fault qualification remain required.
 
 ### Production-leaning but incomplete
 
