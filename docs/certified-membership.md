@@ -157,8 +157,37 @@ and conflicting-proposal fences, a real process killed after continuation sync
 before acknowledgement, both initially fenced and unfenced coordinators over TLS,
 peer restart, idempotent retries and rejection when no durable report survives.
 The expanded full gate now requires all eleven named approval/continuation
-regressions; qualification of this addition is pending.
+regressions. All 19 domains and 1,159 workspace tests pass on unchanged
+source, with zero failures. Targeted coverage passes all 98 VSR, 35 RPC and
+57 protocol tests; strict lint checks pass. See
+[continuation verification](membership-continuation-verification-2026-10-21.json).
 
 This closes exact-proposal old-quorum completion after coordinator loss. It does
 not implement abort, new-quorum activation, learner promotion, distributed control
 metadata or atomic client admission. The full membership blocker remains open.
+
+## New-quorum installation decision still required
+
+The proposal identity binds authority and voter sets, not one selected application
+history. Different valid old-quorum report subsets can expose different lengths
+of an uncommitted accepted prefix and different learned commit/receipt deltas.
+Consequently, the next phase must distinguish the proposal ID from the exact
+installation plan ID. A digest of one locally selected plan is not itself a
+new-quorum decision, even when its old-quorum input is valid.
+
+New voters need durable transition-only promises and accepted-plan state before
+acknowledging installation input. This state must not authorize application votes,
+ordinary client probes or historical certificates. Recovery must gather a new
+quorum's transition reports, preserve any previously chosen plan, and finish
+upload/publication after the original uploader disappears. A permanently fixed
+first-plan promise can strand split minority uploads; clearing that promise on
+restart can instead permit conflicting decisions. The protocol must resolve both
+cases with persisted ordered recovery rounds and quorum-intersection rules.
+
+The selected plan must retain its complete old-authority proof, committed and
+accepted operations, original certificates and client mappings through the same
+validator used on reopen. New-quorum acknowledgement must bind that exact plan
+and verified committed-application materialization. Only a replay-validated
+completion proof may advance voting roles, and client readiness must additionally
+require the matching durable control-metadata admission. These states and their
+crash boundaries are not implemented by old-quorum approval or continuation.
