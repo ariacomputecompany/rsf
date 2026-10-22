@@ -46,7 +46,7 @@ fn real_tls_membership_plan_choice_survives_old_voter_and_coordinator_data_loss(
     let root = root("decision-peer-recovery");
     provision(&root);
     let first = PeerProcess::spawn_decision(&root, 1, false);
-    let second = PeerProcess::spawn_decision(&root, 2, false);
+    let second = PeerProcess::spawn_staging(&root, 2, false);
     let learner = PeerProcess::spawn_decision(&root, 3, true);
     let mut peers = all_endpoints(&root);
     for (node, address) in [
@@ -156,6 +156,32 @@ fn real_tls_membership_plan_choice_survives_old_voter_and_coordinator_data_loss(
         prepared.operation
     );
     let proof = survivor.approval(id).unwrap();
+    let staged_plan = rsf_vsr::VsrMembershipStagedPlan::select(
+        recovered.clone(),
+        rsf_vsr::VsrMembershipApproval::from_snapshots(proof.snapshots().to_vec()).unwrap(),
+    )
+    .unwrap();
+    let mut staged = anchor
+        .stage_membership(root.join("membership-3/staging"), staged_plan)
+        .unwrap();
+    let local_receipt = staged
+        .materialize(&mut |entry| {
+            persist_staged_entry(&root, 3, entry).map_err(|reason| {
+                rsf_core::RsfError::new(rsf_core::ErrorCode::InvalidInput, reason)
+            })
+        })
+        .unwrap();
+    let staged_quorum = network
+        .collect_membership_stages(local_receipt, staged.plan())
+        .unwrap();
+    assert_eq!(staged_quorum.proposal().election.candidate, NodeId(1));
+    assert!(
+        staged_quorum
+            .reports()
+            .iter()
+            .all(|r| [NodeId(2), NodeId(3)].contains(&r.replica))
+    );
+    drop(staged);
     let original = proof
         .snapshots()
         .iter()
@@ -406,5 +432,134 @@ fn membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote() {
     assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 2);
     drop(local);
     drop(peer);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn real_tls_staged_membership_requires_materializer_and_survives_peer_restart() {
+    let root = root("staged-peer-materialization");
+    provision(&root);
+    let first = PeerProcess::spawn_staging(&root, 1, false);
+    let mut second = PeerProcess::spawn_staging(&root, 2, false);
+    let mut learner = PeerProcess::spawn_decision(&root, 3, true);
+    let mut peers = all_endpoints(&root);
+    for (node, address) in [
+        (1, first.address),
+        (2, second.address),
+        (3, learner.address),
+    ] {
+        peers.get_mut(&NodeId(node)).unwrap().address = address;
+    }
+    let mut network = transport(&root, peers.clone());
+    let mut leader = cell(&root, 0);
+    let payload = (0..128 * 1024).map(|n| (n % 251) as u8).collect::<Vec<_>>();
+    let prepared = prepare(&mut leader, &payload);
+    leader
+        .replicate_with_transport(NodeId(0), prepared.index, &mut network)
+        .unwrap();
+    network.sync_learner(NodeId(3), &mut leader).unwrap();
+    let approval = network
+        .approve_membership(&mut leader, &proposed())
+        .unwrap();
+    drop(network);
+    drop(first);
+    let local_cell = cell(&root, 1);
+    local_cell.validate_membership_authority(&approval).unwrap();
+    let mut decision =
+        MembershipDecisionStore::open(root.join("membership-1/decision"), NodeId(1), &approval)
+            .unwrap();
+    let network = decision_transport(&root, 1, peers.clone());
+    let chosen = network
+        .choose_membership_plan(
+            &mut decision,
+            VsrMembershipRound {
+                counter: 1,
+                coordinator: NodeId(1),
+            },
+            &approval,
+        )
+        .unwrap();
+    let plan = rsf_vsr::VsrMembershipStagedPlan::select(chosen, approval).unwrap();
+    let mut staged = rsf_vsr::MembershipStagingStore::stage(
+        root.join("membership-1/staging"),
+        NodeId(1),
+        plan,
+        &local_cell,
+    )
+    .unwrap();
+    let local = staged
+        .materialize(&mut |entry| {
+            persist_staged_entry(&root, 1, entry).map_err(|reason| {
+                rsf_core::RsfError::new(rsf_core::ErrorCode::InvalidInput, reason)
+            })
+        })
+        .unwrap();
+    let quorum = network
+        .collect_membership_stages(local.clone(), staged.plan())
+        .unwrap();
+    assert_eq!(quorum.reports().len(), 2);
+    assert!(quorum.reports().iter().all(|r| r.replica != NodeId(3)));
+    assert!(
+        !root.join("membership-3/staging/META").exists(),
+        "a peer with no explicit materializer acknowledged staging"
+    );
+    let previous = quorum
+        .reports()
+        .iter()
+        .find(|r| r.replica == NodeId(2))
+        .unwrap()
+        .clone();
+    let expected = prepared.encode().unwrap();
+    assert_eq!(
+        std::fs::read(root.join("materialized-2/1")).unwrap(),
+        expected
+    );
+    drop(second);
+    std::fs::remove_dir_all(root.join("materialized-2")).unwrap();
+    second = PeerProcess::spawn_staging(&root, 2, false);
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    let network = decision_transport(&root, 1, peers.clone());
+    let recovered = network
+        .collect_membership_stages(local.clone(), staged.plan())
+        .unwrap();
+    assert_eq!(
+        recovered.reports().iter().find(|r| r.replica == NodeId(2)),
+        Some(&previous)
+    );
+    assert_eq!(
+        std::fs::read(root.join("materialized-2/1")).unwrap(),
+        expected
+    );
+    let applied_before_retry = std::fs::read(root.join("materialized-2/.applies")).unwrap();
+    drop(learner);
+    learner = PeerProcess::spawn_staging(&root, 3, true);
+    peers.get_mut(&NodeId(3)).unwrap().address = learner.address;
+    let network = decision_transport(&root, 1, peers);
+    let complete = network
+        .collect_membership_stages(local, staged.plan())
+        .unwrap();
+    assert_eq!(complete.reports().len(), 3);
+    assert_eq!(
+        std::fs::read(root.join("materialized-2/.applies")).unwrap(),
+        applied_before_retry,
+        "warm staging retry repeated application work"
+    );
+    assert_eq!(
+        std::fs::read(root.join("materialized-3/1")).unwrap(),
+        expected
+    );
+    assert!(
+        network
+            .request_io(NodeId(3), TAIL, &PlacementGroupId(1).0.to_le_bytes())
+            .is_err()
+    );
+    assert!(local_cell.primary_probe().is_err());
+    assert!(!local_cell.contains_replica(NodeId(3)));
+    drop(staged);
+    drop(decision);
+    drop(local_cell);
+    drop(leader);
+    drop(second);
+    drop(learner);
     std::fs::remove_dir_all(root).unwrap();
 }

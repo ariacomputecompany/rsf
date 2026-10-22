@@ -6,6 +6,7 @@ use rsf_vsr::{
 };
 mod client;
 mod server;
+mod staging;
 fn context(pg: PlacementGroupId, round: VsrMembershipRound, proposal: [u8; 32]) -> Vec<u8> {
     let mut out = pg.0.to_le_bytes().to_vec();
     out.extend_from_slice(&round.counter.to_le_bytes());

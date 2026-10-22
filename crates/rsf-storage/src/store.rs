@@ -123,7 +123,7 @@ impl SegmentStore {
         options: SegmentStoreOptions,
     ) -> RsfResult<(Self, SegmentStoreRecovery)> {
         let root = root.as_ref().to_path_buf();
-        fs::create_dir_all(root.join(SEGMENT_DIR))
+        crate::create_dir_all_synced(root.join(SEGMENT_DIR))
             .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
 
         let gate = store_gate(&root)?;
@@ -1058,7 +1058,14 @@ fn read_or_create_manifest(root: &Path) -> RsfResult<SegmentManifest> {
     match fs::read(&path) {
         Ok(bytes) => SegmentManifest::decode(&bytes),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir_all(root.join(SEGMENT_DIR))
+            // A caller may have allocated the root immediately before opening.
+            // Persist that root's link before the initial manifest can be used.
+            let parent = root
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            sync_dir(parent)?;
+            crate::create_dir_all_synced(root.join(SEGMENT_DIR))
                 .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
             if fs::read_dir(root.join(SEGMENT_DIR))
                 .map_err(|err| storage_error(StorageIoOperation::Recover, err))?

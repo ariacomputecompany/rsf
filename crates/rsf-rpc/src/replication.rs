@@ -229,6 +229,9 @@ pub struct PeerReplicaServer {
     learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
     election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
     membership_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrMembershipSnapshot>,
+    membership_stage_voter_tokens: BTreeMap<PlacementGroupId, rsf_vsr::VsrStateToken>,
+    membership_stage_learner_tokens: BTreeMap<PlacementGroupId, [u8; 32]>,
+    membership_staging: BTreeMap<PlacementGroupId, rsf_vsr::MembershipStagingStore>,
     membership_paths: BTreeMap<PlacementGroupId, std::path::PathBuf>,
     membership_inputs: BTreeMap<PlacementGroupId, rsf_vsr::MembershipAuthorityInbox>,
     membership_decisions: BTreeMap<PlacementGroupId, rsf_vsr::MembershipDecisionStore>,
@@ -340,6 +343,9 @@ impl PeerReplicaServer {
             learners,
             election_snapshots: BTreeMap::new(),
             membership_snapshots: BTreeMap::new(),
+            membership_stage_voter_tokens: BTreeMap::new(),
+            membership_stage_learner_tokens: BTreeMap::new(),
+            membership_staging: BTreeMap::new(),
             membership_paths: BTreeMap::new(),
             membership_inputs: BTreeMap::new(),
             membership_decisions: BTreeMap::new(),
@@ -350,7 +356,8 @@ impl PeerReplicaServer {
     /// Serve one bounded RPC. Caller owns listener scheduling and records errors.
     /// No cell is created from untrusted message contents.
     pub fn serve_connection(&mut self, socket: TcpStream) -> Result<(), String> {
-        self.serve_connection_with_apply(socket, &mut |_| Ok(()))
+        self.serve_io(socket, &mut |_| Ok(()), false)
+            .map_err(|err| err.to_string())
     }
 
     /// Run a trusted materializer after durable commit and before acknowledging
@@ -360,7 +367,8 @@ impl PeerReplicaServer {
         socket: TcpStream,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
     ) -> Result<(), String> {
-        self.serve_io(socket, apply).map_err(|err| err.to_string())
+        self.serve_io(socket, apply, true)
+            .map_err(|err| err.to_string())
     }
 
     /// Recovery input for a materializer before the peer starts accepting traffic.
@@ -379,6 +387,7 @@ impl PeerReplicaServer {
         &mut self,
         socket: TcpStream,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+        materializer_present: bool,
     ) -> io::Result<()> {
         let mut stream = StreamOwned::new(
             ServerConnection::new(Arc::clone(&self.identity.server))
@@ -400,7 +409,15 @@ impl PeerReplicaServer {
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
         self.pending_contact = None;
-        let response = if (MEMBERSHIP_AUTH_BEGIN..=MEMBERSHIP_INPUT_READ).contains(&kind) {
+        let response = if kind == MEMBERSHIP_STAGE {
+            if !materializer_present {
+                Err(invalid(
+                    "membership staging requires a trusted application materializer",
+                ))
+            } else {
+                self.dispatch_membership_stage(sender, payload, apply)
+            }
+        } else if (MEMBERSHIP_AUTH_BEGIN..=MEMBERSHIP_INPUT_READ).contains(&kind) {
             self.dispatch_membership_decision(sender, kind, payload)
         } else if matches!(
             kind,

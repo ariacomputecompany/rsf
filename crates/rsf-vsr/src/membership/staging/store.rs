@@ -1,0 +1,358 @@
+use super::super::decision::disk;
+use super::*;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+/// Separately sealed chosen prefix. Reopen replays its complete proof, validates
+/// every selected byte and resets this boot's materialization acknowledgement.
+#[derive(Debug)]
+pub struct MembershipStagingStore {
+    root: PathBuf,
+    local: NodeId,
+    plan: VsrMembershipStagedPlan,
+    stage: [u8; 32],
+    materialized: bool,
+    failed: bool,
+    _lock: rsf_storage::ExclusiveFileLock,
+}
+impl MembershipStagingStore {
+    pub fn stage(
+        path: impl AsRef<Path>,
+        local: NodeId,
+        mut plan: VsrMembershipStagedPlan,
+        anchor: &DurableVsrCell,
+    ) -> RsfResult<Self> {
+        plan.retain_anchor(anchor)?;
+        if !plan.input.proposal().new_voters.contains(&local) {
+            return Err(invalid_input(
+                "membership stage receiver is not a proposed voter",
+            ));
+        }
+        let root = path.as_ref().to_path_buf();
+        rsf_storage::create_dir_all_synced(&root).map_err(io_error)?;
+        let lock = lock(&root)?;
+        match fs::read(root.join("META")) {
+            Ok(bytes) => {
+                let existing =
+                    Self::recover(root, plan.input.proposal().election.pg, local, lock, &bytes)?;
+                if existing.plan.id != plan.id || existing.plan.records != plan.records {
+                    return Err(corrupt(
+                        "membership stage is already sealed with another input or receiver prefix",
+                    ));
+                }
+                return Ok(existing);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_error(e)),
+        }
+        if root.join("INSTALLED").exists() {
+            return Err(corrupt(
+                "membership stage receipt exists without sealed authority",
+            ));
+        }
+        disk::create_input(&root, &plan.input)?;
+        let input_records = plan.input.flattened_records(&plan.approval)?;
+        let mut ordinal = 0;
+        let mut failed = false;
+        while ordinal < input_records.len() {
+            let batch = VsrHistoryBatch::pack(ordinal as u64, &input_records[ordinal..])?;
+            ordinal += batch.records.len();
+            disk::append_records(&root, &mut failed, &plan.input, batch)?;
+        }
+        // Validate bytes recovered from the staged source, including a prior
+        // upload acknowledged by another process before this factory resumed.
+        let (input, records) = disk::read_records(&root, plan.input.id()?)?;
+        input.validate_records(&records)?;
+        write_history(&root, &plan)?;
+        let stage = stage_id(&plan)?;
+        let metadata = encode_meta(local, &plan, stage)?;
+        atomic(&root, "META", &metadata)?;
+        let store = Self {
+            root,
+            local,
+            plan,
+            stage,
+            materialized: false,
+            failed: false,
+            _lock: lock,
+        };
+        store.validate_receipt()?;
+        Ok(store)
+    }
+    pub fn open_existing(
+        path: impl AsRef<Path>,
+        pg: PlacementGroupId,
+        local: NodeId,
+    ) -> RsfResult<Self> {
+        let root = path.as_ref().to_path_buf();
+        let lock = lock(&root)?;
+        let bytes = fs::read(root.join("META")).map_err(io_error)?;
+        Self::recover(root, pg, local, lock, &bytes)
+    }
+    fn recover(
+        root: PathBuf,
+        pg: PlacementGroupId,
+        local: NodeId,
+        lock: rsf_storage::ExclusiveFileLock,
+        bytes: &[u8],
+    ) -> RsfResult<Self> {
+        let mut r = Reader::new(bytes, b"VSRMST1")?;
+        if r.u64()? != pg.0 || r.u64()? != local.0 {
+            return Err(corrupt("membership stage identity mismatch"));
+        }
+        let input = VsrMembershipInput::decode(r.bytes()?)?;
+        let chosen = VsrMembershipChosen::decode(r.bytes()?)?;
+        let plan_id = r.id()?;
+        let stage = r.id()?;
+        let count = r.u64()?;
+        let checksum = r.id()?;
+        r.finish()?;
+        if bytes.len() < 32
+            || Digest::blake3_bytes(&bytes[..bytes.len() - 32]).bytes != checksum
+            || input.proposal().election.pg != pg
+            || !input.proposal().new_voters.contains(&local)
+        {
+            return Err(corrupt(
+                "membership stage metadata checksum or authority mismatch",
+            ));
+        }
+        let (stored, records) = disk::read_records(&root, input.id()?)?;
+        if stored != input {
+            return Err(corrupt("membership stage input descriptor changed"));
+        }
+        let approval = input.validate_records(&records)?;
+        let mut plan = VsrMembershipStagedPlan::select(chosen, approval)?;
+        if plan.id != plan_id {
+            return Err(corrupt(
+                "membership stage deterministic plan identity changed",
+            ));
+        }
+        let history = read_history(&root, pg, input.proposal().election.previous_view)?;
+        if history.len() as u64 != count {
+            return Err(corrupt("membership sealed prefix lost staged records"));
+        }
+        plan.apply_local_suffix(&history)?;
+        if stage_id(&plan)? != stage || encode_meta(local, &plan, stage)? != bytes {
+            return Err(corrupt(
+                "membership stage history differs from sealed identity",
+            ));
+        }
+        let store = Self {
+            root,
+            local,
+            plan,
+            stage,
+            materialized: false,
+            failed: false,
+            _lock: lock,
+        };
+        store.validate_receipt()?;
+        Ok(store)
+    }
+    pub fn validate_anchor(&self, anchor: &DurableVsrCell) -> RsfResult<()> {
+        self.healthy()?;
+        anchor.validate_membership_authority(&self.plan.approval)?;
+        if !installation::preserves_committed(&self.plan.recovered.0, &anchor.cell)
+            || anchor
+                .cell
+                .client_table
+                .iter()
+                .any(|(request, index)| self.plan.request_commit(request) != Some(*index))
+        {
+            return Err(corrupt(
+                "membership staged prefix drops a hosted commit or receipt",
+            ));
+        }
+        Ok(())
+    }
+    pub fn plan(&self) -> &VsrMembershipStagedPlan {
+        &self.plan
+    }
+    pub fn stage_id(&self) -> [u8; 32] {
+        self.stage
+    }
+    pub fn report(&self) -> RsfResult<VsrMembershipStagedReport> {
+        self.healthy()?;
+        if !self.materialized {
+            return Err(invalid_input(
+                "membership staged prefix is not materialized on this boot",
+            ));
+        }
+        self.expected_report()
+    }
+    /// The trusted idempotent callback must sync application effects before
+    /// returning. Every reopen requires it again, even with a retained receipt.
+    pub fn materialize(
+        &mut self,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> RsfResult<()>,
+    ) -> RsfResult<VsrMembershipStagedReport> {
+        self.materialize_with_hook(apply, || {})
+    }
+    fn materialize_with_hook(
+        &mut self,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> RsfResult<()>,
+        after_receipt: impl FnOnce(),
+    ) -> RsfResult<VsrMembershipStagedReport> {
+        self.healthy()?;
+        self.materialized = false;
+        for entry in self.plan.committed_entries()? {
+            apply(&entry)?;
+        }
+        let report = self.expected_report()?;
+        if let Err(error) = atomic(&self.root, "INSTALLED", &report.encode()?) {
+            self.failed = true;
+            return Err(error);
+        }
+        self.materialized = true;
+        after_receipt();
+        Ok(report)
+    }
+    fn expected_report(&self) -> RsfResult<VsrMembershipStagedReport> {
+        let report = VsrMembershipStagedReport {
+            proposal: self.plan.input.proposal().clone(),
+            replica: self.local,
+            input: self.plan.input.id()?,
+            plan: self.plan.id,
+            stage: self.stage,
+            committed_tail: self.plan.committed_tail(),
+            accepted_tail: self.plan.accepted_tail(),
+        };
+        report.encode()?;
+        Ok(report)
+    }
+    fn validate_receipt(&self) -> RsfResult<()> {
+        match fs::read(self.root.join("INSTALLED")) {
+            Ok(bytes) => {
+                if VsrMembershipStagedReport::decode(&bytes)? != self.expected_report()? {
+                    return Err(corrupt(
+                        "membership staged receipt differs from sealed prefix",
+                    ));
+                }
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(io_error(e)),
+        }
+    }
+    fn healthy(&self) -> RsfResult<()> {
+        if self.failed {
+            return Err(corrupt(
+                "membership staging durability failed; reopen before further use",
+            ));
+        }
+        Ok(())
+    }
+}
+fn write_history(root: &Path, plan: &VsrMembershipStagedPlan) -> RsfResult<()> {
+    let mut options = SegmentStoreOptions::default();
+    options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
+    let mut store = SegmentStore::open_with_options(root.join("selected"), options)?;
+    let existing = read_history(
+        root,
+        plan.input.proposal().election.pg,
+        plan.input.proposal().election.previous_view,
+    )?;
+    if !plan.records.starts_with(&existing) {
+        return Err(corrupt(
+            "partial membership selected history differs from chosen plan",
+        ));
+    }
+    let mut ordinal = existing.len();
+    while ordinal < plan.records.len() {
+        let batch = VsrHistoryBatch::pack(ordinal as u64, &plan.records[ordinal..])?;
+        ordinal += batch.records.len();
+        store.append_next_wal(
+            plan.input.proposal().election.pg,
+            plan.input.proposal().election.previous_view,
+            WalRecordKind::ViewInstallation,
+            &batch.encode()?,
+        )?;
+    }
+    Ok(())
+}
+fn read_history(
+    root: &Path,
+    pg: PlacementGroupId,
+    epoch: Epoch,
+) -> RsfResult<Vec<VsrHistoryRecord>> {
+    let recovery = SegmentStore::recover_existing(root.join("selected"))?.recovery;
+    let mut records = Vec::new();
+    for (n, record) in recovery.wal_records.iter().enumerate() {
+        if record.index != LogIndex(n as u64 + 1)
+            || record.pg != pg
+            || record.epoch != epoch
+            || record.kind != WalRecordKind::ViewInstallation
+        {
+            return Err(corrupt("membership selected history envelope mismatch"));
+        }
+        let batch = VsrHistoryBatch::decode(&record.payload)?;
+        if batch.ordinal != records.len() as u64 {
+            return Err(corrupt(
+                "membership selected history batch changes ordering",
+            ));
+        }
+        records.extend(batch.records);
+    }
+    Ok(records)
+}
+fn encode_meta(
+    local: NodeId,
+    plan: &VsrMembershipStagedPlan,
+    stage: [u8; 32],
+) -> RsfResult<Vec<u8>> {
+    let mut bytes = b"VSRMST1".to_vec();
+    put_u64(&mut bytes, plan.input.proposal().election.pg.0);
+    put_u64(&mut bytes, local.0);
+    put_bytes(&mut bytes, &plan.input.encode()?)?;
+    put_bytes(&mut bytes, &plan.chosen.encode()?)?;
+    bytes.extend_from_slice(&plan.id);
+    bytes.extend_from_slice(&stage);
+    put_u64(&mut bytes, plan.records.len() as u64);
+    let sum = Digest::blake3_bytes(&bytes).bytes;
+    bytes.extend_from_slice(&sum);
+    if bytes.len() > MAX_HISTORY_RECORD_BYTES {
+        return Err(invalid_input("membership stage metadata exceeds limit"));
+    }
+    Ok(bytes)
+}
+fn stage_id(plan: &VsrMembershipStagedPlan) -> RsfResult<[u8; 32]> {
+    let mut bytes = b"RSF staged membership prefix v1".to_vec();
+    bytes.extend_from_slice(&plan.id);
+    bytes.extend_from_slice(transfer::history_digest(&plan.records)?.as_bytes());
+    Ok(Digest::blake3_bytes(&bytes).bytes)
+}
+fn lock(root: &Path) -> RsfResult<rsf_storage::ExclusiveFileLock> {
+    rsf_storage::ExclusiveFileLock::acquire(
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join(".staging.lock"))
+            .map_err(io_error)?,
+    )
+    .map_err(|e| invalid_input(format!("membership staging store already owned: {e}")))
+}
+fn atomic(root: &Path, name: &str, bytes: &[u8]) -> RsfResult<()> {
+    let temporary = root.join(format!(".{name}.tmp"));
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(io_error)?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(io_error)?;
+    fs::rename(temporary, root.join(name)).map_err(io_error)?;
+    File::open(root)
+        .and_then(|f| f.sync_all())
+        .map_err(io_error)
+}
+fn io_error(e: std::io::Error) -> RsfError {
+    corrupt(format!("membership staged generation: {e}"))
+}
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

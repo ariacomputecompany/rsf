@@ -2,7 +2,10 @@ use super::*;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-pub(super) fn create_input(root: &Path, input: &VsrMembershipInput) -> RsfResult<()> {
+pub(in crate::membership) fn create_input(
+    root: &Path,
+    input: &VsrMembershipInput,
+) -> RsfResult<()> {
     let id = input.id()?;
     let base = root.join("inputs");
     fs::create_dir_all(&base).map_err(io_error)?;
@@ -38,7 +41,7 @@ pub(super) fn create_input(root: &Path, input: &VsrMembershipInput) -> RsfResult
     )?);
     sync(&dir)
 }
-pub(super) fn read_records(
+pub(in crate::membership) fn read_records(
     root: &Path,
     id: [u8; 32],
 ) -> RsfResult<(VsrMembershipInput, Vec<VsrHistoryRecord>)> {
@@ -71,7 +74,7 @@ pub(super) fn read_records(
     }
     Ok((input, records))
 }
-pub(super) fn append_records(
+pub(in crate::membership) fn append_records(
     root: &Path,
     failed: &mut bool,
     input: &VsrMembershipInput,

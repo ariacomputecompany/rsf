@@ -453,8 +453,36 @@ source. Implementation 1685f4c is pushed to remote main. Evidence is in
 `artifacts/membership-peer.lusqwzzd`. The prior
 complete 20-domain release report above remains scoped to its recorded source.
 
-This chooses input only. Active history merging/publication, application
-materialization and installation acknowledgement, activation/learner promotion,
+Peer choice is followed by sealed staged-prefix materialization below. Active
+generation publication and native installation integration, activation/learner promotion,
 removed roles, abort/conflict lifecycle, repeated generations and atomic control
 admission remain unfinished. Retained-prefix access and growing-history proof
 transfer capacity also remain to be qualified and optimized.
+
+## Sealed membership staging and peer materialization (full qualification running)
+
+Added deterministic chosen-prefix merge using the shared view-installation union,
+original historical certificates, preserved uncommitted tails and receiver-local
+request mappings. Separate full-sync stage stores replay complete proof on open,
+seal input/count/content identities and cannot become writable VSR cells. Staged
+receipts require successful trusted materialization on this boot and a synced
+receipt. New-majority staged proofs bind the exact chosen input and canonical
+prefix. Peer STAGE requires an explicit materializer; learners remain non-voting.
+
+The 128 KiB TLS case reproduced a deadline failure after durable work completed.
+Same-boot receipt reuse now binds exact voter recovery stamps or published learner
+snapshot IDs. Payload/deadlines stay unchanged; warm retry avoids repeated
+application work and restart reconstructs deleted derived files. New root creation
+also syncs newly created directories and parent links, with initial segment-store
+root publication guarded before first use. Test materializers sync parent links.
+
+All 268 targeted checks pass (59 storage, 113 VSR, 39 RPC, 57 protocol), as does
+strict Clippy for storage/VSR/RPC/protocol/daemon all-targets/no-deps with warnings
+denied. Coverage includes a real process kill after durable receipt before reply,
+corrupt/missing/torn stage rejection and a materialized staged quorum after loss
+of the originally selected primary. Full 22-domain Fozzy qualification is running
+on unchanged executable source; the eight new required regressions are in the gate.
+
+No active generation or voting-role change is published yet. Native publication,
+activation/promotion, retired roles, conflict/abort/repeated-generation lifecycle,
+atomic control admission and workload/fault capacity qualification remain open.

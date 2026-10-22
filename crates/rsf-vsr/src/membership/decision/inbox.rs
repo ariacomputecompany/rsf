@@ -1,5 +1,5 @@
 use super::*;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 /// Configured, non-voting upload inbox. Complete replay returns old-quorum
@@ -18,7 +18,7 @@ pub struct MembershipAuthorityInbox {
 impl MembershipAuthorityInbox {
     pub fn open(path: impl AsRef<Path>, pg: PlacementGroupId, local: NodeId) -> RsfResult<Self> {
         let root = path.as_ref().to_path_buf();
-        fs::create_dir_all(&root).map_err(io_error)?;
+        rsf_storage::create_dir_all_synced(&root).map_err(io_error)?;
         let lock = rsf_storage::ExclusiveFileLock::acquire(
             OpenOptions::new()
                 .create(true)

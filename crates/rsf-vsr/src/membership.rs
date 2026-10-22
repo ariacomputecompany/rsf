@@ -3,6 +3,11 @@
 //! quorum evidence, not independent node signatures.
 use super::*;
 mod authority;
+mod staging;
+pub use staging::{
+    MembershipStagingStore, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
+    VsrMembershipStagedReport,
+};
 mod decision;
 use crate::transfer::MAX_HISTORY_RECORD_BYTES;
 pub use decision::{

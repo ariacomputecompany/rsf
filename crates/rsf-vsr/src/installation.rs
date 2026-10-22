@@ -94,75 +94,13 @@ impl VsrViewInstallation {
             }
         }
         let mut records = snapshots[source].records.clone();
-        let mut selected = states.remove(source);
-        let mut commits = BTreeMap::new();
-        let mut clients = BTreeMap::new();
-        for state in states.iter().chain(std::iter::once(&selected)) {
-            for commit in &state.0.committed {
-                match commits.entry(commit.index) {
-                    std::collections::btree_map::Entry::Vacant(entry) => {
-                        entry.insert(commit.clone());
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        let previous: &VsrCommit = entry.get();
-                        if previous.certificate.operation != commit.certificate.operation {
-                            return Err(corrupt("quorum committed histories conflict"));
-                        }
-                        if (commit.view, std::cmp::Reverse(commit.encode()?))
-                            > (previous.view, std::cmp::Reverse(previous.encode()?))
-                        {
-                            entry.insert(commit.clone());
-                        }
-                    }
-                }
-            }
-            for (client, index) in &state.0.client_table {
-                if let Some(previous) = clients.insert(client.clone(), *index)
-                    && previous != *index
-                {
-                    return Err(corrupt("quorum client request mappings conflict"));
-                }
-            }
-        }
-        let mut deltas = Vec::new();
-        for (index, commit) in commits {
-            if index <= selected.0.committed_tail() {
-                continue;
-            }
-            let record = VsrHistoryRecord {
-                epoch: source_epoch,
-                kind: WalRecordKind::ViewInstallation,
-                payload: codec::learned_commit_delta(
-                    &VsrPrepare {
-                        pg: commit.pg,
-                        view: commit.view,
-                        index: commit.index,
-                        primary: commit.primary,
-                        operation: commit.certificate.operation.clone(),
-                        bytes: selected.0.pending[&index].prepare.bytes,
-                    },
-                    &commit,
-                )?,
-            };
-            apply_delta(&mut selected.0, &mut selected.1, &record.payload)?;
-            deltas.push(record);
-        }
-        for (client, index) in clients {
-            if selected.0.client_table.get(&client) == Some(&index) {
-                continue;
-            }
-            let record = VsrHistoryRecord {
-                epoch: source_epoch,
-                kind: WalRecordKind::ViewInstallation,
-                payload: codec::client_delta(&VsrClientRequestCommit {
-                    pg: request.pg,
-                    request: client,
-                    index,
-                })?,
-            };
-            apply_delta(&mut selected.0, &mut selected.1, &record.payload)?;
-            deltas.push(record);
-        }
+        let (_, deltas) = merge_quorum(
+            states,
+            source,
+            request.pg,
+            source_epoch,
+            WalRecordKind::ViewInstallation,
+        )?;
         let marker = Installation {
             reports: snapshots
                 .iter()
@@ -191,6 +129,93 @@ impl VsrViewInstallation {
     }
 }
 
+pub(super) fn merge_quorum(
+    mut states: Vec<replay::Recovered>,
+    source: usize,
+    pg: PlacementGroupId,
+    source_epoch: Epoch,
+    kind: WalRecordKind,
+) -> RsfResult<(replay::Recovered, Vec<VsrHistoryRecord>)> {
+    let mut selected = states.remove(source);
+    let mut commits = BTreeMap::new();
+    let mut clients = BTreeMap::new();
+    for state in states.iter().chain(std::iter::once(&selected)) {
+        for commit in &state.0.committed {
+            match commits.entry(commit.index) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(commit.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let previous: &VsrCommit = entry.get();
+                    if previous.certificate.operation != commit.certificate.operation {
+                        return Err(corrupt("quorum committed histories conflict"));
+                    }
+                    if (commit.view, std::cmp::Reverse(commit.encode()?))
+                        > (previous.view, std::cmp::Reverse(previous.encode()?))
+                    {
+                        entry.insert(commit.clone());
+                    }
+                }
+            }
+        }
+        for (client, index) in &state.0.client_table {
+            if let Some(previous) = clients.insert(client.clone(), *index)
+                && previous != *index
+            {
+                return Err(corrupt("quorum client request mappings conflict"));
+            }
+        }
+    }
+    let mut deltas = Vec::new();
+    for (index, commit) in commits {
+        if index <= selected.0.committed_tail() {
+            continue;
+        }
+        let record = VsrHistoryRecord {
+            epoch: source_epoch,
+            kind,
+            payload: codec::learned_commit_delta(
+                &VsrPrepare {
+                    pg: commit.pg,
+                    view: commit.view,
+                    index: commit.index,
+                    primary: commit.primary,
+                    operation: commit.certificate.operation.clone(),
+                    bytes: selected
+                        .0
+                        .pending
+                        .get(&index)
+                        .ok_or_else(|| {
+                            corrupt("selected quorum prefix omits a committed operation")
+                        })?
+                        .prepare
+                        .bytes,
+                },
+                &commit,
+            )?,
+        };
+        apply_delta(&mut selected.0, &mut selected.1, &record.payload)?;
+        deltas.push(record);
+    }
+    for (client, index) in clients {
+        if selected.0.client_table.get(&client) == Some(&index) {
+            continue;
+        }
+        let record = VsrHistoryRecord {
+            epoch: source_epoch,
+            kind,
+            payload: codec::client_delta(&VsrClientRequestCommit {
+                pg,
+                request: client,
+                index,
+            })?,
+        };
+        apply_delta(&mut selected.0, &mut selected.1, &record.payload)?;
+        deltas.push(record);
+    }
+    Ok((selected, deltas))
+}
+
 impl VsrViewChangeSnapshot {
     pub(super) fn recover_state(&self) -> RsfResult<replay::Recovered> {
         self.validate_integrity()?;
@@ -205,6 +230,17 @@ impl VsrViewChangeSnapshot {
         }
         Ok(state)
     }
+}
+
+pub(super) fn membership_client_delta(client: &VsrClientRequestCommit) -> RsfResult<Vec<u8>> {
+    codec::client_delta(client)
+}
+pub(super) fn apply_membership_delta(
+    cell: &mut VsrCell,
+    history: &mut history::ConfigurationHistory,
+    payload: &[u8],
+) -> RsfResult<()> {
+    apply_delta(cell, history, payload)
 }
 
 pub(super) fn same_operation(left: &VsrPrepare, right: &VsrPrepare) -> bool {

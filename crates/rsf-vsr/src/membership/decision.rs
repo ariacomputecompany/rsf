@@ -2,7 +2,7 @@
 //! acknowledge application operations or grant membership/client readiness.
 use super::*;
 use rsf_core::Digest;
-mod disk;
+pub(super) mod disk;
 mod inbox;
 pub use inbox::MembershipAuthorityInbox;
 mod input;
@@ -282,14 +282,14 @@ impl VsrMembershipChosen {
         Ok(value)
     }
 }
-fn put_u64(out: &mut Vec<u8>, value: u64) {
+pub(super) fn put_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
-fn put_round(out: &mut Vec<u8>, round: VsrMembershipRound) {
+pub(super) fn put_round(out: &mut Vec<u8>, round: VsrMembershipRound) {
     put_u64(out, round.counter);
     put_u64(out, round.coordinator.0);
 }
-fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> RsfResult<()> {
+pub(super) fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> RsfResult<()> {
     if bytes.len() > MAX_HISTORY_RECORD_BYTES {
         return Err(invalid_input("membership field exceeds limit"));
     }
@@ -297,12 +297,12 @@ fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> RsfResult<()> {
     out.extend_from_slice(bytes);
     Ok(())
 }
-struct Reader<'a> {
+pub(super) struct Reader<'a> {
     bytes: &'a [u8],
     at: usize,
 }
 impl<'a> Reader<'a> {
-    fn new(bytes: &'a [u8], magic: &[u8]) -> RsfResult<Self> {
+    pub(super) fn new(bytes: &'a [u8], magic: &[u8]) -> RsfResult<Self> {
         if bytes.len() > MAX_HISTORY_RECORD_BYTES || !bytes.starts_with(magic) {
             return Err(corrupt("invalid membership decision encoding"));
         }
@@ -311,7 +311,7 @@ impl<'a> Reader<'a> {
             at: magic.len(),
         })
     }
-    fn take(&mut self, n: usize) -> RsfResult<&'a [u8]> {
+    pub(super) fn take(&mut self, n: usize) -> RsfResult<&'a [u8]> {
         let end = self
             .at
             .checked_add(n)
@@ -323,27 +323,27 @@ impl<'a> Reader<'a> {
         self.at = end;
         Ok(result)
     }
-    fn byte(&mut self) -> RsfResult<u8> {
+    pub(super) fn byte(&mut self) -> RsfResult<u8> {
         Ok(self.take(1)?[0])
     }
-    fn u64(&mut self) -> RsfResult<u64> {
+    pub(super) fn u64(&mut self) -> RsfResult<u64> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
-    fn id(&mut self) -> RsfResult<[u8; 32]> {
+    pub(super) fn id(&mut self) -> RsfResult<[u8; 32]> {
         Ok(self.take(32)?.try_into().unwrap())
     }
-    fn round(&mut self) -> RsfResult<VsrMembershipRound> {
+    pub(super) fn round(&mut self) -> RsfResult<VsrMembershipRound> {
         Ok(VsrMembershipRound {
             counter: self.u64()?,
             coordinator: NodeId(self.u64()?),
         })
     }
-    fn bytes(&mut self) -> RsfResult<&'a [u8]> {
+    pub(super) fn bytes(&mut self) -> RsfResult<&'a [u8]> {
         let n = usize::try_from(self.u64()?)
             .map_err(|_| corrupt("membership field exceeds platform range"))?;
         self.take(n)
     }
-    fn finish(self) -> RsfResult<()> {
+    pub(super) fn finish(self) -> RsfResult<()> {
         if self.at != self.bytes.len() {
             return Err(corrupt("trailing membership decision bytes"));
         }

@@ -90,6 +90,7 @@ run_domain vsr tests/vsr-host.pass.fozzy.json
 run_domain membership tests/membership-host.pass.fozzy.json
 run_domain membership-decision tests/membership-decision-host.pass.fozzy.json
 run_domain membership-peer tests/membership-peer-host.pass.fozzy.json
+run_domain membership-staging tests/membership-staging-host.pass.fozzy.json
 run_domain protocol tests/protocol-host.pass.fozzy.json
 run_domain peer-rpc tests/rpc-host.pass.fozzy.json
 run_domain kv-transactions tests/kv-txn-host.pass.fozzy.json
@@ -318,8 +319,15 @@ membership_peer_evidence = {
     for name in membership_peer_names
 }
 membership_peer_valid = all(membership_peer_evidence.values())
+membership_staging_names = ['synced_directory_creation_preserves_existing_files_across_nested_retries', 'synced_directory_creation_rejects_file_obstructions_without_replacing_data', 'chosen_membership_stage_merges_commit_and_receipt_evidence_deterministically', 'membership_stage_materialization_is_boot_scoped_and_preserves_receiver_receipts', 'staged_membership_quorums_reject_mixed_duplicate_and_invalid_receipts', 'membership_stage_reopen_rejects_torn_or_missing_sealed_history_without_rewrite', 'killed_membership_stage_recovers_receipt_and_replays_materialization_before_report', 'real_tls_staged_membership_requires_materializer_and_survives_peer_restart']
+membership_staging_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in membership_staging_names
+}
+membership_staging_valid = all(membership_staging_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -331,6 +339,9 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "membership_staging_evidence_valid": membership_staging_valid,
+    "membership_staging_regressions": membership_staging_evidence,
+    "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts; active generation publication, promotion and control admission remain unfinished",
     "membership_peer_evidence_valid": membership_peer_valid,
     "membership_peer_regressions": membership_peer_evidence,
     "membership_peer_scope": "authenticated peer plan consensus with anchored authority; application publication, activation, promotion and control admission remain unfinished",

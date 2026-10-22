@@ -3,10 +3,11 @@ mod installation;
 mod membership;
 pub use installation::{VsrInstallationInput, VsrViewInstallation};
 pub use membership::{
-    MembershipAuthorityInbox, MembershipDecisionStore, VsrMembershipAccepted,
-    VsrMembershipApproval, VsrMembershipChosen, VsrMembershipDecision, VsrMembershipInput,
-    VsrMembershipPromise, VsrMembershipProposal, VsrMembershipReport, VsrMembershipRound,
-    VsrMembershipSnapshot,
+    MembershipAuthorityInbox, MembershipDecisionStore, MembershipStagingStore,
+    VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen, VsrMembershipDecision,
+    VsrMembershipInput, VsrMembershipPromise, VsrMembershipProposal, VsrMembershipReport,
+    VsrMembershipRound, VsrMembershipSnapshot, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
+    VsrMembershipStagedReport,
 };
 mod replay;
 pub use election::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
@@ -652,6 +653,16 @@ impl DurableVsrCell {
             installation: self.installed_plan,
         })
     }
+    /// Read-only cache stamp for a fenced recovery anchor. This supplies no
+    /// voting authority or lease; writes/probes retain their active-view checks.
+    pub fn recovery_state_token(&self) -> RsfResult<VsrStateToken> {
+        self.ensure_healthy()?;
+        Ok(VsrStateToken {
+            identity: self.state_identity.clone(),
+            revision: self.state_revision,
+            installation: self.installed_plan,
+        })
+    }
     fn next_state_revision(&self) -> RsfResult<u64> {
         self.state_revision
             .checked_add(1)
@@ -734,7 +745,7 @@ impl DurableVsrCell {
         if options.log_options.sync_policy == rsf_storage::SyncPolicy::None {
             return Err(invalid_input("durable VSR requires sync on append"));
         }
-        std::fs::create_dir_all(path)
+        rsf_storage::create_dir_all_synced(path)
             .map_err(|err| invalid_input(format!("cannot create VSR store: {err}")))?;
         let writer_lock = std::fs::OpenOptions::new()
             .create(true)

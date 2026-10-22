@@ -1,7 +1,7 @@
 use super::disk;
 use super::state::{DecodedState, State, decode_state, encode_state, validate_transition};
 use super::*;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 /// A separate transition acceptor. No method exposes a writable application
@@ -44,7 +44,7 @@ impl MembershipDecisionStore {
         if approval.is_none() && !root.join("journal/MANIFEST").is_file() {
             return Err(corrupt("membership decision journal is missing"));
         }
-        fs::create_dir_all(root).map_err(io_error)?;
+        rsf_storage::create_dir_all_synced(root).map_err(io_error)?;
         let lock = rsf_storage::ExclusiveFileLock::acquire(
             OpenOptions::new()
                 .create(true)
@@ -333,6 +333,46 @@ impl MembershipDecisionStore {
             input: id,
         })
     }
+    /// Import the exact input already chosen by a new quorum, without creating
+    /// a new ballot or replacing its value. This supports publication to a voter
+    /// which missed the original acceptance/upload round.
+    pub fn retain_chosen_input(
+        &mut self,
+        chosen: VsrMembershipChosen,
+        approval: &VsrMembershipApproval,
+    ) -> RsfResult<()> {
+        self.healthy()?;
+        let input = VsrMembershipInput::from_approval(approval)?;
+        if chosen.proposal() != &self.proposal
+            || input.proposal() != &self.proposal
+            || chosen.input_id() != input.id()?
+            || bootstrap_id(approval)? != self.bootstrap
+        {
+            return Err(invalid_input(
+                "retained membership choice/input differs from anchored authority",
+            ));
+        }
+        if self
+            .state
+            .chosen
+            .as_ref()
+            .is_some_and(|old| old.input_id() != chosen.input_id())
+        {
+            return Err(invalid_input(
+                "membership choice is already bound to another input",
+            ));
+        }
+        self.create_input(&input)?;
+        let records = input.flattened_records(approval)?;
+        let mut ordinal = 0;
+        while ordinal < records.len() {
+            let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;
+            ordinal += batch.records.len();
+            self.append_records(&input, batch)?;
+        }
+        self.learn_chosen(chosen)
+    }
+
     /// Record a new-quorum plan decision. This is not an application installation
     /// acknowledgement and does not publish a VSR configuration.
     pub fn learn_chosen(&mut self, chosen: VsrMembershipChosen) -> RsfResult<()> {

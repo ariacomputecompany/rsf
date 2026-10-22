@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod durable_directory;
+pub use durable_directory::create_dir_all_synced;
+
 mod exclusive_lock;
 pub use exclusive_lock::ExclusiveFileLock;
 
@@ -539,7 +542,7 @@ impl SegmentLock {
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
         {
-            std::fs::create_dir_all(parent)
+            create_dir_all_synced(parent)
                 .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         }
         let file = OpenOptions::new()

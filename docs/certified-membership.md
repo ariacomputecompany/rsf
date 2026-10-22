@@ -4,6 +4,7 @@ Status: durable old-quorum approval, report recovery and exact-proposal
 continuation from a surviving minority report are implemented.
 Transition-only new-quorum plan consensus is implemented as a library store.
 Authenticated peer plan orchestration is implemented over configured transition paths.
+Sealed chosen-prefix staging and trusted materialization receipts are implemented.
 Active configuration publication, learner promotion and control-metadata publication remain
 unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
@@ -318,3 +319,69 @@ removed-voter handling, abort/conflict resolution, repeated membership generatio
 and atomic distributed control admission remain unfinished. Frame/batch size is
 bounded; cold proof replay, repeated retained-prefix access and growing-history
 capacity still require optimization and workload qualification.
+
+## Implemented sealed staged prefixes and materialization receipts
+
+`VsrMembershipStagedPlan` shares the existing view-installation commit/receipt
+union. It selects the longest accepted old prefix with a canonical reporter tie
+break, learns original historical commit certificates from the chosen old quorum,
+and merges its nonconflicting client mappings. Accepted-but-uncommitted operations
+are retained and are not passed to the application callback. The canonical plan
+ID binds the exact input and merged history, independently of which valid new
+quorum subset encoded the same choice.
+
+`MembershipStagingStore` retains complete old-quorum input and the selected prefix
+in separate full-sync bounded WAL batches. Checked VSRMST1 metadata seals identity,
+input, choice, counts and content. Receiver-local request mappings may be retained
+only when backed by the selected committed prefix; the physical stage digest
+includes them while the canonical plan ID stays unchanged. Corrupt, missing or
+torn sealed history fails reopen and exact factory retry without replacing the
+retained metadata. Wrapped staged records cannot be opened as an active VSR cell.
+
+Trusted, idempotent application callbacks run before a VSRMSR1 staged receipt is
+synced. Callback failure leaves report admission closed. Reopen revalidates all
+proof/history and requires materialization again, even with an existing receipt.
+VSRMSQ1 requires distinct proposed voters forming a new majority for the same
+input, canonical plan and committed/accepted boundaries. Different receiver-local
+receipt suffixes may have different physical digests. These are staged receipts;
+they do not change voting roles, publish active generations or admit clients.
+
+Peer STAGE (32) uses the configured authority paths and locally validated anchors.
+It explicitly requires `serve_connection_with_apply`; the default peer method
+rejects rather than acknowledging through a no-op materializer. A learner can
+stage and materialize a chosen prefix while remaining non-voting. Quorum collection
+checks each response's authenticated reporter, input, plan and prefix boundaries.
+A verified chosen input may also be retained on a voter that missed its upload.
+
+The first 128 KiB TLS workload exposed a deadline failure after the staged prefix
+and receipt were already synced. Repeating proof replay/materialization on the
+lost-reply retry repeated the slow work. A same-boot receipt now reuses exact
+voter-handle/revision or published-learner snapshot stamps. Reopen, anchor change
+or unsuccessful materialization prevents that reuse. The payload and 800 ms
+socket deadlines were not changed. Tests also observe that warm retry does not
+repeat application work, and that restart rebuilds deleted derived files.
+`recovery_state_token` is read-only cache identity and does not grant probes,
+writes or authority on a fenced cell.
+
+New directory creation syncs both newly allocated directories and their parent
+links before using them as durable store roots. This includes VSR, learner,
+transition and stage roots, plus initial segment-store root publication. Existing
+roots avoid that creation work on the normal append path. Materializer fixtures
+sync their file and parent directory entries before reporting success. This is
+code/host-test evidence, not independent machine power-loss qualification.
+
+Targeted verification passes 59 storage, 113 VSR, 39 RPC and 57 protocol tests.
+Strict Clippy passes for storage/VSR/RPC/protocol/daemon all-targets/no-deps with
+warnings denied. Coverage includes split commit/receipt evidence, alternate
+choice-proof subsets, local receipts, uncommitted tails, corrupt/torn/missing
+stages, a real process killed after synced receipt before reply, derived-file
+rebuild after loss, explicit-materializer rejection, 128 KiB binary TLS delivery,
+peer restart and a staged quorum after the originally selected primary is lost.
+
+The expanded 22-domain full release gate is running on frozen source and requires
+all eight new directory/staging regressions. Its final report is pending. Active
+generation publication, native application installation/publication integration,
+activation/learner promotion, removed-voter roles, abort/conflict handling, repeated
+generations and atomic distributed control admission remain unfinished. Growing
+history proof access/memory and independent-host/region capacity/fault qualification
+remain required before production readiness.

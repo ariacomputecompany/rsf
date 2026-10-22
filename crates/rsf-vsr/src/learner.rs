@@ -48,7 +48,7 @@ impl LearnerHistoryStore {
             return Err(invalid_input("learner and source must differ"));
         }
         let root = path.as_ref().to_path_buf();
-        fs::create_dir_all(&root).map_err(io_error)?;
+        rsf_storage::create_dir_all_synced(&root).map_err(io_error)?;
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -121,6 +121,37 @@ impl LearnerHistoryStore {
             .ok_or_else(|| invalid_input("learner has no published authority anchor"))?
             .cell
             .validate_membership_authority(approval)
+    }
+
+    /// Stage chosen history against this learner's published anchor without
+    /// exposing its underlying cell or changing the learner's voting role.
+    pub fn stage_membership(
+        &self,
+        path: impl AsRef<Path>,
+        plan: VsrMembershipStagedPlan,
+    ) -> RsfResult<MembershipStagingStore> {
+        self.healthy()?;
+        let published = self
+            .published
+            .as_ref()
+            .ok_or_else(|| invalid_input("learner has no published authority anchor"))?;
+        MembershipStagingStore::stage(path, self.local, plan, &published.cell)
+    }
+
+    pub fn validate_membership_stage(&self, stage: &MembershipStagingStore) -> RsfResult<()> {
+        self.healthy()?;
+        stage.validate_anchor(
+            &self
+                .published
+                .as_ref()
+                .ok_or_else(|| invalid_input("learner has no published authority anchor"))?
+                .cell,
+        )
+    }
+
+    pub fn published_history_id(&self) -> RsfResult<Option<[u8; 32]>> {
+        self.healthy()?;
+        Ok(self.published.as_ref().map(|p| p.id))
     }
 
     pub fn placement_group(&self) -> PlacementGroupId {

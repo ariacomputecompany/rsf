@@ -107,10 +107,13 @@ impl PeerProcess {
         Self::spawn_with_learner(root, node, false)
     }
     fn spawn_with_learner(root: &Path, node: u64, include_learner: bool) -> Self {
-        Self::spawn_config(root, node, include_learner, false, false)
+        Self::spawn_config(root, node, include_learner, false, false, false)
     }
     fn spawn_decision(root: &Path, node: u64, learner: bool) -> Self {
-        Self::spawn_config(root, node, true, true, learner)
+        Self::spawn_config(root, node, true, true, learner, false)
+    }
+    fn spawn_staging(root: &Path, node: u64, learner: bool) -> Self {
+        Self::spawn_config(root, node, true, true, learner, true)
     }
     fn spawn_config(
         root: &Path,
@@ -118,6 +121,7 @@ impl PeerProcess {
         include_learner: bool,
         decisions: bool,
         learner: bool,
+        stage_apply: bool,
     ) -> Self {
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "replication::tests::peer_process", "--nocapture"])
@@ -129,6 +133,10 @@ impl PeerProcess {
             )
             .env("RSF_RPC_TEST_DECISIONS", if decisions { "1" } else { "0" })
             .env("RSF_RPC_TEST_LEARNER_ROLE", if learner { "1" } else { "0" })
+            .env(
+                "RSF_RPC_TEST_STAGE_APPLY",
+                if stage_apply { "1" } else { "0" },
+            )
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -226,8 +234,44 @@ fn peer_process() {
     println!("RSF_PEER_READY={}", listener.local_addr().unwrap());
     std::io::stdout().flush().unwrap();
     for socket in listener.incoming() {
-        let _ = server.serve_connection(socket.unwrap());
+        let socket = socket.unwrap();
+        if std::env::var("RSF_RPC_TEST_STAGE_APPLY").as_deref() == Ok("1") {
+            let _ = server.serve_connection_with_apply(socket, &mut |entry| {
+                persist_staged_entry(&root, node, entry)
+            });
+        } else {
+            let _ = server.serve_connection(socket);
+        }
     }
+}
+
+fn persist_staged_entry(root: &Path, node: u64, entry: &VsrCommittedEntry) -> Result<(), String> {
+    let directory = root.join(format!("materialized-{node}"));
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(directory.join(entry.prepare.index.0.to_string()))
+        .map_err(|e| e.to_string())?;
+    file.write_all(&entry.prepare.encode().map_err(|e| e.message)?)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    let mut calls = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(directory.join(".applies"))
+        .map_err(|e| e.to_string())?;
+    calls
+        .write_all(&entry.prepare.index.0.to_le_bytes())
+        .and_then(|()| calls.sync_all())
+        .map_err(|e| e.to_string())?;
+    std::fs::File::open(directory)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())?;
+    std::fs::File::open(root)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())
 }
 
 #[test]
