@@ -20,6 +20,16 @@ pub(super) fn exchange<T>(kind: u8, mut attempt: impl FnMut() -> io::Result<T>) 
             | MEMBERSHIP_SNAPSHOT
             | MEMBERSHIP_BATCH
             | MEMBERSHIP_RESUME
+            | MEMBERSHIP_AUTH_BEGIN
+            | MEMBERSHIP_AUTH_BATCH
+            | MEMBERSHIP_AUTH_FINISH
+            | MEMBERSHIP_PROMISE
+            | MEMBERSHIP_INPUT_BEGIN
+            | MEMBERSHIP_INPUT_BATCH
+            | MEMBERSHIP_ACCEPT
+            | MEMBERSHIP_CHOSEN
+            | MEMBERSHIP_INPUT_DESCRIPTOR
+            | MEMBERSHIP_INPUT_READ
     );
     match result {
         Err(error)
@@ -60,6 +70,16 @@ mod tests {
             MEMBERSHIP_SNAPSHOT,
             MEMBERSHIP_BATCH,
             MEMBERSHIP_RESUME,
+            MEMBERSHIP_AUTH_BEGIN,
+            MEMBERSHIP_AUTH_BATCH,
+            MEMBERSHIP_AUTH_FINISH,
+            MEMBERSHIP_PROMISE,
+            MEMBERSHIP_INPUT_BEGIN,
+            MEMBERSHIP_INPUT_BATCH,
+            MEMBERSHIP_ACCEPT,
+            MEMBERSHIP_CHOSEN,
+            MEMBERSHIP_INPUT_DESCRIPTOR,
+            MEMBERSHIP_INPUT_READ,
         ] {
             let mut calls = 0;
             let value = exchange(kind, || {

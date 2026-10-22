@@ -36,6 +36,15 @@ impl ConfigurationHistory {
             .all(|(key, digest)| self.1.get(key).is_none_or(|new| new == digest))
     }
 
+    pub(super) fn contains_authority(&self, old: &Self) -> bool {
+        self.compatible(old)
+            && old.0.iter().all(|(view, configuration)| {
+                self.0.get(view).is_some_and(|known| {
+                    known.primary == configuration.primary && known.voters == configuration.voters
+                })
+            })
+    }
+
     // Only a completed installation may authorize a certificate learned from
     // another reporting voter after its old view was sealed. Bind the exception
     // to the exact accepted operation; ordinary stale-view transfer cannot add it.

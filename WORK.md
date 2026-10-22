@@ -125,7 +125,7 @@ The standard is strict:
 - `crates/rsfd`
   - Has production-only command slots, durable one-node `init`, token-verified `join`, state-backed `status`, side-effect-free `policy plan`, idempotent durable `policy apply` with live stdout progress/audit output, durable `policy status`, `policy set`, and `policy add-region` commands over the policy catalog, and `serve`/`status` surfaces that report live durable protocol runtime state, including placement groups, latest version, certificate count, and max log index through stdout, a real TCP health/metrics listener, a canonical `rsf-wire` data-plane listener for multi-process ingress admission, durable protocol-backed KV request execution through `rsf-kv`, payload-backed KV writes, durable SQL autocommit create/insert/select execution, durable chunk-backed blob PUT/GET execution, and durable object bucket/PUT/GET execution over the daemon data-plane listener, operator status, operator profiles that apply distinct standalone, regional, and multi-region readiness gates, and bounded long-running runtime supervision for consecutive transient errors.
 
-Current verification (2026-10-21): `artifacts/verification.pInTn9/summary.json`
+Latest complete release-gate verification (2026-10-21): `artifacts/verification.pInTn9/summary.json`
 passes all 20 domains against unchanged executable sources (SHA-256
 `02f757b43890d1522763a3c024c1d753cafa8d3e29c8188937e8ab659c76d131`).
 The workspace host run passes 1,167 tests; its one opt-in stress test is exercised
@@ -427,3 +427,28 @@ This is transition-only library consensus, not active configuration installation
 Peer orchestration, application materialization/acknowledgement, active generation
 publication, activation, learner promotion, retired roles, abort/conflict handling
 and atomic distributed control admission remain required release work.
+
+## Authenticated membership peer orchestration (targeted qualified; workspace running)
+
+Added configured transition paths, a full-sync restartable authority inbox and
+bootstrap/history/committed-prefix checks for existing voters and published
+learners. Bounded TLS RPCs provision authority, promise rounds, stage input,
+accept an exact coordinator nomination, retain a chosen proof and fetch accepted
+input from survivors. The high-level coordinator preserves the highest accepted
+input even when its initial candidate uses another valid old-quorum subset.
+
+Real TLS cases now cover learner-led recovery after primary/coordinator data
+deletion, complete payload and original request mapping preservation, unpublished
+learner/foreign-bootstrap rejection, and one lost acceptance reply resolving
+without a second durable vote. The complete gate is expanded to 21 domains;
+targeted host qualification passes all 202 affected tests, strict five-run doctor,
+strict deterministic orchestration, recorded host execution, strict trace verification,
+replay and CI. Strict Clippy passes for VSR/RPC/protocol/daemon. The full workspace
+recorded host run is running. Evidence is in `artifacts/membership-peer.lusqwzzd`. The prior
+complete 20-domain release report above remains scoped to its recorded source.
+
+This chooses input only. Active history merging/publication, application
+materialization and installation acknowledgement, activation/learner promotion,
+removed roles, abort/conflict lifecycle, repeated generations and atomic control
+admission remain unfinished. Retained-prefix access and growing-history proof
+transfer capacity also remain to be qualified and optimized.

@@ -1,6 +1,7 @@
 //! Authenticated old-quorum membership fences. Approval does not install new
 //! voters, promote a learner or permit application traffic in the proposed view.
 use super::*;
+mod decision;
 use rsf_vsr::{
     VsrMembershipApproval, VsrMembershipProposal, VsrMembershipReport, VsrMembershipSnapshot,
 };

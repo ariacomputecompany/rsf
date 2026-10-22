@@ -229,6 +229,9 @@ pub struct PeerReplicaServer {
     learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
     election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
     membership_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrMembershipSnapshot>,
+    membership_paths: BTreeMap<PlacementGroupId, std::path::PathBuf>,
+    membership_inputs: BTreeMap<PlacementGroupId, rsf_vsr::MembershipAuthorityInbox>,
+    membership_decisions: BTreeMap<PlacementGroupId, rsf_vsr::MembershipDecisionStore>,
     learner_materialized: BTreeMap<PlacementGroupId, [u8; 32]>,
     installation_pending: BTreeSet<PlacementGroupId>,
     control_transport: NetworkVsrTransport,
@@ -337,6 +340,9 @@ impl PeerReplicaServer {
             learners,
             election_snapshots: BTreeMap::new(),
             membership_snapshots: BTreeMap::new(),
+            membership_paths: BTreeMap::new(),
+            membership_inputs: BTreeMap::new(),
+            membership_decisions: BTreeMap::new(),
             learner_materialized: BTreeMap::new(),
         })
     }
@@ -394,7 +400,9 @@ impl PeerReplicaServer {
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
         self.pending_contact = None;
-        let response = if matches!(
+        let response = if (MEMBERSHIP_AUTH_BEGIN..=MEMBERSHIP_INPUT_READ).contains(&kind) {
+            self.dispatch_membership_decision(sender, kind, payload)
+        } else if matches!(
             kind,
             MEMBERSHIP_BEGIN | MEMBERSHIP_SNAPSHOT | MEMBERSHIP_BATCH | MEMBERSHIP_RESUME
         ) {

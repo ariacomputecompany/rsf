@@ -3,7 +3,8 @@
 Status: durable old-quorum approval, report recovery and exact-proposal
 continuation from a surviving minority report are implemented.
 Transition-only new-quorum plan consensus is implemented as a library store.
-Peer orchestration, active configuration publication, learner promotion and control-metadata publication remain
+Authenticated peer plan orchestration is implemented over configured transition paths.
+Active configuration publication, learner promotion and control-metadata publication remain
 unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
 Local configuration methods and reachability probes do not install network
@@ -242,8 +243,8 @@ meaningful regressions in actual workspace output. All 20 domains and 1,167 work
 tests pass with zero failures on unchanged source. All seven new regressions
 appear in both the dedicated recorded host run and the full workspace trace.
 See [plan-decision verification](membership-decision-verification-2026-10-21.json). This is library plan consensus only. It does not acknowledge application
-materialization, publish a new VSR cell, promote a learner or admit clients. Peer
-RPC orchestration, generation publication, activation, removed-voter handling,
+materialization, publish a new VSR cell, promote a learner or admit clients.
+Generation publication, activation, removed-voter handling,
 abort/conflict resolution and atomic distributed control admission remain open.
 
 ## Peer integration admission boundaries
@@ -262,3 +263,54 @@ resending complete retained proof/history after both endpoints restart. Selectio
 of input is separate from application materialization, active generation publication,
 new-quorum installation acknowledgement and matching durable control admission.
 Failures or crashes between those boundaries must leave client readiness closed.
+
+## Implemented authenticated peer plan orchestration
+
+`with_membership_paths` configures owned paths only for groups already hosted as
+voters or learners. `MembershipAuthorityInbox` receives canonical authority input
+in full-sync bounded batches and retains its logical prefix across restart. A
+complete upload replays old-quorum histories before decision-store initialization.
+Hosted validation requires the original durable bootstrap, every known historical
+configuration, unchanged locally committed operations and no conflicting client
+request mappings. Unpublished learners and foreign/regressing authority reject
+before a usable round promise exists. Endpoint mappings must include every old
+and proposed voter identity. Group IDs in incoming messages cannot choose paths.
+
+Peer kinds 22–31 cover authority BEGIN/BATCH/FINISH, round PROMISE, plan-input
+BEGIN/BATCH, ACCEPT, CHOSEN and descriptor/history reads. Round messages bind the
+proposal digest and authenticated coordinator; accepting peers also check the
+durable nomination. Recovery uses bounded ordinal batches and complete original
+input validation. These idempotent exchanges may resolve one lost reply. Normal
+application voting retains its existing deadline/retry contract.
+
+`choose_membership_plan` provisions anchored authority, gathers a new majority's
+promises, obtains its highest accepted input locally or from an authenticated
+survivor, stages it, persists the coordinator nomination and gathers acceptance.
+A valid new majority yields a chosen-input proof. Chosen-proof dissemination is
+resumable: losing those replies cannot erase the already durable accepted quorum.
+An unpromoted learner may coordinate transition-only recovery after anchoring and
+provisioning; application prepare/commit/tail/probe paths remain closed to it.
+
+The crash-fault model trusts a configured authenticated coordinator to relay the
+complete package of reports it obtained from authenticated nodes. Forwarded report
+IDs are not independent signatures or Byzantine fault evidence. The normal frame
+still binds the cluster, TLS node identity, destination and message kind.
+
+New real TLS tests cover a learner recovering a different, remotely accepted input
+after deleting the old primary and original coordinator stores; preserved complete
+payloads and original client request mappings; learner restart without application
+promotion; unpublished learner/wrong-bootstrap rejection; and exactly one retry
+after an already durable acceptance reply is dropped, without another WAL vote.
+The expanded release gate requires these regressions plus inbox restart coverage.
+
+Targeted qualification passes all 202 affected tests on unchanged source, including
+all four required inbox/TLS regressions. Five-run doctor, strict deterministic
+orchestration, recorded host execution, strict trace verification, replay and CI
+pass; strict lint is green. The full workspace run is still running.
+The full release gate now has 21 domains;
+a complete run on this source remains pending. Active history merge/publication,
+application materialization and installation acknowledgements, activation/promotion,
+removed-voter handling, abort/conflict resolution, repeated membership generations
+and atomic distributed control admission remain unfinished. Frame/batch size is
+bounded; cold proof replay, repeated retained-prefix access and growing-history
+capacity still require optimization and workload qualification.

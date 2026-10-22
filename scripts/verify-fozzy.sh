@@ -89,6 +89,7 @@ run_domain storage tests/storage-host.pass.fozzy.json
 run_domain vsr tests/vsr-host.pass.fozzy.json
 run_domain membership tests/membership-host.pass.fozzy.json
 run_domain membership-decision tests/membership-decision-host.pass.fozzy.json
+run_domain membership-peer tests/membership-peer-host.pass.fozzy.json
 run_domain protocol tests/protocol-host.pass.fozzy.json
 run_domain peer-rpc tests/rpc-host.pass.fozzy.json
 run_domain kv-transactions tests/kv-txn-host.pass.fozzy.json
@@ -310,8 +311,15 @@ membership_decision_evidence = {
     for name in membership_decision_names
 }
 membership_decision_valid = all(membership_decision_evidence.values())
+membership_peer_names = ['membership_authority_inbox_resumes_validated_proof_without_voting_authority', 'real_tls_membership_plan_choice_survives_old_voter_and_coordinator_data_loss', 'real_tls_membership_authority_rejects_unpublished_learners_and_foreign_bootstrap', 'membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote']
+membership_peer_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in membership_peer_names
+}
+membership_peer_valid = all(membership_peer_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -323,6 +331,9 @@ summary = {
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
     "automatic_client_evidence_valid": automatic_valid,
+    "membership_peer_evidence_valid": membership_peer_valid,
+    "membership_peer_regressions": membership_peer_evidence,
+    "membership_peer_scope": "authenticated peer plan consensus with anchored authority; application publication, activation, promotion and control admission remain unfinished",
     "membership_decision_evidence_valid": membership_decision_valid,
     "membership_decision_regressions": membership_decision_evidence,
     "membership_decision_scope": "transition-only library plan consensus; peer RPC orchestration, active configuration publication, learner promotion and client admission remain unfinished",

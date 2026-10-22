@@ -112,6 +112,17 @@ impl LearnerHistoryStore {
         Ok(learner)
     }
 
+    /// Transition votes require the already published bootstrap/history anchor.
+    /// Catch-up and this check never promote the learner's application role.
+    pub fn validate_membership_authority(&self, approval: &VsrMembershipApproval) -> RsfResult<()> {
+        self.healthy()?;
+        self.published
+            .as_ref()
+            .ok_or_else(|| invalid_input("learner has no published authority anchor"))?
+            .cell
+            .validate_membership_authority(approval)
+    }
+
     pub fn placement_group(&self) -> PlacementGroupId {
         self.pg
     }

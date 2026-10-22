@@ -107,6 +107,18 @@ impl PeerProcess {
         Self::spawn_with_learner(root, node, false)
     }
     fn spawn_with_learner(root: &Path, node: u64, include_learner: bool) -> Self {
+        Self::spawn_config(root, node, include_learner, false, false)
+    }
+    fn spawn_decision(root: &Path, node: u64, learner: bool) -> Self {
+        Self::spawn_config(root, node, true, true, learner)
+    }
+    fn spawn_config(
+        root: &Path,
+        node: u64,
+        include_learner: bool,
+        decisions: bool,
+        learner: bool,
+    ) -> Self {
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "replication::tests::peer_process", "--nocapture"])
             .env("RSF_RPC_TEST_ROOT", root)
@@ -115,6 +127,8 @@ impl PeerProcess {
                 "RSF_RPC_TEST_INCLUDE_LEARNER",
                 if include_learner { "1" } else { "0" },
             )
+            .env("RSF_RPC_TEST_DECISIONS", if decisions { "1" } else { "0" })
+            .env("RSF_RPC_TEST_LEARNER_ROLE", if learner { "1" } else { "0" })
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
@@ -170,15 +184,45 @@ fn peer_process() {
             },
         );
     }
-    let mut server = PeerReplicaServer::new(
-        NodeId(node),
-        &cluster(),
-        identity(&root, node),
-        peers,
-        [(PlacementGroupId(1), cell(&root, node))].into(),
-        Duration::from_millis(800),
-    )
-    .unwrap();
+    let mut server = if std::env::var("RSF_RPC_TEST_LEARNER_ROLE").as_deref() == Ok("1") {
+        PeerReplicaServer::with_learners(
+            NodeId(node),
+            &cluster(),
+            identity(&root, node),
+            peers,
+            BTreeMap::new(),
+            [(
+                PlacementGroupId(1),
+                rsf_vsr::LearnerHistoryStore::open(
+                    root.join(format!("learner-{node}")),
+                    PlacementGroupId(1),
+                    NodeId(node),
+                    NodeId(0),
+                )
+                .unwrap(),
+            )]
+            .into(),
+            Duration::from_millis(800),
+        )
+        .unwrap()
+    } else {
+        PeerReplicaServer::new(
+            NodeId(node),
+            &cluster(),
+            identity(&root, node),
+            peers,
+            [(PlacementGroupId(1), cell(&root, node))].into(),
+            Duration::from_millis(800),
+        )
+        .unwrap()
+    };
+    if std::env::var("RSF_RPC_TEST_DECISIONS").as_deref() == Ok("1") {
+        server = server
+            .with_membership_paths(
+                [(PlacementGroupId(1), root.join(format!("membership-{node}")))].into(),
+            )
+            .unwrap();
+    }
     println!("RSF_PEER_READY={}", listener.local_addr().unwrap());
     std::io::stdout().flush().unwrap();
     for socket in listener.incoming() {
@@ -1759,3 +1803,6 @@ fn network_router_cannot_change_authority_with_or_without_a_live_quorum() {
 
 #[path = "tests/membership.rs"]
 mod membership;
+
+#[path = "tests/membership_decision.rs"]
+mod membership_decision;

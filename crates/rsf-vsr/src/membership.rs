@@ -2,11 +2,12 @@
 //! Report identities must be authenticated by the caller; this is crash-fault
 //! quorum evidence, not independent node signatures.
 use super::*;
+mod authority;
 mod decision;
 use crate::transfer::MAX_HISTORY_RECORD_BYTES;
 pub use decision::{
-    MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipChosen, VsrMembershipDecision,
-    VsrMembershipInput, VsrMembershipPromise, VsrMembershipRound,
+    MembershipAuthorityInbox, MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipChosen,
+    VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipRound,
 };
 pub(super) const MAGIC: &[u8] = b"VSRMP1";
 

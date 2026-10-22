@@ -29,6 +29,17 @@ pub(super) const MEMBERSHIP_SNAPSHOT: u8 = 19;
 pub(super) const MEMBERSHIP_BATCH: u8 = 20;
 pub(super) const MEMBERSHIP_RESUME: u8 = 21;
 
+pub(super) const MEMBERSHIP_AUTH_BEGIN: u8 = 22;
+pub(super) const MEMBERSHIP_AUTH_BATCH: u8 = 23;
+pub(super) const MEMBERSHIP_AUTH_FINISH: u8 = 24;
+pub(super) const MEMBERSHIP_PROMISE: u8 = 25;
+pub(super) const MEMBERSHIP_INPUT_BEGIN: u8 = 26;
+pub(super) const MEMBERSHIP_INPUT_BATCH: u8 = 27;
+pub(super) const MEMBERSHIP_ACCEPT: u8 = 28;
+pub(super) const MEMBERSHIP_CHOSEN: u8 = 29;
+pub(super) const MEMBERSHIP_INPUT_DESCRIPTOR: u8 = 30;
+pub(super) const MEMBERSHIP_INPUT_READ: u8 = 31;
+
 pub(super) fn cluster_digest(cluster: &ClusterId) -> [u8; 32] {
     Sha256::digest(cluster.as_str().as_bytes()).into()
 }

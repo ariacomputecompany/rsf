@@ -83,6 +83,16 @@ fn membership_input_and_decision_codecs_bind_exact_quorums_and_reject_truncation
         VsrMembershipDecision::from_promises(vec![promises[0].clone(); 3], input.clone()).is_err()
     );
     let decision = VsrMembershipDecision::from_promises(promises.clone(), input.clone()).unwrap();
+    let encoded_decision = decision.encode().unwrap();
+    assert_eq!(
+        VsrMembershipDecision::decode(&encoded_decision)
+            .unwrap()
+            .input(),
+        decision.input()
+    );
+    for length in 0..encoded_decision.len() {
+        assert!(VsrMembershipDecision::decode(&encoded_decision[..length]).is_err());
+    }
     let nomination = state[1].nominate(&decision).unwrap();
     let mut accepted = vec![nomination.clone()];
     for n in [0, 2] {
@@ -576,4 +586,83 @@ fn torn_membership_input_batch_recovers_previous_prefix_and_cannot_be_accepted()
     )
     .unwrap();
     assert_eq!(store.accepted(), Some((r, id)));
+}
+
+#[test]
+fn membership_authority_inbox_resumes_validated_proof_without_voting_authority() {
+    let path = root("authority-inbox");
+    let (a, _) = approvals(&path);
+    let input = VsrMembershipInput::from_approval(&a).unwrap();
+    let records = input.flattened_records(&a).unwrap();
+    let id = input.id().unwrap();
+    let mut inbox =
+        MembershipAuthorityInbox::open(path.join("inbox"), PlacementGroupId(1), NodeId(3)).unwrap();
+    assert!(inbox.begin(NodeId(99), input.clone()).is_err());
+    assert_eq!(inbox.begin(NodeId(1), input.clone()).unwrap(), 0);
+    inbox
+        .append(
+            NodeId(1),
+            id,
+            VsrHistoryBatch {
+                ordinal: 0,
+                records: records[..2].to_vec(),
+            },
+        )
+        .unwrap();
+    assert!(inbox.finish(NodeId(1), id).is_err());
+    drop(inbox);
+    let mut inbox =
+        MembershipAuthorityInbox::open(path.join("inbox"), PlacementGroupId(1), NodeId(3)).unwrap();
+    assert_eq!(inbox.begin(NodeId(2), input).unwrap(), 2);
+    inbox
+        .append(
+            NodeId(2),
+            id,
+            VsrHistoryBatch {
+                ordinal: 1,
+                records: records[1..].to_vec(),
+            },
+        )
+        .unwrap();
+    let approved = inbox.finish(NodeId(2), id).unwrap();
+    assert_eq!(approved.proposal(), a.proposal());
+    let cell = DurableVsrCell::open_existing(path.join("old/1"), PlacementGroupId(1)).unwrap();
+    cell.validate_membership_authority(&approved).unwrap();
+    assert!(cell.primary_probe().is_err());
+    assert!(!cell.contains_replica(NodeId(3)));
+    let mut learner = LearnerHistoryStore::open(
+        path.join("learner"),
+        PlacementGroupId(1),
+        NodeId(3),
+        NodeId(0),
+    )
+    .unwrap();
+    assert!(learner.validate_membership_authority(&approved).is_err());
+    let source = &a.snapshots()[0];
+    let prior = source.records[..source.records.len() - 1].to_vec();
+    let descriptor = VsrHistoryDescriptor {
+        probe: source.report.voter.history.probe.clone(),
+        records: prior.len() as u64,
+        digest: transfer::history_digest(&prior).unwrap(),
+    };
+    let history_id = descriptor.id().unwrap();
+    learner.begin(descriptor).unwrap();
+    for (n, record) in prior.into_iter().enumerate() {
+        learner.append(history_id, n as u64, record).unwrap();
+    }
+    learner.finish(history_id).unwrap();
+    learner.validate_membership_authority(&approved).unwrap();
+    let foreign = DurableVsrCell::open(
+        path.join("foreign"),
+        PlacementGroupId(1),
+        Epoch(1),
+        NodeId(1),
+        [NodeId(0), NodeId(1), NodeId(2)],
+    )
+    .unwrap();
+    assert!(foreign.validate_membership_authority(&approved).is_err());
+    drop(inbox);
+    assert!(
+        MembershipAuthorityInbox::open(path.join("inbox"), PlacementGroupId(2), NodeId(3)).is_err()
+    );
 }

@@ -2,6 +2,9 @@
 //! acknowledge application operations or grant membership/client readiness.
 use super::*;
 use rsf_core::Digest;
+mod disk;
+mod inbox;
+pub use inbox::MembershipAuthorityInbox;
 mod input;
 pub use input::VsrMembershipInput;
 mod state;
@@ -74,7 +77,9 @@ impl VsrMembershipPromise {
         Ok(value)
     }
 }
-/// Construct only from directly authenticated, distinct proposed-voter reports.
+/// Construct from authenticated distinct proposed-voter reports. A complete
+/// package may be relayed by its authenticated coordinator under the crash-fault
+/// model; the report bytes are not independent node signatures.
 /// Retain the highest accepted input, including when it was a minority upload.
 #[derive(Debug)]
 pub struct VsrMembershipDecision {
@@ -128,6 +133,36 @@ impl VsrMembershipDecision {
             ));
         }
         Ok(Self { promises, input })
+    }
+    pub fn encode(&self) -> RsfResult<Vec<u8>> {
+        let mut out = b"VSRMDD1".to_vec();
+        put_bytes(&mut out, &self.input.encode()?)?;
+        put_u64(&mut out, self.promises.len() as u64);
+        for promise in &self.promises {
+            put_bytes(&mut out, &promise.encode()?)?;
+            if out.len() > MAX_HISTORY_RECORD_BYTES {
+                return Err(invalid_input("membership decision exceeds limit"));
+            }
+        }
+        Ok(out)
+    }
+    pub fn decode(bytes: &[u8]) -> RsfResult<Self> {
+        let mut r = Reader::new(bytes, b"VSRMDD1")?;
+        let input = VsrMembershipInput::decode(r.bytes()?)?;
+        let count = r.u64()?;
+        if count > 4096 {
+            return Err(corrupt("too many membership decision promises"));
+        }
+        let mut promises = Vec::new();
+        for _ in 0..count {
+            promises.push(VsrMembershipPromise::decode(r.bytes()?)?);
+        }
+        r.finish()?;
+        let value = Self::from_promises(promises, input)?;
+        if value.encode()? != bytes {
+            return Err(corrupt("noncanonical membership decision"));
+        }
+        Ok(value)
     }
     pub fn input(&self) -> &VsrMembershipInput {
         &self.input

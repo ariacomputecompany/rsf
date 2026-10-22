@@ -3,9 +3,10 @@ mod installation;
 mod membership;
 pub use installation::{VsrInstallationInput, VsrViewInstallation};
 pub use membership::{
-    MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen,
-    VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipProposal,
-    VsrMembershipReport, VsrMembershipRound, VsrMembershipSnapshot,
+    MembershipAuthorityInbox, MembershipDecisionStore, VsrMembershipAccepted,
+    VsrMembershipApproval, VsrMembershipChosen, VsrMembershipDecision, VsrMembershipInput,
+    VsrMembershipPromise, VsrMembershipProposal, VsrMembershipReport, VsrMembershipRound,
+    VsrMembershipSnapshot,
 };
 mod replay;
 pub use election::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
