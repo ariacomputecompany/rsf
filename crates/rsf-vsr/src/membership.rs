@@ -188,6 +188,10 @@ impl VsrMembershipSnapshot {
 pub struct VsrMembershipApproval {
     proposal: VsrMembershipProposal,
     snapshots: Vec<VsrMembershipSnapshot>,
+    // Snapshots have no mutable public access after construction. Retain their
+    // replay-validated states instead of replaying full histories at every
+    // authority check and merge. Disk reopen still constructs a fresh approval.
+    states: Vec<replay::Recovered>,
 }
 impl VsrMembershipApproval {
     /// Authenticate every report's node and cluster before constructing approval.
@@ -253,6 +257,7 @@ impl VsrMembershipApproval {
         Ok(Self {
             proposal,
             snapshots,
+            states,
         })
     }
     pub fn proposal(&self) -> &VsrMembershipProposal {

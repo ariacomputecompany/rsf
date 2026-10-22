@@ -342,6 +342,7 @@ impl MembershipDecisionStore {
         approval: &VsrMembershipApproval,
     ) -> RsfResult<()> {
         self.healthy()?;
+        chosen.encode()?;
         let input = VsrMembershipInput::from_approval(approval)?;
         if chosen.proposal() != &self.proposal
             || input.proposal() != &self.proposal
@@ -362,8 +363,23 @@ impl MembershipDecisionStore {
                 "membership choice is already bound to another input",
             ));
         }
-        self.create_input(&input)?;
         let records = input.flattened_records(approval)?;
+        if self
+            .state
+            .chosen
+            .as_ref()
+            .is_some_and(|old| old.input_id() == chosen.input_id())
+        {
+            // The supplied approval already replay-validated these exact bytes.
+            // Verify the retained copy without rewriting its directory entries
+            // or replaying the same proof again on a publication retry.
+            let (retained, previous) = self.read_records(input.id()?)?;
+            if retained != input || previous != records {
+                return Err(corrupt("chosen membership input changed or lost records"));
+            }
+            return Ok(());
+        }
+        self.create_input(&input)?;
         let mut ordinal = 0;
         while ordinal < records.len() {
             let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;

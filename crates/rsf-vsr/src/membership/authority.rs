@@ -16,7 +16,7 @@ impl DurableVsrCell {
                 "membership authority regresses or differs from hosted group",
             ));
         }
-        for snapshot in approval.snapshots() {
+        for (snapshot, recovered) in approval.snapshots().iter().zip(&approval.states) {
             if snapshot.records.first().map(|r| r.payload.as_slice())
                 != Some(self.initial_bootstrap.as_slice())
             {
@@ -24,7 +24,6 @@ impl DurableVsrCell {
                     "membership authority differs from hosted bootstrap",
                 ));
             }
-            let recovered = snapshot.recover_state()?;
             if !recovered.1.contains_authority(&self.history) {
                 return Err(corrupt(
                     "membership authority omits or changes hosted historical configurations",
@@ -46,14 +45,16 @@ impl DurableVsrCell {
         let source = approval
             .snapshots()
             .iter()
-            .max_by_key(|s| {
+            .enumerate()
+            .max_by_key(|(_, s)| {
                 (
                     s.report.voter.accepted_tail,
                     std::cmp::Reverse(s.report.voter.replica),
                 )
             })
+            .map(|(position, _)| position)
             .ok_or_else(|| corrupt("membership authority has no snapshots"))?;
-        let selected = source.recover_state()?;
+        let selected = &approval.states[source];
         for pending in self.cell.pending.values().filter(|p| p.committed) {
             if !selected
                 .0

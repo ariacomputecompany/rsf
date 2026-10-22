@@ -319,7 +319,7 @@ membership_peer_evidence = {
     for name in membership_peer_names
 }
 membership_peer_valid = all(membership_peer_evidence.values())
-membership_staging_names = ['synced_directory_creation_preserves_existing_files_across_nested_retries', 'synced_directory_creation_rejects_file_obstructions_without_replacing_data', 'chosen_membership_stage_merges_commit_and_receipt_evidence_deterministically', 'membership_stage_materialization_is_boot_scoped_and_preserves_receiver_receipts', 'staged_membership_quorums_reject_mixed_duplicate_and_invalid_receipts', 'membership_stage_reopen_rejects_torn_or_missing_sealed_history_without_rewrite', 'killed_membership_stage_recovers_receipt_and_replays_materialization_before_report', 'real_tls_staged_membership_requires_materializer_and_survives_peer_restart']
+membership_staging_names = ['chosen_membership_retention_retry_rejects_missing_input_without_recreation', 'synced_directory_creation_preserves_existing_files_across_nested_retries', 'synced_directory_creation_rejects_file_obstructions_without_replacing_data', 'chosen_membership_stage_merges_commit_and_receipt_evidence_deterministically', 'membership_stage_materialization_is_boot_scoped_and_preserves_receiver_receipts', 'staged_membership_quorums_reject_mixed_duplicate_and_invalid_receipts', 'membership_stage_reopen_rejects_torn_or_missing_sealed_history_without_rewrite', 'killed_membership_stage_recovers_receipt_and_replays_materialization_before_report', 'real_tls_staged_membership_requires_materializer_and_survives_peer_restart']
 membership_staging_evidence = {
     name: any(line.startswith("test ") and f"::{name} ... ok" in line
               for line in workspace_stdout.splitlines())

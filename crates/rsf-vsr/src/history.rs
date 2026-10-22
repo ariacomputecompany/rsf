@@ -2,14 +2,14 @@
 //! A later configuration seals the preceding view at its committed boundary.
 use super::*;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Configuration {
     primary: NodeId,
     voters: BTreeSet<NodeId>,
     preceding_tail: LogIndex,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct ConfigurationHistory(
     BTreeMap<Epoch, Configuration>,
     BTreeMap<(Epoch, LogIndex), [u8; 32]>,

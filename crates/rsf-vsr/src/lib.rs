@@ -324,7 +324,7 @@ struct PendingPrepare {
     committed: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VsrCell {
     pg: PlacementGroupId,
     view: Epoch,

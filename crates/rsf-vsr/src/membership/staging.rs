@@ -39,14 +39,9 @@ impl VsrMembershipStagedPlan {
             })
             .map(|(n, _)| n)
             .ok_or_else(|| invalid_input("staged membership input has no source"))?;
-        let states = approval
-            .snapshots()
-            .iter()
-            .map(|s| s.recover_state())
-            .collect::<RsfResult<Vec<_>>>()?;
         let epoch = approval.proposal().election.previous_view;
         let (recovered, deltas) = installation::merge_quorum(
-            states,
+            approval.states.clone(),
             source,
             approval.proposal().election.pg,
             epoch,

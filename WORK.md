@@ -490,3 +490,14 @@ required regressions remain in the gate.
 No active generation or voting-role change is published yet. Native publication,
 activation/promotion, retired roles, conflict/abort/repeated-generation lifecycle,
 atomic control admission and workload/fault capacity qualification remain open.
+
+The disk-recovery rerun (`verification.ZN4Y2J`) passed 21 domains but failed the
+final workspace run at cold TLS staging. Diagnostics measured a 1.564-second
+service path with the unchanged 800 ms request deadline. Immutable approvals now
+retain their replay-validated states, and exact chosen-input retention verifies
+existing bytes without recreating directories or redoing semantic replay. Staging
+compares its recovered copy against the already validated exact input. Disk reopen
+still performs full proof validation. A new regression rejects a missing chosen
+input without recreating it. All 269 affected tests and strict affected-target
+Clippy pass; complete new-source qualification is pending. The full gate now
+requires nine staging/directory/retention regressions.

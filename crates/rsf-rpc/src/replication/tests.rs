@@ -235,12 +235,16 @@ fn peer_process() {
     std::io::stdout().flush().unwrap();
     for socket in listener.incoming() {
         let socket = socket.unwrap();
-        if std::env::var("RSF_RPC_TEST_STAGE_APPLY").as_deref() == Ok("1") {
-            let _ = server.serve_connection_with_apply(socket, &mut |entry| {
+        let started = Instant::now();
+        let result = if std::env::var("RSF_RPC_TEST_STAGE_APPLY").as_deref() == Ok("1") {
+            server.serve_connection_with_apply(socket, &mut |entry| {
                 persist_staged_entry(&root, node, entry)
-            });
+            })
         } else {
-            let _ = server.serve_connection(socket);
+            server.serve_connection(socket)
+        };
+        if started.elapsed() >= Duration::from_millis(100) || result.is_err() {
+            eprintln!("peer {node} service {:?}: {result:?}", started.elapsed());
         }
     }
 }

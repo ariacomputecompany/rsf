@@ -388,3 +388,11 @@ activation/learner promotion, removed-voter roles, abort/conflict handling, repe
 generations and atomic distributed control admission remain unfinished. Growing
 history proof access/memory and independent-host/region capacity/fault qualification
 remain required before production readiness.
+
+The subsequent disk-recovery gate passed 21 domains but failed final workspace
+cold staging under its unchanged 800 ms deadline. In-process approvals now retain
+private replay-validated states; exact chosen-input retries compare retained bytes
+without rewriting inputs, and stage source-copy verification compares complete
+bytes against the validated proof. Reopen still validates all proof from disk.
+A missing chosen input fails without recreation. All 269 affected tests and
+strict affected-target Clippy pass; full new-source qualification is pending.

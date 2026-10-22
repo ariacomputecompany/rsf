@@ -112,6 +112,56 @@ fn plan(f: &Fixture, alternate: bool) -> VsrMembershipStagedPlan {
     .unwrap()
 }
 #[test]
+fn chosen_membership_retention_retry_rejects_missing_input_without_recreation() {
+    let path = root("chosen-retention-retry");
+    let f = fixture(&path);
+    let decision_path = path.join("decision-1");
+    let mut decision =
+        MembershipDecisionStore::open_existing(&decision_path, PlacementGroupId(1), NodeId(1))
+            .unwrap();
+    decision
+        .retain_chosen_input(f.chosen.clone(), &f.approval)
+        .unwrap();
+    let count = SegmentStore::recover_existing(decision_path.join("journal"))
+        .unwrap()
+        .recovery
+        .wal_records
+        .len();
+    decision
+        .retain_chosen_input(f.alternate.clone(), &f.approval)
+        .unwrap();
+    assert_eq!(
+        SegmentStore::recover_existing(decision_path.join("journal"))
+            .unwrap()
+            .recovery
+            .wal_records
+            .len(),
+        count,
+        "an equivalent chosen-proof subset appended another durable decision"
+    );
+    let name = f
+        .chosen
+        .input_id()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let descriptor = decision_path.join("inputs").join(name).join("DESCRIPTOR");
+    fs::remove_file(&descriptor).unwrap();
+    assert!(
+        decision
+            .retain_chosen_input(f.chosen.clone(), &f.approval)
+            .is_err()
+    );
+    assert!(!descriptor.exists(), "retry recreated missing chosen input");
+    drop(decision);
+    assert!(
+        MembershipDecisionStore::open_existing(&decision_path, PlacementGroupId(1), NodeId(1))
+            .is_err()
+    );
+    drop(f);
+    fs::remove_dir_all(path).unwrap();
+}
+#[test]
 fn chosen_membership_stage_merges_commit_and_receipt_evidence_deterministically() {
     let path = root("stage-merge");
     let mut f = fixture(&path);

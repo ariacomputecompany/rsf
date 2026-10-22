@@ -63,7 +63,11 @@ impl MembershipStagingStore {
         // Validate bytes recovered from the staged source, including a prior
         // upload acknowledged by another process before this factory resumed.
         let (input, records) = disk::read_records(&root, plan.input.id()?)?;
-        input.validate_records(&records)?;
+        if input != plan.input || records != input_records {
+            return Err(corrupt(
+                "staged membership source differs from validated input",
+            ));
+        }
         write_history(&root, &plan)?;
         let stage = stage_id(&plan)?;
         let metadata = encode_meta(local, &plan, stage)?;
