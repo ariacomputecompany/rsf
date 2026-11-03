@@ -220,3 +220,116 @@ fn membership_publication_ancestry_requires_healthy_active_custody() {
     drop(stages);
     fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn published_stage_materialization_applies_current_commits_before_renewing_receipt() {
+    let path = root("published-stage-current-materialization");
+    let mut f = fixture(&path);
+    fence_primary(&mut f);
+    let (mut stages, quorum) = staged(&path, &f);
+    stages[1].retain_publication(&quorum).unwrap();
+    let retained = fs::read(path.join("stage-1/PUBLICATION")).unwrap();
+    for (cell, stage) in f.cells.iter_mut().zip(&stages) {
+        cell.install_membership(stage, &quorum).unwrap();
+    }
+    let prepare = f.cells[1].reprepare(NodeId(1), LogIndex(3)).unwrap();
+    for n in [0, 2] {
+        f.cells[n]
+            .receive_prepare(NodeId(n as u64), NodeId(1), prepare.clone())
+            .unwrap();
+        f.cells[1].acknowledge(NodeId(n as u64), Epoch(2), LogIndex(3));
+    }
+    let VsrDecision::Committed(commit) = f.cells[1].commit(NodeId(1), LogIndex(3)).unwrap() else {
+        panic!("later committed entry");
+    };
+    for n in [0, 2] {
+        f.cells[n]
+            .receive_commit(NodeId(n as u64), NodeId(1), commit.clone())
+            .unwrap();
+    }
+    let promise = VsrViewChangeRequest {
+        pg: PlacementGroupId(1),
+        previous_view: Epoch(2),
+        target_view: Epoch(3),
+        candidate: NodeId(2),
+        voters: (0..4).map(NodeId).collect(),
+    };
+    f.cells[1]
+        .begin_view_change(NodeId(1), NodeId(2), promise.clone())
+        .unwrap();
+    drop(f);
+    drop(stages);
+    let cell = reopen(&path, 1);
+    let mut stage =
+        MembershipStagingStore::open_existing(path.join("stage-1"), PlacementGroupId(1), NodeId(1))
+            .unwrap();
+    assert!(stage.report().is_err());
+    assert_eq!(stage.plan().committed_tail(), LogIndex(2));
+    assert_eq!(cell.committed_tail(), LogIndex(3));
+    assert!(cell.primary_probe().is_err());
+    let before = cell.recovery_state_token().unwrap();
+    let mut attempted = Vec::new();
+    assert!(
+        stage
+            .materialize_published(&cell, &mut |entry| {
+                attempted.push(entry.prepare.index);
+                if entry.prepare.index == LogIndex(3) {
+                    Err(corrupt("current application write failed"))
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+    );
+    assert_eq!(attempted, vec![LogIndex(1), LogIndex(2), LogIndex(3)]);
+    assert!(stage.report().is_err());
+    let mut applied = Vec::new();
+    let report = stage
+        .materialize_published(&cell, &mut |entry| {
+            applied.push(entry.prepare.index);
+            write_application(&path.join("current-application"), entry)
+        })
+        .unwrap();
+    assert_eq!(applied, vec![LogIndex(1), LogIndex(2), LogIndex(3)]);
+    assert_eq!(
+        report.committed_tail,
+        LogIndex(2),
+        "receipt keeps its historical stage identity"
+    );
+    assert!(path.join("current-application/application/3").is_file());
+    assert_eq!(stage.report().unwrap(), report);
+    assert_eq!(stage.publication_quorum().unwrap(), Some(quorum));
+    assert_eq!(
+        fs::read(path.join("stage-1/PUBLICATION")).unwrap(),
+        retained
+    );
+    assert_eq!(cell.recovery_state_token().unwrap(), before);
+    assert_eq!(cell.view_change_promise(), Some(&promise));
+
+    let unrelated = DurableVsrCell::open(
+        path.join("unrelated"),
+        PlacementGroupId(1),
+        Epoch(1),
+        NodeId(0),
+        (0..3).map(NodeId),
+    )
+    .unwrap();
+    let mut invoked = false;
+    assert!(
+        stage
+            .materialize_published(&unrelated, &mut |_| {
+                invoked = true;
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(!invoked);
+    assert!(
+        stage.report().is_err(),
+        "failed validation invalidates prior boot receipt"
+    );
+    drop(unrelated);
+    drop(stage);
+    drop(cell);
+    fs::remove_dir_all(path).unwrap();
+}

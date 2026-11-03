@@ -233,6 +233,7 @@ pub struct PeerReplicaServer {
     membership_stage_learner_tokens: BTreeMap<PlacementGroupId, [u8; 32]>,
     membership_staging: BTreeMap<PlacementGroupId, rsf_vsr::MembershipStagingStore>,
     membership_paths: BTreeMap<PlacementGroupId, std::path::PathBuf>,
+    membership_promotion_paths: BTreeMap<PlacementGroupId, std::path::PathBuf>,
     membership_inputs: BTreeMap<PlacementGroupId, rsf_vsr::MembershipAuthorityInbox>,
     membership_decisions: BTreeMap<PlacementGroupId, rsf_vsr::MembershipDecisionStore>,
     learner_materialized: BTreeMap<PlacementGroupId, [u8; 32]>,
@@ -359,6 +360,7 @@ impl PeerReplicaServer {
             membership_stage_learner_tokens: BTreeMap::new(),
             membership_staging: BTreeMap::new(),
             membership_paths: BTreeMap::new(),
+            membership_promotion_paths: BTreeMap::new(),
             membership_inputs: BTreeMap::new(),
             membership_decisions: BTreeMap::new(),
             learner_materialized: BTreeMap::new(),
@@ -428,6 +430,14 @@ impl PeerReplicaServer {
                 ))
             } else {
                 self.dispatch_membership_stage(sender, payload, apply)
+            }
+        } else if matches!(kind, MEMBERSHIP_PUBLISH | MEMBERSHIP_PUBLICATION) {
+            if !materializer_present {
+                Err(invalid(
+                    "membership publication requires a trusted application materializer",
+                ))
+            } else {
+                self.dispatch_membership_publication(sender, kind, payload, apply)
             }
         } else if (MEMBERSHIP_AUTH_BEGIN..=MEMBERSHIP_INPUT_READ).contains(&kind) {
             self.dispatch_membership_decision(sender, kind, payload)

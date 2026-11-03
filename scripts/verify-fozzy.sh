@@ -449,8 +449,19 @@ publication_recovery_evidence = {
     for name in publication_recovery_names
 }
 publication_recovery_valid = all(publication_recovery_evidence.values())
+peer_publication_names = [
+    'published_stage_materialization_applies_current_commits_before_renewing_receipt',
+    'real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views',
+    'real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner',
+    'real_tls_membership_publication_resolves_one_lost_reply_and_binds_reporter',
+]
+peer_publication_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in peer_publication_names
+}
+peer_publication_valid = all(peer_publication_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -475,7 +486,10 @@ summary = {
     "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills; native peer publication quorum, live role handoff and atomic control admission remain unfinished",
     "publication_recovery_evidence_valid": publication_recovery_valid,
     "publication_recovery_regressions": publication_recovery_evidence,
-    "publication_recovery_scope": "replay-proven historical activation, durable staged-quorum input custody and semantic publication receipt codecs; native publish/query RPC, live role handoff, publication completion and atomic control admission remain unfinished",
+    "publication_recovery_scope": "replay-proven historical activation, durable staged-quorum input custody and semantic publication receipt codecs; native daemon orchestration, publication completion and atomic control admission remain unfinished",
+    "peer_publication_evidence_valid": peer_publication_valid,
+    "peer_publication_regressions": peer_publication_evidence,
+    "peer_publication_scope": "authenticated publish/query RPC, owned live learner handoff, current-prefix application and historical recovery after candidate loss through real TLS peer processes; native daemon orchestration, repeated transitions and atomic control admission remain unfinished",
     "native_role_evidence_valid": native_role_valid,
     "native_role_regressions": native_role_evidence,
     "native_role_scope": "real native TLS peer restart from certified local promotion, non-voting partial claims, fail-closed provenance and actual recovered election budgets; no native publication quorum, live role handoff or atomic client/control admission",

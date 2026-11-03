@@ -227,6 +227,24 @@ impl MembershipStagingStore {
     ) -> RsfResult<VsrMembershipStagedReport> {
         self.materialize_with_hook(apply, || {})
     }
+    /// Renew this stage's boot receipt from a published descendant's complete
+    /// current committed log. Do not replay an older stage over later effects.
+    /// The trusted callback must durably apply every entry before returning.
+    /// Historical identity and retained PUBLICATION bytes remain unchanged.
+    pub fn materialize_published(
+        &mut self,
+        anchor: &DurableVsrCell,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> RsfResult<()>,
+    ) -> RsfResult<VsrMembershipStagedReport> {
+        self.healthy()?;
+        self.materialized = false;
+        self.validate_published_anchor(anchor)?;
+        for entry in anchor.committed_prefix()? {
+            apply(&entry)?;
+        }
+        self.finish_materialization(|| {})
+    }
+
     fn materialize_with_hook(
         &mut self,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> RsfResult<()>,
@@ -237,6 +255,12 @@ impl MembershipStagingStore {
         for entry in self.plan.committed_entries()? {
             apply(&entry)?;
         }
+        self.finish_materialization(after_receipt)
+    }
+    fn finish_materialization(
+        &mut self,
+        after_receipt: impl FnOnce(),
+    ) -> RsfResult<VsrMembershipStagedReport> {
         let report = self.expected_report()?;
         if let Err(error) = atomic(&self.root, "INSTALLED", &report.encode()?) {
             self.failed = true;

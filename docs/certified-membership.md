@@ -494,9 +494,40 @@ verification, replay, CI and Clippy pass. The preceding capacity source passes a
 promotion source. See `learner-promotion-verification-2026-11-02.json` and
 `membership-capacity-full-verification-2026-11-02.json`.
 
-Local publication still does not establish new-quorum publication completion.
-Authenticated peer orchestration, role/restart custody, candidate-independent
-recovery and replicated control/catalog admission must complete before enabling
-an operator membership command or admitting clients under the new configuration.
-Full-history replay and independent-host/region capacity and machine power-loss
+## Authenticated peer publication and historical recovery
+
+Peer PUBLISH (33) accepts the chosen staged quorum and PUBLICATION (34) queries
+an installed canonical plan. Both require an authenticated proposed voter and a
+trusted application materializer. First publication retains the staged quorum
+before changing authority. A promoted learner transfers its exclusively owned
+cell into the peer's voter map synchronously, then releases its learner handle.
+Configured promotion targets are local paths; requests cannot select them.
+
+An acknowledgement proves a historical installation and successful application
+of the current committed prefix. It does not grant current leadership or client
+admission. Retries consult replay-validated active ancestry, preserve the first
+durable publication proof, and leave later views, promises and commits intact.
+They neither reinstall an old generation nor refresh primary-contact clocks.
+Application errors keep materialization pending and prevent acknowledgement.
+
+Cold transition recovery validates the same decision journal against its retained
+chosen input, sealed local stage and active ancestry. The acceptor's initial
+authority may differ from its eventual chosen input. This recovery does not
+create a new acceptor or reset its promises. Historical stage retries apply the
+current committed prefix; stale same-boot tokens cannot hide later application
+work or reuse success after a materialization failure.
+
+The TLS regressions delete the original source and nominated candidate, publish
+through the surviving voter and learner, recover the promoted role, elect a new
+candidate and commit more data. They retain an exact 128 KiB operation, original
+request receipt and accepted tail. Additional cases cover failed application,
+missing materializers, wrong authority, corrupted owner metadata, one lost
+publication reply and an authenticated response naming the wrong reporter.
+The affected-package and full-gate reports state the verified source and scope.
+
+These peer APIs still need native daemon transition scheduling and replicated
+control/catalog admission. A collected publication quorum is historical evidence;
+it is not yet a durable cluster-wide admission record. No operator membership
+command is enabled. Repeated transition lifecycles, bounded history and retention,
+independent-group routing, independent-host/region capacity and machine power-loss
 qualification remain open.

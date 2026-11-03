@@ -24,35 +24,34 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. Publication recovery source
-`ef24d94` passes all 23 domains and aggregate evidence checks with an unchanged
-source fingerprint. Workspace passes 1,229 tests, zero failures and one opt-in
-stress test ignored; both debug/release takeover, SQL streaming and process stress
-profiles pass. All twelve publication recovery regressions appear in recorded
-workspace output. Every domain includes strict five-run doctor, deterministic
-orchestration, real host execution, strict trace verification, replay and CI.
-See `docs/publication-recovery-full-verification-2026-11-02.json` and the scoped
-implementation report `docs/publication-recovery-verification-2026-11-02.json`.
-Affected-package all-target Clippy passes with dependency diagnostics excluded.
+Current release status: **not production qualified**. Peer publication and cold
+transition recovery pass all 405 affected-package tests with zero failures and
+one opt-in stress test ignored. The source fingerprint is unchanged. Strict
+five-run doctor, deterministic orchestration, real host execution, strict trace
+verification, replay, CI and affected-target Clippy pass. The full final-source
+gate remains required; see `docs/peer-publication-verification-2026-11-02.json`.
+The preceding publication recovery source `ef24d94` passes all 23 domains and
+1,229 workspace tests, including debug/release takeover, SQL streaming and process
+stress; see `docs/publication-recovery-full-verification-2026-11-02.json`.
 
-Native peer publication quorum, live voting-role handoff and atomic control
-admission remain unfinished. Growing-history protocol reopening/replay, retention,
+Native daemon transition orchestration and atomic control admission remain
+unfinished. Growing-history protocol reopening/replay, retention,
 legacy migration, independent-group routing and independent-host/region fault/
 numerical capacity qualification remain required. Scoped recovery and local
 factory tests do not establish these deployment properties. An unrestricted
 Clippy attempt also exposes existing lint debt in tuple/manifest/prepared; the
 passing lint scope above excludes dependency diagnostics.
 
-### Next implementation: native membership publication and promotion
+### Next implementation: native transition recovery and control admission
 
-- Integrate the verified kernel publisher and owned promotion factory into
-  authenticated peer orchestration with trusted application materialization,
-  new-quorum publication acknowledgements and durable live-role custody.
-  Restart now recognizes owned local publication; transition completion still
-  needs replay-proven recovery after newer views and original-candidate loss.
-- Retain removed-voter fencing and support ordinary election on the new voter
-  set after permanent loss of the original candidate through actual TLS peers.
-  Qualify repeated membership lifecycles and partial-proposal conflict/abort.
+- Configure native daemon transition custody and bounded background recovery for
+  learners and fenced/published voters. Recover choice, staging and publication
+  without depending on the original candidate or blocking the peer event loop
+  on an entire multi-peer transfer. Preserve ordinary new-set election liveness
+  through live promotion and cold restart.
+- Persist publication completion through replicated control/catalog authority.
+  Qualify repeated membership lifecycles, removed/re-added roles and partial
+  proposal conflict/abort; the current fixed transition paths are one-shot.
 - Keep native client admission closed until replicated control/catalog authority
   and application materialization agree on the same installed membership. Do not
   enable an operator membership command ahead of that integration and its gates.

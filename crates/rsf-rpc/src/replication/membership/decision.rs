@@ -1,10 +1,12 @@
-//! Authenticated transition-only consensus. No application role is promoted.
+//! Authenticated transition consensus, staging and publication. Client
+//! admission remains a separate replicated control decision.
 use super::*;
 use rsf_vsr::{
     MembershipAuthorityInbox, MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipChosen,
     VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipRound,
 };
 mod client;
+mod publication;
 mod server;
 mod staging;
 fn context(pg: PlacementGroupId, round: VsrMembershipRound, proposal: [u8; 32]) -> Vec<u8> {

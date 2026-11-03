@@ -1,5 +1,7 @@
 use super::*;
-use std::path::PathBuf;
+use rsf_vsr::MembershipStagingStore;
+use std::path::{Path, PathBuf};
+
 impl PeerReplicaServer {
     /// Configure owned transition paths only for already hosted voters/learners.
     /// Incoming RPC contents cannot select paths or create an application cell.
@@ -16,14 +18,30 @@ impl PeerReplicaServer {
             }
             let inbox = MembershipAuthorityInbox::open(path.join("inbox"), pg, self.local)
                 .map_err(|e| e.message)?;
+            let staging_path = path.join("staging");
+            let sealed = ["META", "INSTALLED", "PUBLICATION", ".PUBLICATION.tmp"]
+                .into_iter()
+                .map(|name| transition_path_present(&staging_path.join(name)))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .any(|present| present);
+            let stage = if sealed {
+                Some(
+                    MembershipStagingStore::open_existing(&staging_path, pg, self.local)
+                        .map_err(|e| e.message)?,
+                )
+            } else {
+                None
+            };
             let decision_path = path.join("decision");
-            if decision_path.exists() {
+            if transition_path_present(&decision_path)? {
                 let store =
                     match MembershipDecisionStore::open_existing(&decision_path, pg, self.local) {
                         Ok(store) => store,
                         Err(original) => {
                             // The factory never resets a nonempty journal. A complete
                             // inbox may resume an interrupted initial authority copy.
+                            // This remains the strict pre-publication path.
                             let input = inbox
                                 .selected_input()
                                 .ok_or_else(|| original.message.clone())?;
@@ -35,26 +53,45 @@ impl PeerReplicaServer {
                                 .map_err(|e| format!("{}; {}", original.message, e.message))?
                         }
                     };
-                self.validate_decision_authority(pg, &store.authority().map_err(|e| e.message)?)?;
-                if let Some((_, id)) = store.accepted() {
+                if !self.published_decision_anchor(pg, &store, stage.as_ref())? {
                     self.validate_decision_authority(
                         pg,
-                        &store.approval(id).map_err(|e| e.message)?,
+                        &store.authority().map_err(|e| e.message)?,
                     )?;
+                    if let Some((_, id)) = store.accepted() {
+                        self.validate_decision_authority(
+                            pg,
+                            &store.approval(id).map_err(|e| e.message)?,
+                        )?;
+                    }
+                    if let Some(stage) = &stage {
+                        if let Some(cell) = self.cells.get(&pg) {
+                            stage.validate_anchor(cell).map_err(|e| e.message)?;
+                        } else {
+                            self.learners[&pg]
+                                .validate_membership_stage(stage)
+                                .map_err(|e| e.message)?;
+                        }
+                    }
                 }
                 self.membership_decisions.insert(pg, store);
+            } else if stage.is_some() {
+                return Err("retained membership stage has no decision journal".into());
+            }
+            if let Some(stage) = stage {
+                self.membership_staging.insert(pg, stage);
             }
             self.membership_inputs.insert(pg, inbox);
             self.membership_paths.insert(pg, path);
         }
         Ok(self)
     }
+
     pub fn initialize_membership_decision(
         &mut self,
         approval: &VsrMembershipApproval,
     ) -> Result<(), String> {
         let pg = approval.proposal().election.pg;
-        self.validate_decision_authority(pg, approval)?;
         let path = self
             .membership_paths
             .get(&pg)
@@ -63,13 +100,68 @@ impl PeerReplicaServer {
             if existing.proposal() != approval.proposal() {
                 return Err("membership decision already binds another proposal".into());
             }
+            if self.published_decision_anchor(pg, existing, self.membership_staging.get(&pg))? {
+                let stage = &self.membership_staging[&pg];
+                if approval.snapshots()[0].records.first()
+                    != stage.plan().approval().snapshots()[0].records.first()
+                {
+                    return Err(
+                        "membership authority differs from retained decision bootstrap".into(),
+                    );
+                }
+            } else {
+                self.validate_decision_authority(pg, approval)?;
+            }
             return Ok(());
         }
+        // An ancestral proof never creates a new acceptor or replaces a journal.
+        self.validate_decision_authority(pg, approval)?;
         let store = MembershipDecisionStore::open(path.join("decision"), self.local, approval)
             .map_err(|e| e.message)?;
         self.membership_decisions.insert(pg, store);
         Ok(())
     }
+
+    // The journal constructor validates A (initial authority), accepted input,
+    // and chosen B against one immutable proposal/bootstrap. State replay also
+    // requires accepted B to match chosen B. Therefore ancestry of this exact
+    // retained B validates the SAME journal; A need not have been published.
+    fn published_decision_anchor(
+        &self,
+        pg: PlacementGroupId,
+        store: &MembershipDecisionStore,
+        stage: Option<&MembershipStagingStore>,
+    ) -> Result<bool, String> {
+        self.validate_decision_nodes(store.proposal())?;
+        let Some(stage) = stage else {
+            return Ok(false);
+        };
+        let chosen = store
+            .chosen()
+            .ok_or_else(|| "retained membership stage has no chosen decision".to_string())?;
+        if stage.plan().input().proposal() != store.proposal()
+            || stage.plan().chosen().input_id() != chosen.input_id()
+        {
+            return Err(
+                "retained membership stage differs from the decision journal's choice".into(),
+            );
+        }
+        let Some(cell) = self.cells.get(&pg) else {
+            return Ok(false);
+        };
+        if cell
+            .membership_publication(stage.plan().id())
+            .map_err(|e| e.message)?
+            .is_none()
+        {
+            return Ok(false);
+        }
+        stage
+            .validate_published_anchor(cell)
+            .map_err(|e| e.message)?;
+        Ok(true)
+    }
+
     pub fn with_membership_decision<R>(
         &mut self,
         pg: PlacementGroupId,
@@ -273,5 +365,15 @@ impl PeerReplicaServer {
             }
             _ => Err(invalid("invalid membership decision RPC kind or length")),
         }
+    }
+}
+
+pub(super) fn transition_path_present(path: &Path) -> Result<bool, String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "cannot inspect membership transition custody: {error}"
+        )),
     }
 }

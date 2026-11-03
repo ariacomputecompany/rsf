@@ -1857,3 +1857,6 @@ mod membership_decision;
 
 #[path = "tests/control_recovery.rs"]
 mod control_recovery;
+
+#[path = "tests/membership_publication.rs"]
+mod membership_publication;
