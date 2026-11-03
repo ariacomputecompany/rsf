@@ -24,22 +24,20 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The frozen-source run on
-`ddefd48` passes all 23 domain executions, including 1,198 workspace tests with
-zero failures and one ignored stress test. Its aggregate gate still exits 1: peer
-stderr interrupts a passing libtest stdout line without whitespace. Both complete
-streams are now captured separately before replay, preserving exact results and
-original command exit codes. Recorded host smoke tests verify exit 0/17 and both
-raw streams. Earlier aggregates remain preserved as failed.
+Current release status: **not production qualified**. The frozen-source gate on
+`048893d` passes all 23 domains and the aggregate evidence checks. Workspace
+passes 1,203 tests with zero failures and 1 ignored stress test. Both native
+automatic takeover/SQL stream profiles and both abrupt-process stress profiles
+pass. Complete stdout and stderr remain separate before replay, preventing child
+diagnostics from corrupting test-result evidence. Strict doctor, orchestration,
+recorded host execution, trace verification, replay and CI pass for every domain.
+See `docs/membership-capacity-full-verification-2026-11-02.json`.
 
-New membership initiation rejects full nested proofs that cannot fit bounded
-publication records before any durable fence. The four storage regressions and
-real TLS no-fence/later-write regression pass within 228 affected-package tests.
-Historical proposal decoding and exact fence retries remain available. Strict
-traces, replay, CI and warnings-denied VSR/RPC/protocol/daemon Clippy pass. See
-`docs/membership-capacity-verification-2026-11-02.json`. A fresh final-source full
-gate is required; existing native deadlines, retry budgets and workloads retain
-their limits. Growing-history protocol reopening still needs performance work.
+Membership initiation bounds full nested proofs before any durable fence while
+preserving historical fence recovery. Earlier failed gates remain preserved.
+Existing native deadlines, retry budgets and workloads retain their limits.
+Growing-history protocol reopening still needs performance work. These local
+results do not establish independent-host or regional fault/capacity readiness.
 
 Kernel activation is verified; native peer membership publication/promotion and
 atomic control admission remain unfinished. Growing-history memory, cold protocol
@@ -58,8 +56,7 @@ region workload/fault qualification also remain open.
 - Keep native client admission closed until replicated control/catalog authority
   and application materialization agree on the same installed membership. Do not
   enable an operator membership command ahead of that integration and its gates.
-- Complete the single 23-domain invocation on the reliable capture harness.
-  Independent-group routing, bounded retention/migration and independent-host/
+- Independent-group routing, bounded retention/migration and independent-host/
   region numerical capacity/fault qualification remain required.
 
 ### Production-leaning but incomplete
