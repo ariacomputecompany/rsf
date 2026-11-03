@@ -8,6 +8,38 @@ pub(super) enum HostedRole {
 }
 
 pub(super) fn open(state: &Path, local: NodeId, config: CellConfig) -> Result<HostedRole, String> {
+    open_inner(state, local, config, false)
+}
+
+/// Managed recovery must never create a replacement bootstrap or learner after
+/// losing its authority anchor. The kernel still owns complete proof replay.
+pub(super) fn open_existing(
+    state: &Path,
+    local: NodeId,
+    config: CellConfig,
+) -> Result<HostedRole, String> {
+    for name in [
+        format!("pg-{}", config.pg),
+        format!("learner-{}", config.pg),
+    ] {
+        match std::fs::symlink_metadata(state.join(name)) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err("managed role custody requires local directories, not symlinks".into());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("cannot inspect managed role custody: {error}")),
+        }
+    }
+    open_inner(state, local, config, true)
+}
+
+fn open_inner(
+    state: &Path,
+    local: NodeId,
+    config: CellConfig,
+    existing: bool,
+) -> Result<HostedRole, String> {
     let pg = PlacementGroupId(config.pg);
     let voter = state.join(format!("pg-{}", config.pg));
     let learner = state.join(format!("learner-{}", config.pg));
@@ -21,9 +53,7 @@ pub(super) fn open(state: &Path, local: NodeId, config: CellConfig) -> Result<Ho
                     if !present(&learner)? {
                         return Err(original.message);
                     }
-                    let learner =
-                        rsf_vsr::LearnerHistoryStore::open(&learner, pg, local, NodeId(source))
-                            .map_err(|e| e.message)?;
+                    let learner = open_learner(&learner, pg, local, NodeId(source), existing)?;
                     if learner.promotion_pending(&voter).map_err(|e| e.message)? {
                         return Ok(HostedRole::Learner(Box::new(learner)));
                     }
@@ -31,9 +61,8 @@ pub(super) fn open(state: &Path, local: NodeId, config: CellConfig) -> Result<Ho
                 }
             }
         }
-        return rsf_vsr::LearnerHistoryStore::open(learner, pg, local, NodeId(source))
-            .map(|learner| HostedRole::Learner(Box::new(learner)))
-            .map_err(|e| e.message);
+        return open_learner(&learner, pg, local, NodeId(source), existing)
+            .map(|learner| HostedRole::Learner(Box::new(learner)));
     }
     if present(&learner)? {
         let cell = DurableVsrCell::open_existing(voter, pg).map_err(|e| {
@@ -44,6 +73,11 @@ pub(super) fn open(state: &Path, local: NodeId, config: CellConfig) -> Result<Ho
         })?;
         return certified(cell, local).map(|cell| HostedRole::Voter(Box::new(cell)));
     }
+    if existing {
+        return DurableVsrCell::open_existing(voter, pg)
+            .map(|cell| HostedRole::Voter(Box::new(cell)))
+            .map_err(|error| error.message);
+    }
     DurableVsrCell::open(
         voter,
         pg,
@@ -53,6 +87,28 @@ pub(super) fn open(state: &Path, local: NodeId, config: CellConfig) -> Result<Ho
     )
     .map(|cell| HostedRole::Voter(Box::new(cell)))
     .map_err(|e| e.message)
+}
+
+fn open_learner(
+    root: &Path,
+    pg: PlacementGroupId,
+    local: NodeId,
+    source: NodeId,
+    existing: bool,
+) -> Result<rsf_vsr::LearnerHistoryStore, String> {
+    if existing {
+        for path in [root.join("IDENTITY"), root.join("ACTIVE")] {
+            if !std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("managed learner custody is missing: {error}"))?
+                .is_file()
+            {
+                return Err(
+                    "managed learner custody requires regular identity and active files".into(),
+                );
+            }
+        }
+    }
+    rsf_vsr::LearnerHistoryStore::open(root, pg, local, source).map_err(|error| error.message)
 }
 
 fn certified(cell: DurableVsrCell, local: NodeId) -> Result<DurableVsrCell, String> {

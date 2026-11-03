@@ -5,6 +5,7 @@ mod control;
 mod election;
 mod membership;
 pub use control::{PeerElectionProgress, PeerElectionTiming, PeerElectionUpdate};
+pub use membership::{PeerMembershipRecoveryTiming, PeerMembershipRecoveryUpdate};
 mod history;
 mod installation;
 mod recovery_retry;
@@ -233,6 +234,8 @@ pub struct PeerReplicaServer {
     membership_stage_learner_tokens: BTreeMap<PlacementGroupId, [u8; 32]>,
     membership_staging: BTreeMap<PlacementGroupId, rsf_vsr::MembershipStagingStore>,
     membership_paths: BTreeMap<PlacementGroupId, std::path::PathBuf>,
+    membership_recovery: Option<membership::Recovery>,
+    membership_recovery_bindings: BTreeMap<PlacementGroupId, rsf_vsr::VsrMembershipProposal>,
     membership_promotion_paths: BTreeMap<PlacementGroupId, std::path::PathBuf>,
     membership_inputs: BTreeMap<PlacementGroupId, rsf_vsr::MembershipAuthorityInbox>,
     membership_decisions: BTreeMap<PlacementGroupId, rsf_vsr::MembershipDecisionStore>,
@@ -245,6 +248,24 @@ pub struct PeerReplicaServer {
 }
 
 impl PeerReplicaServer {
+    /// Membership publication requires replicated control admission even when
+    /// the current voter IDs match local policy. Ordinary installation can
+    /// inherit that history without a local managed-recovery binding.
+    pub fn membership_admission_required(&self) -> Result<bool, String> {
+        if !self.membership_recovery_bindings.is_empty() {
+            return Ok(true);
+        }
+        for cell in self.cells.values() {
+            if cell
+                .has_membership_publication()
+                .map_err(|error| error.message)?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Serialize a client coordinator with peer traffic over the same live cells.
     /// The callback must return cell custody before returning; protocol's scoped
     /// installed-cell API provides restoration on errors and unwinding. Mark the
@@ -360,6 +381,8 @@ impl PeerReplicaServer {
             membership_stage_learner_tokens: BTreeMap::new(),
             membership_staging: BTreeMap::new(),
             membership_paths: BTreeMap::new(),
+            membership_recovery: None,
+            membership_recovery_bindings: BTreeMap::new(),
             membership_promotion_paths: BTreeMap::new(),
             membership_inputs: BTreeMap::new(),
             membership_decisions: BTreeMap::new(),
@@ -423,7 +446,9 @@ impl PeerReplicaServer {
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
         self.pending_contact = None;
-        let response = if kind == MEMBERSHIP_STAGE {
+        let response = if let Err(error) = self.guard_membership_recovery(kind, payload) {
+            Err(error)
+        } else if kind == MEMBERSHIP_STAGE {
             if !materializer_present {
                 Err(invalid(
                     "membership staging requires a trusted application materializer",

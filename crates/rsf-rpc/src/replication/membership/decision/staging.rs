@@ -238,22 +238,26 @@ impl PeerReplicaServer {
         if let Some(report) = self.staged_receipt_retry(&chosen).map_err(invalid)? {
             return report.encode().map_err(|e| invalid(e.message));
         }
-        let retained = self.membership_decisions.get(&pg).filter(|store| {
-            store.chosen().is_some_and(|previous| {
-                previous.proposal() == chosen.proposal() && previous.input_id() == chosen.input_id()
-            })
-        });
-        let approval = if let Some(store) = retained {
-            // A new coordinator can retry a cold retained choice without the
-            // old sender's inbox selection or another authority upload.
+        let retained = if let Some(store) = self.membership_decisions.get(&pg) {
+            if store.proposal() != chosen.proposal() {
+                return Err(invalid("membership staging differs from retained proposal"));
+            }
             store
-                .approval(chosen.input_id())
+                .retained_approval(chosen.input_id())
                 .map_err(|e| invalid(e.message))?
+        } else {
+            None
+        };
+        let approval = if let Some(approval) = retained {
+            // An acceptor may have complete B without learning its certificate.
+            // A new coordinator can supply that certificate without the old
+            // uploader's inbox; stage_chosen_membership retains/validates it.
+            approval
         } else {
             self.membership_inputs
                 .get(&pg)
                 .ok_or_else(|| invalid("membership authority inbox is not configured"))?
-                .finish(sender, chosen.input_id())
+                .retained_approval(sender, chosen.input_id())
                 .map_err(|e| invalid(e.message))?
         };
         self.stage_chosen_membership(chosen, approval, apply)
@@ -263,6 +267,75 @@ impl PeerReplicaServer {
     }
 }
 impl NetworkVsrTransport {
+    /// Request one peer's staged receipt. The peer must already retain this
+    /// input or have a complete authority inbox. Provisioning is separate so a
+    /// recovery poll performs only this bounded exchange (and its lost-reply retry).
+    pub fn stage_membership(
+        &self,
+        replica: NodeId,
+        plan: &VsrMembershipStagedPlan,
+    ) -> Result<VsrMembershipStagedReport, VsrTransportError> {
+        let report = self.exchange_membership_stage(replica, plan.chosen())?;
+        check_report(&report, replica, plan)
+            .map_err(|reason| VsrTransportError { replica, reason })?;
+        Ok(report)
+    }
+
+    /// A recovery worker needs only the chosen proof and an actual local staged
+    /// receipt, avoiding a copy of the complete plan/history for every peer.
+    pub(in crate::replication) fn stage_membership_report(
+        &self,
+        replica: NodeId,
+        chosen: &VsrMembershipChosen,
+        expected: &VsrMembershipStagedReport,
+    ) -> Result<VsrMembershipStagedReport, VsrTransportError> {
+        let fail = |reason: String| VsrTransportError { replica, reason };
+        expected.encode().map_err(|e| fail(e.message))?;
+        if expected.replica != self.local
+            || expected.proposal != *chosen.proposal()
+            || expected.input != chosen.input_id()
+        {
+            return Err(fail(
+                "membership expected stage differs from chosen input".into(),
+            ));
+        }
+        let report = self.exchange_membership_stage(replica, chosen)?;
+        if report.replica != replica
+            || report.proposal != expected.proposal
+            || report.input != expected.input
+            || report.plan != expected.plan
+            || report.committed_tail != expected.committed_tail
+            || report.accepted_tail != expected.accepted_tail
+        {
+            return Err(fail(
+                "membership staged receipt differs from authenticated reporter or chosen prefix"
+                    .into(),
+            ));
+        }
+        Ok(report)
+    }
+
+    fn exchange_membership_stage(
+        &self,
+        replica: NodeId,
+        chosen: &VsrMembershipChosen,
+    ) -> Result<VsrMembershipStagedReport, VsrTransportError> {
+        let fail = |reason: String| VsrTransportError { replica, reason };
+        if replica == self.local
+            || !chosen.proposal().new_voters.contains(&self.local)
+            || !chosen.proposal().new_voters.contains(&replica)
+        {
+            return Err(fail(
+                "membership staging requires distinct proposed-voter endpoints".into(),
+            ));
+        }
+        let payload = chosen.encode().map_err(|e| fail(e.message))?;
+        let response = self
+            .exchange_io(replica, MEMBERSHIP_STAGE, &payload)
+            .map_err(|e| fail(e.to_string()))?;
+        VsrMembershipStagedReport::decode(&response).map_err(|e| fail(e.message))
+    }
+
     /// Gather new-majority staged/materialized receipts for a chosen prefix.
     /// The local report must come from this boot's trusted materializer. No
     /// active generation, learner promotion or client admission is published.
@@ -278,7 +351,6 @@ impl NetworkVsrTransport {
         check_report(&local, self.local, plan).map_err(fail)?;
         let mut reports = vec![local];
         let mut failures = Vec::new();
-        let payload = plan.chosen().encode().map_err(|e| fail(e.message))?;
         for replica in plan
             .input()
             .proposal()
@@ -289,23 +361,7 @@ impl NetworkVsrTransport {
         {
             let result = self
                 .provision_membership_authority(replica, plan.approval())
-                .and_then(|()| {
-                    let response = self
-                        .exchange_io(replica, MEMBERSHIP_STAGE, &payload)
-                        .map_err(|e| VsrTransportError {
-                            replica,
-                            reason: e.to_string(),
-                        })?;
-                    let report = VsrMembershipStagedReport::decode(&response).map_err(|e| {
-                        VsrTransportError {
-                            replica,
-                            reason: e.message,
-                        }
-                    })?;
-                    check_report(&report, replica, plan)
-                        .map_err(|reason| VsrTransportError { replica, reason })?;
-                    Ok(report)
-                });
+                .and_then(|()| self.stage_membership(replica, plan));
             match result {
                 Ok(report) => reports.push(report),
                 Err(e) => failures.push(format!("{}: {}", replica.0, e.reason)),

@@ -17,11 +17,53 @@ pub struct MembershipAuthorityInbox {
 }
 impl MembershipAuthorityInbox {
     pub fn open(path: impl AsRef<Path>, pg: PlacementGroupId, local: NodeId) -> RsfResult<Self> {
-        let root = path.as_ref().to_path_buf();
-        rsf_storage::create_dir_all_synced(&root).map_err(io_error)?;
+        Self::open_inner(path.as_ref(), pg, local, false)
+    }
+    /// Reopen enrolled custody without creating a root, lock or identity.
+    /// A missing or torn-to-zero identity journal cannot become a new inbox.
+    pub fn open_existing(
+        path: impl AsRef<Path>,
+        pg: PlacementGroupId,
+        local: NodeId,
+    ) -> RsfResult<Self> {
+        Self::open_inner(path.as_ref(), pg, local, true)
+    }
+    fn open_inner(
+        path: &Path,
+        pg: PlacementGroupId,
+        local: NodeId,
+        existing: bool,
+    ) -> RsfResult<Self> {
+        let root = path.to_path_buf();
+        if existing {
+            for path in [&root, &root.join("metadata")] {
+                if !std::fs::symlink_metadata(path)
+                    .map_err(io_error)?
+                    .file_type()
+                    .is_dir()
+                {
+                    return Err(corrupt(
+                        "membership inbox custody is not an owned directory",
+                    ));
+                }
+            }
+            for path in [root.join(".inbox.lock"), root.join("metadata/MANIFEST")] {
+                if !std::fs::symlink_metadata(path)
+                    .map_err(io_error)?
+                    .file_type()
+                    .is_file()
+                {
+                    return Err(corrupt(
+                        "membership inbox identity or lock is not a regular file",
+                    ));
+                }
+            }
+        } else {
+            rsf_storage::create_dir_all_synced(&root).map_err(io_error)?;
+        }
         let lock = rsf_storage::ExclusiveFileLock::acquire(
             OpenOptions::new()
-                .create(true)
+                .create(!existing)
                 .truncate(false)
                 .write(true)
                 .open(root.join(".inbox.lock"))
@@ -30,6 +72,14 @@ impl MembershipAuthorityInbox {
         .map_err(|e| invalid_input(format!("membership inbox already owned: {e}")))?;
         if root.join("inputs").exists() && !root.join("metadata/MANIFEST").is_file() {
             return Err(corrupt("membership inbox lost its identity journal"));
+        }
+        if existing
+            && SegmentStore::recover_existing(root.join("metadata"))?
+                .recovery
+                .wal_records
+                .is_empty()
+        {
+            return Err(corrupt("membership inbox identity journal is empty"));
         }
         let mut options = SegmentStoreOptions::default();
         options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
@@ -66,6 +116,9 @@ impl MembershipAuthorityInbox {
             _lock: lock,
         };
         if recovered.recovery.wal_records.is_empty() {
+            if existing {
+                return Err(corrupt("membership inbox identity journal is empty"));
+            }
             inbox.persist(None)?;
         }
         if let Some(input) = &inbox.selected {
@@ -128,6 +181,22 @@ impl MembershipAuthorityInbox {
         if retained != *input {
             return Err(corrupt("membership authority descriptor changed"));
         }
+        input.validate_records(&records)
+    }
+    /// Read a complete retained input independently of the current upload
+    /// selection. A different proposed voter may continue a chosen transition
+    /// after another upload selected A over already-finished B. This only
+    /// validates proof bytes; the caller must still anchor the approval to its
+    /// hosted history and import the matching chosen certificate.
+    pub fn retained_approval(
+        &self,
+        sender: NodeId,
+        id: [u8; 32],
+    ) -> RsfResult<VsrMembershipApproval> {
+        self.healthy()?;
+        let (input, records) = disk::read_records(&self.root, id)?;
+        validate(&input, self.pg, self.local)?;
+        authorize(sender, &input)?;
         input.validate_records(&records)
     }
     fn persist(&mut self, selected: Option<VsrMembershipInput>) -> RsfResult<()> {

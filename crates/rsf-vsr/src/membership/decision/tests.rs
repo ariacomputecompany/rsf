@@ -666,3 +666,17 @@ fn membership_authority_inbox_resumes_validated_proof_without_voting_authority()
         MembershipAuthorityInbox::open(path.join("inbox"), PlacementGroupId(2), NodeId(3)).is_err()
     );
 }
+
+#[path = "inbox_recovery_tests.rs"]
+mod inbox_recovery;
+#[path = "retained_tests.rs"]
+mod retained;
+
+#[path = "inbox_retained_tests.rs"]
+mod inbox_retained;
+
+#[path = "input_custody_tests.rs"]
+mod input_custody;
+
+#[path = "bound_input_tests.rs"]
+mod bound_input;

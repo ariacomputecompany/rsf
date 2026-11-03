@@ -107,6 +107,7 @@ run_domain sql tests/sql-host.pass.fozzy.json
 run_domain authentication tests/auth-host.pass.fozzy.json
 run_domain tenancy tests/tenancy-host.pass.fozzy.json
 run_domain daemon tests/rsfd-host.pass.fozzy.json
+run_domain native-membership tests/native-membership-host.pass.fozzy.json
 run_domain automatic-client tests/automatic-client-host.pass.fozzy.json
 run_domain sql-stream tests/sql-stream-host.pass.fozzy.json
 run_domain daemon-stress tests/stress-host.pass.fozzy.json
@@ -460,8 +461,63 @@ peer_publication_evidence = {
     for name in peer_publication_names
 }
 peer_publication_valid = all(peer_publication_evidence.values())
+native_membership_names = [
+    'membership_bound_input_valid_short_prefix_never_repairs_acknowledged_custody',
+    'membership_unacknowledged_staged_prefix_still_resumes_after_cold_reopen',
+    'authority_input_temporaries_preserve_foreign_targets_warm_and_cold',
+    'authority_input_torn_regular_temporary_resumes_without_replacing_authority',
+    'authority_input_routes_reject_aliases_before_recovery_or_append_warm_and_cold',
+    'authority_input_missing_bound_files_are_not_recreated',
+    'accepted_input_is_readable_before_choice_and_imports_a_surviving_certificate_cold',
+    'retained_input_never_downgrades_missing_or_corrupt_bound_custody_to_absence',
+    'partial_retained_input_is_an_error_and_a_conflicting_choice_cannot_replace_acceptance',
+    'inbox_existing_rejects_missing_or_lost_identity_without_initialization',
+    'inbox_existing_never_recreates_empty_or_torn_to_zero_identity',
+    'inbox_existing_reuses_valid_identity_and_recovers_interrupted_later_selection',
+    'inbox_existing_rejects_symlink_and_non_file_custody_without_touching_targets',
+    'inbox_retains_complete_proof_across_later_selection_without_finishing_that_upload',
+    'inbox_retained_lookup_rejects_missing_corrupt_and_incomplete_input',
+    'real_tls_stage_imports_chosen_from_accepted_input_without_old_sender_inbox',
+    'real_tls_stage_rejects_corrupt_accepted_custody_without_inbox_fallback_or_repair',
+    'real_tls_stage_uses_finished_inbox_b_after_another_upload_selects_a',
+    'real_tls_stage_does_not_repair_lost_or_corrupt_nonselected_inbox_b',
+    'recovery_rotates_ready_groups_and_peers_without_waiting_for_backoff',
+    'staged_rejection_after_one_completed_provision_does_not_loop_upload_or_claim_repair',
+    'incremental_authority_batches_preserve_exact_cross_snapshot_order_and_byte_bounds',
+    'real_tls_managed_recovery_polls_both_survivors_while_transport_waits',
+    'managed_recovery_keeps_exact_proposal_guard_after_caught_materializer_unwind',
+    'strict_membership_recovery_paths_do_not_create_a_missing_decision',
+    'managed_identity_is_monotonic_and_binding_never_downgrades_policy',
+    'managed_identity_rejects_duplicate_unknown_and_noncanonical_policy_fields',
+    'managed_identity_rejects_foreign_temporary_paths_without_touching_policy',
+    'managed_policy_blocks_flag_removal_and_never_recreates_missing_custody',
+    'native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy',
+    'native_client_rechecks_membership_ancestry_after_live_ordinary_installation',
+    'native_published_voters_require_admission_even_with_unmanaged_v1_identity',
+]
+native_membership_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in native_membership_names
+}
+native_membership_profiles = {
+    profile: {name: False for name in native_membership_names[-3:]}
+    for profile in ("debug", "release")
+}
+native_membership_trace = Path(root, "native-membership.trace.fozzy")
+if native_membership_trace.exists():
+    for fields in json.loads(native_membership_trace.read_text()).get("decisions", []):
+        if fields.get("kind") != "proc_spawn" or fields.get("exit_code") != 0:
+            continue
+        args = fields.get("args", [])
+        profile = "release" if "--release" in args else "debug"
+        for name in native_membership_profiles[profile]:
+            if name in args and any(test_passed(line, name) for line in fields.get("stdout", "").splitlines()):
+                native_membership_profiles[profile][name] = True
+native_membership_valid = all(native_membership_evidence.values()) and all(
+    all(results.values()) for results in native_membership_profiles.values()
+)
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid and native_membership_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -469,6 +525,10 @@ summary = {
     "passed_domains": passed.split(),
     "failed_domains": failed.split(),
     "trace_directory": root,
+    "native_membership_evidence_valid": native_membership_valid,
+    "native_membership_regressions": native_membership_evidence,
+    "native_membership_profiles": native_membership_profiles,
+    "native_membership_scope": "existing chosen-transition recovery through native peers, retained accepted/input custody, bounded transport scheduling, managed role restart, durable client-admission denial and replay-derived startup/runtime ancestry admission; autonomous pre-choice rounds, repeated transitions and replicated control admission remain unfinished",
     "workload_evidence_valid": workloads_valid,
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,
@@ -483,19 +543,19 @@ summary = {
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
     "learner_promotion_evidence_valid": learner_promotion_valid,
     "learner_promotion_regressions": learner_promotion_evidence,
-    "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills; native peer publication quorum, live role handoff and atomic control admission remain unfinished",
+    "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills",
     "publication_recovery_evidence_valid": publication_recovery_valid,
     "publication_recovery_regressions": publication_recovery_evidence,
-    "publication_recovery_scope": "replay-proven historical activation, durable staged-quorum input custody and semantic publication receipt codecs; native daemon orchestration, publication completion and atomic control admission remain unfinished",
+    "publication_recovery_scope": "replay-proven historical activation, durable staged-quorum input custody and semantic publication receipt codecs",
     "peer_publication_evidence_valid": peer_publication_valid,
     "peer_publication_regressions": peer_publication_evidence,
-    "peer_publication_scope": "authenticated publish/query RPC, owned live learner handoff, current-prefix application and historical recovery after candidate loss through real TLS peer processes; native daemon orchestration, repeated transitions and atomic control admission remain unfinished",
+    "peer_publication_scope": "authenticated publish/query RPC, owned live learner handoff, current-prefix application and historical recovery after candidate loss through real TLS peer processes",
     "native_role_evidence_valid": native_role_valid,
     "native_role_regressions": native_role_evidence,
-    "native_role_scope": "real native TLS peer restart from certified local promotion, non-voting partial claims, fail-closed provenance and actual recovered election budgets; no native publication quorum, live role handoff or atomic client/control admission",
+    "native_role_scope": "real native TLS peer restart from certified local promotion, non-voting partial claims, fail-closed provenance and actual recovered election budgets",
     "membership_capacity_evidence_valid": membership_capacity_valid,
     "membership_capacity_regressions": membership_capacity_evidence,
-    "membership_capacity_scope": "bounded complete proofs rejected before new old-voter fences; historical fence decoding/retry preserved; native membership publication/promotion and control admission remain unfinished",
+    "membership_capacity_scope": "bounded complete proofs rejected before new old-voter fences; historical fence decoding/retry preserved",
     "primary_recovery_evidence_valid": primary_recovery_valid,
     "primary_recovery_regressions": primary_recovery_evidence,
     "primary_recovery_scope": "ordinary quorum election above superseding durable promises; unchanged native takeover deadlines and workload",
@@ -504,19 +564,19 @@ summary = {
     "idle_application_scope": "one owned application writer survives idle polls; protocol ownership is released and reopens against exact history, current authority, transport and per-request authorization",
     "membership_activation_evidence_valid": membership_activation_valid,
     "membership_activation_regressions": membership_activation_evidence,
-    "membership_activation_scope": "proof-bound active VSR generation publication and replay; owned learner promotion factory implemented; native peer publication, role/restart custody, atomic control admission and complete production qualification remain unfinished",
+    "membership_activation_scope": "proof-bound active VSR generation publication and replay with owned learner promotion",
     "membership_staging_evidence_valid": membership_staging_valid,
     "membership_staging_regressions": membership_staging_evidence,
-    "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts; native active publication and atomic control admission remain unfinished",
+    "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts",
     "membership_peer_evidence_valid": membership_peer_valid,
     "membership_peer_regressions": membership_peer_evidence,
-    "membership_peer_scope": "authenticated peer plan consensus with anchored authority; native active publication, voting-role custody and atomic control admission remain unfinished",
+    "membership_peer_scope": "authenticated peer plan consensus with anchored authority",
     "membership_decision_evidence_valid": membership_decision_valid,
     "membership_decision_regressions": membership_decision_evidence,
-    "membership_decision_scope": "transition-only library plan consensus; peer and staged-kernel integration exist; native active publication and atomic control admission remain unfinished",
+    "membership_decision_scope": "transition-only library plan consensus with peer and staged-kernel integration",
     "membership_approval_evidence_valid": membership_approval_valid,
     "membership_approval_regressions": membership_approval_evidence,
-    "membership_approval_scope": "old-quorum approval evidence; native quorum publication, role handoff and complete membership qualification remain unfinished",
+    "membership_approval_scope": "old-quorum approval evidence",
     "sql_index_evidence_valid": indexed_valid,
     "sql_index_regressions": indexed_evidence,
     "sql_stream_evidence_valid": streams_valid,

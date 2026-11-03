@@ -7,27 +7,31 @@ pub(in crate::membership) fn create_input(
     input: &VsrMembershipInput,
 ) -> RsfResult<()> {
     let id = input.id()?;
-    let base = root.join("inputs");
-    fs::create_dir_all(&base).map_err(io_error)?;
+    let dir = input_directory(root, id, true)?;
     sync(root)?;
-    let dir = directory(root, id);
-    fs::create_dir_all(&dir).map_err(io_error)?;
-    sync(&base)?;
+    sync(&root.join("inputs"))?;
+    regular_file(&dir.join("DESCRIPTOR"), true)?;
+    records_route(&dir.join("records"), true)?;
     let bytes = input.encode()?;
     match fs::read(dir.join("DESCRIPTOR")) {
         Ok(existing) if existing == bytes => {}
         Ok(_) => return Err(corrupt("membership input descriptor identity collision")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let temp = dir.join(".DESCRIPTOR.tmp");
+            // The caller owns the input store's lock. Discard only an ordinary
+            // unacknowledged temporary, then reject concurrent substitution.
+            if regular_file(&temp, true)? {
+                fs::remove_file(&temp).map_err(io_error)?;
+            }
             let mut file = OpenOptions::new()
-                .create(true)
-                .truncate(true)
+                .create_new(true)
                 .write(true)
                 .open(&temp)
                 .map_err(io_error)?;
             file.write_all(&bytes)
                 .and_then(|()| file.sync_all())
                 .map_err(io_error)?;
+            drop(file);
             fs::rename(temp, dir.join("DESCRIPTOR")).map_err(io_error)?;
             sync(&dir)?;
         }
@@ -45,10 +49,9 @@ pub(in crate::membership) fn read_records(
     root: &Path,
     id: [u8; 32],
 ) -> RsfResult<(VsrMembershipInput, Vec<VsrHistoryRecord>)> {
-    let dir = directory(root, id);
-    if !dir.join("records/MANIFEST").is_file() {
-        return Err(corrupt("membership input record store is missing"));
-    }
+    let dir = input_directory(root, id, false)?;
+    regular_file(&dir.join("DESCRIPTOR"), false)?;
+    records_route(&dir.join("records"), false)?;
     let input = VsrMembershipInput::decode(&fs::read(dir.join("DESCRIPTOR")).map_err(io_error)?)?;
     if input.id()? != id {
         return Err(corrupt("membership input identity or authority mismatch"));
@@ -135,4 +138,72 @@ fn sync(path: &Path) -> RsfResult<()> {
 fn directory(root: &Path, id: [u8; 32]) -> std::path::PathBuf {
     root.join("inputs")
         .join(id.iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+// Do not let recovery truncate a segment or create a lock through an aliased
+// route. The owned root is checked too; callers supply its parent custody.
+fn input_directory(root: &Path, id: [u8; 32], create: bool) -> RsfResult<std::path::PathBuf> {
+    owned_directory(root, false)?;
+    let base = root.join("inputs");
+    owned_directory(&base, create)?;
+    let dir = directory(root, id);
+    owned_directory(&dir, create)?;
+    Ok(dir)
+}
+
+fn owned_directory(path: &Path, create: bool) -> RsfResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(corrupt("membership input route is not an owned directory")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
+            fs::create_dir(path).map_err(io_error)
+        }
+        Err(error) => Err(io_error(error)),
+    }
+}
+
+fn regular_file(path: &Path, optional: bool) -> RsfResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(true),
+        Ok(_) => Err(corrupt("membership input custody is not a regular file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && optional => Ok(false),
+        Err(error) => Err(io_error(error)),
+    }
+}
+
+fn records_route(root: &Path, initializing: bool) -> RsfResult<()> {
+    match fs::symlink_metadata(root) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(corrupt(
+                "membership input records are not an owned directory",
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && initializing => return Ok(()),
+        Err(error) => return Err(io_error(error)),
+    }
+    regular_file(&root.join("MANIFEST"), initializing)?;
+    for name in ["MANIFEST.lock", "MANIFEST.tmp"] {
+        regular_file(&root.join(name), true)?;
+    }
+    for name in ["segments", "quarantine"] {
+        let directory = root.join(name);
+        match fs::symlink_metadata(&directory) {
+            Ok(metadata) if metadata.is_dir() => {
+                for entry in fs::read_dir(&directory).map_err(io_error)? {
+                    regular_file(&entry.map_err(io_error)?.path(), false)?;
+                }
+            }
+            Ok(_) => {
+                return Err(corrupt(
+                    "membership input segment route is not an owned directory",
+                ));
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    && (initializing || name == "quarantine") => {}
+            Err(error) => return Err(io_error(error)),
+        }
+    }
+    Ok(())
 }

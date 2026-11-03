@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "name": "native-membership-recovery-and-admission-debug-and-release",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

@@ -6,8 +6,25 @@ impl PeerReplicaServer {
     /// Configure owned transition paths only for already hosted voters/learners.
     /// Incoming RPC contents cannot select paths or create an application cell.
     pub fn with_membership_paths(
+        self,
+        paths: BTreeMap<PlacementGroupId, PathBuf>,
+    ) -> Result<Self, String> {
+        self.open_membership_paths(paths, false)
+    }
+
+    /// Reopen already provisioned transition custody without creating an inbox
+    /// identity or resuming an interrupted initial decision factory.
+    pub fn with_existing_membership_paths(
+        self,
+        paths: BTreeMap<PlacementGroupId, PathBuf>,
+    ) -> Result<Self, String> {
+        self.open_membership_paths(paths, true)
+    }
+
+    fn open_membership_paths(
         mut self,
         paths: BTreeMap<PlacementGroupId, PathBuf>,
+        existing: bool,
     ) -> Result<Self, String> {
         if !self.membership_paths.is_empty() {
             return Err("membership paths already configured".into());
@@ -16,8 +33,12 @@ impl PeerReplicaServer {
             if !self.cells.contains_key(&pg) && !self.learners.contains_key(&pg) {
                 return Err("membership path requires a hosted authority anchor".into());
             }
-            let inbox = MembershipAuthorityInbox::open(path.join("inbox"), pg, self.local)
-                .map_err(|e| e.message)?;
+            let inbox = if existing {
+                MembershipAuthorityInbox::open_existing(path.join("inbox"), pg, self.local)
+            } else {
+                MembershipAuthorityInbox::open(path.join("inbox"), pg, self.local)
+            }
+            .map_err(|e| e.message)?;
             let staging_path = path.join("staging");
             let sealed = ["META", "INSTALLED", "PUBLICATION", ".PUBLICATION.tmp"]
                 .into_iter()
@@ -38,6 +59,7 @@ impl PeerReplicaServer {
                 let store =
                     match MembershipDecisionStore::open_existing(&decision_path, pg, self.local) {
                         Ok(store) => store,
+                        Err(original) if existing => return Err(original.message),
                         Err(original) => {
                             // The factory never resets a nonempty journal. A complete
                             // inbox may resume an interrupted initial authority copy.
@@ -75,6 +97,8 @@ impl PeerReplicaServer {
                     }
                 }
                 self.membership_decisions.insert(pg, store);
+            } else if existing {
+                return Err("membership recovery requires an existing decision journal".into());
             } else if stage.is_some() {
                 return Err("retained membership stage has no decision journal".into());
             }

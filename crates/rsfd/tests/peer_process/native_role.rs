@@ -448,3 +448,63 @@ fn native_peer_validates_election_budget_against_recovered_membership() {
     drop(r.primary);
     std::fs::remove_dir_all(r.root).unwrap();
 }
+
+#[test]
+fn native_published_voters_require_admission_even_with_unmanaged_v1_identity() {
+    let r = fixture();
+    assert!(r.primary.has_membership_publication().unwrap());
+    assert!(r.promoted.has_membership_publication().unwrap());
+    drop(r.primary);
+    drop(r.promoted);
+    let control = initialize_network_state(&r.root, &r.peers);
+    let reservations = (0..3)
+        .map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap())
+        .collect::<Vec<_>>();
+    let addresses = reservations
+        .iter()
+        .map(|listener| listener.local_addr().unwrap())
+        .collect::<Vec<_>>();
+    drop(reservations);
+    for node in [1, 2] {
+        let state = r.root.join(format!("store-{node}"));
+        let identity = std::fs::read(state.join("IDENTITY.json")).unwrap();
+        let decoded: serde_json::Value = serde_json::from_slice(&identity).unwrap();
+        assert_eq!(decoded["version"], 1);
+        assert!(decoded.get("managed_membership").is_none());
+        assert!(!state.join("membership-1").exists());
+        let pointer = std::fs::read(state.join("pg-1/VSR_ACTIVE")).unwrap();
+        let path = r.root.join(format!("peer-{node}.json"));
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config["cells"][0] = serde_json::json!({"pg":1,"view":2,"primary":1,"voters":[0,1,2]});
+        config["timeout_ms"] = 800.into();
+        config["elections"] =
+            serde_json::json!({"heartbeat_ms":50,"timeout_ms":8000,"rank_delay_ms":1000});
+        config["client"] = serde_json::json!({
+            "state":control,"listen":addresses[node].to_string(),
+            "endpoints":addresses.iter().enumerate().map(|(node,address)|
+                serde_json::json!({"node":node,"address":address.to_string()})).collect::<Vec<_>>()
+        });
+        std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        for _ in 0..2 {
+            let output = rejected_start(&path);
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("membership publication requires replicated control admission"),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("peer.ready"));
+            assert_eq!(
+                std::fs::read(state.join("IDENTITY.json")).unwrap(),
+                identity
+            );
+            assert_eq!(
+                std::fs::read(state.join("pg-1/VSR_ACTIVE")).unwrap(),
+                pointer
+            );
+            assert!(!state.join("client-protocol").exists());
+        }
+    }
+    std::fs::remove_dir_all(r.root).unwrap();
+}

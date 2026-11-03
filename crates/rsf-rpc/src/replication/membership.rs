@@ -2,6 +2,8 @@
 //! voters, promote a learner or permit application traffic in the proposed view.
 use super::*;
 mod decision;
+pub(super) use decision::recovery::Recovery;
+pub use decision::recovery::{PeerMembershipRecoveryTiming, PeerMembershipRecoveryUpdate};
 use rsf_vsr::{
     VsrMembershipApproval, VsrMembershipProposal, VsrMembershipReport, VsrMembershipSnapshot,
 };

@@ -292,6 +292,14 @@ pub(crate) fn matches_promotion_plan(
 }
 
 impl DurableVsrCell {
+    /// Whether healthy authoritative history contains a membership activation.
+    /// This includes ancestry inherited through ordinary view installation and
+    /// grants no client admission or this-boot materialization acknowledgement.
+    pub fn has_membership_publication(&self) -> RsfResult<bool> {
+        self.ensure_healthy()?;
+        Ok(self.history.has_membership_publication())
+    }
+
     /// Query historical activation in the currently authoritative history.
     /// A higher ordinary view or pending promise does not invalidate ancestry.
     /// The result grants no current voting role, client admission, publication

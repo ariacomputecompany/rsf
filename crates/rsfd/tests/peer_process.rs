@@ -23,6 +23,10 @@ mod automatic;
 mod client_retry;
 #[path = "peer_process/client_takeover.rs"]
 mod client_takeover;
+#[path = "peer_process/membership_admission.rs"]
+mod membership_admission;
+#[path = "peer_process/native_membership.rs"]
+mod native_membership;
 #[path = "peer_process/native_role.rs"]
 mod native_role;
 #[path = "peer_process/sql_stream.rs"]
@@ -108,6 +112,9 @@ fn root() -> PathBuf {
     ))
 }
 fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
+    provision_count(root, 3)
+}
+fn provision_count(root: &Path, count: u64) -> BTreeMap<NodeId, PeerEndpoint> {
     let mut params = CertificateParams::new(Vec::new()).unwrap();
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
@@ -115,7 +122,7 @@ fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
     let ca = params.self_signed(&key).unwrap();
     let issuer = Issuer::new(params, key);
     let mut peers = BTreeMap::new();
-    for node in 0..3 {
+    for node in 0..count {
         let mut params = CertificateParams::new(vec!["localhost".into()]).unwrap();
         params.extended_key_usages = vec![
             ExtendedKeyUsagePurpose::ClientAuth,
@@ -140,7 +147,7 @@ fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
         );
     }
     let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
-    for node in 1..3 {
+    for node in 1..count {
         let config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":format!("store-{node}"),"tls":format!("tls-{node}"),"listen":"127.0.0.1:0","timeout_ms":PEER_TIMEOUT_MS,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
         std::fs::write(
             root.join(format!("peer-{node}.json")),

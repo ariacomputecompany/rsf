@@ -22,8 +22,9 @@ supports durable SQL sessions, KV, object, and blob paths, with authenticated
 peer replication and opt-in automatic primary/client takeover. Standalone
 initialization provides one durable copy. Some admin/policy paths still use local
 transport. Certified peer membership publication and learner promotion have
-local TLS recovery coverage; native transition orchestration and replicated
-control admission remain unfinished. Independent-group routing, legacy migration,
+local TLS recovery coverage. Native peers recover existing chosen transitions
+with bounded background work and keep clients closed pending replicated control
+admission. Pre-choice recovery and complete membership lifecycles remain unfinished. Independent-group routing, legacy migration,
 bounded storage lifecycle, and independent-host performance/fault qualification
 also remain open in [WORK.md](./WORK.md).
 

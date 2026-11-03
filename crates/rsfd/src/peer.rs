@@ -12,7 +12,9 @@ use serde::Deserialize;
 
 mod client;
 mod materializer;
+mod membership;
 mod role;
+mod state_identity;
 use materializer::ApplicationMaterializer;
 
 #[derive(Deserialize)]
@@ -48,6 +50,8 @@ struct CellConfig {
     voters: Vec<u64>,
     #[serde(default)]
     learner_source: Option<u64>,
+    #[serde(default)]
+    membership_recovery: Option<membership::RecoveryConfig>,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +79,8 @@ struct PeerService {
     materializer: ApplicationMaterializer,
     elections: Option<PeerElectionTiming>,
     last_elections: BTreeMap<u64, (u64, u64, bool, String)>,
+    last_membership: BTreeMap<u64, serde_json::Value>,
+    poll_interval: Option<Duration>,
     client: Option<client::ClientService>,
 }
 
@@ -135,12 +141,33 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
             } else {
                 eprintln!("{event}");
             }
-            if service.elections.is_none()
+            if service.poll_interval.is_none()
                 || service
-                    .elections
-                    .is_some_and(|t| started.elapsed() >= t.heartbeat / 2)
+                    .poll_interval
+                    .is_some_and(|interval| started.elapsed() >= interval / 2)
             {
                 break;
+            }
+        }
+        if service.server.membership_recovery_enabled() {
+            let materializer = &mut service.materializer;
+            if let Some(update) = service.server.poll_membership_recovery(&mut |entry| {
+                if let Some(command) = decode_application_entry(entry)? {
+                    materializer.apply(&command)?;
+                }
+                Ok(())
+            })? {
+                let state = serde_json::json!({
+                    "event": "peer.membership", "pg": update.pg.0,
+                    "plan": update.plan.map(|id| id.iter().map(|byte| format!("{byte:02x}")).collect::<String>()),
+                    "phase": update.phase, "replica": update.replica.map(|node| node.0),
+                    "publication_quorum": update.publication_quorum.is_some(),
+                    "detail": update.detail,
+                });
+                if service.last_membership.get(&update.pg.0) != Some(&state) {
+                    println!("{state}");
+                    service.last_membership.insert(update.pg.0, state);
+                }
             }
         }
         if let Some(timing) = service.elections {
@@ -168,10 +195,12 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
                     service.last_elections.insert(update.pg.0, state);
                 }
             }
-            if let Some(client) = &service.client {
-                client.serve_one(&mut service.server, &mut service.materializer)?;
-            }
-            std::thread::sleep(timing.heartbeat.min(Duration::from_millis(10)));
+        }
+        if let Some(client) = &service.client {
+            client.serve_one(&mut service.server, &mut service.materializer)?;
+        }
+        if let Some(interval) = service.poll_interval {
+            std::thread::sleep(interval.min(Duration::from_millis(10)));
         }
     }
 }
@@ -251,13 +280,26 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
         peers.clone(),
         timeout,
     )?;
+    let membership = membership::configured(&config.cells)?;
+    if config.client.is_some() && !membership.is_empty() {
+        return Err(
+            "managed membership recovery cannot admit clients before replicated control admission"
+                .into(),
+        );
+    }
     if let Some(elections) = &config.elections {
-        if config
-            .cells
-            .iter()
-            .all(|cell| cell.learner_source.is_some())
+        if membership.is_empty()
+            && config
+                .cells
+                .iter()
+                .all(|cell| cell.learner_source.is_some())
         {
             return Err("automatic election requires a hosted voting cell".into());
+        }
+        if !membership.is_empty() {
+            // A managed learner may become a voter without a configuration edit.
+            // Every future voter must already have a mapped TLS identity.
+            validate_cell_timing(elections.timing(), timeout, peers.len(), false)?;
         }
         for cell in config
             .cells
@@ -332,24 +374,52 @@ impl PeerService {
             .map_err(|err| err.to_string())?;
         let lock = rsf_storage::ExclusiveFileLock::acquire(lock)
             .map_err(|err| format!("peer state already has an owner: {err}"))?;
-        bind_state(&state, &cluster, NodeId(config.node))?;
+        let mut state_identity =
+            state_identity::StateIdentity::bind(&state, &cluster, NodeId(config.node))?;
+        let membership = membership::configured(&config.cells)?;
+        let managed = membership.keys().copied().collect::<BTreeSet<_>>();
+        membership::preflight(
+            &state,
+            &managed,
+            &state_identity.managed,
+            config.client.is_some(),
+        )?;
+        let poll_interval = elections
+            .map(|timing| timing.heartbeat)
+            .into_iter()
+            .chain(membership.values().map(|timing| timing.interval))
+            .min();
         let mut cells = BTreeMap::new();
         let mut learners = BTreeMap::new();
         let local = NodeId(config.node);
+        let mut promotion_paths = BTreeMap::new();
         for config in config.cells {
             let pg = PlacementGroupId(config.pg);
             let configured_learner = config.learner_source.is_some();
-            match role::open(&state, local, config)? {
+            let role = if managed.contains(&pg) {
+                role::open_existing(&state, local, config)?
+            } else {
+                role::open(&state, local, config)?
+            };
+            match role {
                 role::HostedRole::Voter(cell) => {
-                    if configured_learner && elections.is_some() {
+                    if configured_learner && elections.is_some() && !managed.contains(&pg) {
                         return Err(
                             "promoted voter elections require an explicit voting configuration"
                                 .into(),
                         );
                     }
+                    if managed.contains(&pg)
+                        && cell.promoted_replica().map_err(|error| error.message)? == Some(local)
+                    {
+                        promotion_paths.insert(pg, state.join(format!("pg-{}", pg.0)));
+                    }
                     cells.insert(pg, *cell);
                 }
                 role::HostedRole::Learner(learner) => {
+                    if managed.contains(&pg) {
+                        promotion_paths.insert(pg, state.join(format!("pg-{}", pg.0)));
+                    }
                     learners.insert(pg, *learner);
                 }
             }
@@ -366,6 +436,44 @@ impl PeerService {
                 )?;
             }
         }
+        let server = PeerReplicaServer::with_learners(
+            NodeId(config.node),
+            &cluster,
+            identity,
+            peers.clone(),
+            cells,
+            learners,
+            timeout,
+        )?;
+        let server = if managed.is_empty() {
+            server
+        } else {
+            server
+                .with_existing_membership_paths(membership::paths(&state, &managed))?
+                .with_promotion_paths(promotion_paths)?
+                .with_membership_recovery(membership)?
+        };
+        // The recovery hook proves existing bound custody before stale learner
+        // declarations can participate in elections. Enrollment is monotonic
+        // admission policy, never a publication-completion or voting grant.
+        state_identity.enroll(&state, &managed)?;
+        let mut materializer = ApplicationMaterializer::new(state.join("application"));
+        let mut recovered = Vec::new();
+        for entry in server.committed_entries()? {
+            if let Some(command) = decode_application_entry(&entry)? {
+                recovered.push(command);
+            }
+        }
+        recovered.sort_by_key(|command| command.commit.version);
+        for command in recovered {
+            materializer.apply(&command)?;
+        }
+        if config.client.is_some() && server.membership_admission_required()? {
+            return Err(
+                "membership publication requires replicated control admission before serving clients"
+                    .into(),
+            );
+        }
         let client = config
             .client
             .as_ref()
@@ -379,29 +487,9 @@ impl PeerService {
                 )
             })
             .transpose()?;
-        let server = PeerReplicaServer::with_learners(
-            NodeId(config.node),
-            &cluster,
-            identity,
-            peers,
-            cells,
-            learners,
-            timeout,
-        )?;
-        let mut materializer = ApplicationMaterializer::new(state.join("application"));
-        let mut recovered = Vec::new();
-        for entry in server.committed_entries()? {
-            if let Some(command) = decode_application_entry(&entry)? {
-                recovered.push(command);
-            }
-        }
-        recovered.sort_by_key(|command| command.commit.version);
-        for command in recovered {
-            materializer.apply(&command)?;
-        }
         let listener = TcpListener::bind(config.listen)
             .map_err(|err| format!("cannot bind peer listener {}: {err}", config.listen))?;
-        if elections.is_some() {
+        if poll_interval.is_some() {
             listener
                 .set_nonblocking(true)
                 .map_err(|err| err.to_string())?;
@@ -412,6 +500,8 @@ impl PeerService {
             server,
             elections,
             last_elections: BTreeMap::new(),
+            last_membership: BTreeMap::new(),
+            poll_interval,
             client,
             _lock: lock,
             materializer,
@@ -456,43 +546,7 @@ pub(crate) fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
 }
 
 pub(crate) fn bind_state(root: &Path, cluster: &ClusterId, node: NodeId) -> Result<(), String> {
-    let identity = serde_json::json!({"version":1,"cluster":cluster.as_str(),"node":node.0});
-    let path = root.join("IDENTITY.json");
-    match std::fs::read(&path) {
-        Ok(bytes) => {
-            let stored: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(|_| "peer state identity is corrupt")?;
-            if stored != identity {
-                return Err("peer state belongs to a different cluster or node".into());
-            }
-        }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            for entry in std::fs::read_dir(root).map_err(|err| err.to_string())? {
-                let name = entry.map_err(|err| err.to_string())?.file_name();
-                if name != ".peer.lock" && name != "IDENTITY.pending" {
-                    return Err(
-                        "unbound peer state contains existing data; migrate it explicitly".into(),
-                    );
-                }
-            }
-            let temp = root.join("IDENTITY.pending");
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&temp)
-                .map_err(|err| err.to_string())?;
-            file.write_all(&serde_json::to_vec(&identity).map_err(|err| err.to_string())?)
-                .map_err(|err| err.to_string())?;
-            file.sync_all().map_err(|err| err.to_string())?;
-            std::fs::rename(&temp, &path).map_err(|err| err.to_string())?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|err| err.to_string())?;
-        }
-        Err(err) => return Err(format!("cannot read peer state identity: {err}")),
-    }
-    Ok(())
+    state_identity::StateIdentity::bind(root, cluster, node).map(|_| ())
 }
 
 fn sync_learner_cli(args: &[String]) -> Result<(), String> {

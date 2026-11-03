@@ -106,6 +106,13 @@ impl PeerReplicaServer {
             groups.rotate_left(split);
         }
         for pg in groups {
+            // A managed old fence progresses through membership recovery, not
+            // ordinary election. Published cells immediately rejoin this loop.
+            if self.membership_recovery_bindings.contains_key(&pg)
+                && self.cells[&pg].membership_fence().is_some()
+            {
+                continue;
+            }
             let status = self.cells[&pg]
                 .replica_status()
                 .map_err(|err| err.message)?;

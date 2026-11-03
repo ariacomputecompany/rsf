@@ -692,5 +692,7 @@ fn real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_
 
 #[path = "membership_publication/failures.rs"]
 mod failures;
+#[path = "membership_publication/recovery.rs"]
+mod recovery;
 #[path = "membership_publication/reply_loss.rs"]
 mod reply_loss;

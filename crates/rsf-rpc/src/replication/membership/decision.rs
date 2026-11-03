@@ -7,6 +7,7 @@ use rsf_vsr::{
 };
 mod client;
 mod publication;
+pub(super) mod recovery;
 mod server;
 mod staging;
 fn context(pg: PlacementGroupId, round: VsrMembershipRound, proposal: [u8; 32]) -> Vec<u8> {

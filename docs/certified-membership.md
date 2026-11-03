@@ -1,18 +1,20 @@
 # Certified membership installation
 
-Status: durable old-quorum approval, report recovery and exact-proposal
-continuation from a surviving minority report are implemented.
-Transition-only new-quorum plan consensus is implemented as a library store.
-Authenticated peer plan orchestration is implemented over configured transition paths.
-Sealed chosen-prefix staging and trusted materialization receipts are implemented.
-Proof-bound active generation publication and cold replay are implemented in the
-VSR storage kernel. An owned resumable learner promotion factory is implemented.
-Native peer publication quorum, voting-role/restart custody and control-metadata
-publication remain unimplemented. Current application operation still uses a fixed admitted voter
-set with quorum-selected view changes. Learner catch-up does not grant a vote.
-Local configuration methods and reachability probes do not install network
-membership. Installed histories reject local authority shortcuts both live and
-on replay; [historical authority](vsr-configuration-history.md) documents that fence.
+Status: old-quorum approval, new-quorum input choice, sealed staging, certified
+publication and owned learner promotion are implemented in the kernel and
+peer protocol. Native peers can recover an existing chosen transition through
+bounded background work and cold role recovery. Native clients remain closed
+when managed policy or replayed membership ancestry requires replicated control
+admission. Autonomous pre-choice recovery, repeated transition lifecycles and
+replicated control/catalog admission remain unfinished. Local configuration and
+reachability probes do not install network membership; learner catch-up alone
+does not grant a vote. Installed histories reject local authority shortcuts;
+[historical authority](vsr-configuration-history.md) documents that fence.
+
+The current checkpoint has an unresolved staging RPC timeout in its broader
+qualification run. See [current verification](native-membership-verification-2026-11-02.json)
+and [the work ledger](../WORK.md). Verification counts in earlier sections describe
+historical milestones, not current release approval.
 
 ## Required authority contract
 
@@ -525,9 +527,65 @@ missing materializers, wrong authority, corrupted owner metadata, one lost
 publication reply and an authenticated response naming the wrong reporter.
 The affected-package and full-gate reports state the verified source and scope.
 
-These peer APIs still need native daemon transition scheduling and replicated
-control/catalog admission. A collected publication quorum is historical evidence;
-it is not yet a durable cluster-wide admission record. No operator membership
-command is enabled. Repeated transition lifecycles, bounded history and retention,
-independent-group routing, independent-host/region capacity and machine power-loss
-qualification remain open.
+## Native recovery of an existing chosen transition
+
+A native peer cell can opt into `"membership_recovery":{"interval_ms":20}` to
+recover already provisioned custody at `state/membership-<pg>`. This does not
+initiate a proposal or create replacement journals. Strict inbox, decision and
+role reopening rejects missing identities, empty/torn-to-zero custody, foreign
+owners and noncanonical paths before any listener starts. Complete owned
+promotion can recover without the old learner directory.
+
+The scheduler derives work from retained chosen input, stages and active
+publication ancestry. It materializes locally, gathers staged receipts, publishes
+and queries historical publication through the existing peer APIs. A single
+bounded transport worker keeps incoming peer traffic available; only the owning
+server thread changes journals, cell custody or application state. Responses are
+checked again against the scheduled proposal/input/plan before advancing work.
+Groups and peers rotate with bounded backoff. Full local replay/materialization
+still processes retained history and is not a constant-time operation.
+
+A receiver can import a surviving chosen certificate using complete input it
+previously accepted, without the original uploader. Completed inbox input remains
+readable by identity after another upload becomes selected; AUTH_FINISH still
+binds the current selection. Missing/corrupt acknowledged input never falls back
+to an inbox copy. One completed provision attempt does not turn repeated staging
+rejections into successful repair or an endless full-upload loop.
+Input creation, reads and append retries reject pre-existing symbolic links in
+descriptor and record-storage routes before opening recovery writers. An ordinary
+interrupted descriptor temporary can resume through exclusive file creation;
+foreign temporary targets stay untouched. BEGIN, APPEND and chosen-input import
+also reject structurally valid shortened input that was already retained as
+authority, accepted or chosen; such data loss cannot become an upload cursor.
+An unacknowledged staged prefix remains resumable after restart. Repeated chosen
+imports preserve the existing exact-byte fast path against replayed approval.
+These checks rely on exclusive store
+ownership and do not claim protection against a hostile process concurrently
+replacing arbitrary parent directories.
+
+The existing peer identity gains a monotonic V2 managed-group set. Config removal,
+missing transition roots and interrupted enrollment cannot silently enable client
+service. V1 remains supported for unmanaged peers; older binaries reject V2.
+Managed peers reject new proposals and keep client service closed pending
+replicated control admission. Native startup and every client request also check
+healthy replay-derived membership ancestry, including ancestry acquired by an
+ordinary peer installation without a managed flag or V2 identity. Equal voter
+IDs do not admit a later A-to-B-to-A history. Rejection happens before lending
+cells, preserving voter probe acknowledgements; ordinary-view-only history
+continues through normal client routing. Certified promoted custody can participate in
+ordinary elections after restart under its stale learner declaration, once the
+managed journal and ancestry validate. Unmanaged manual promotion still requires
+explicit voter configuration for elections. Actual recovered membership and the
+largest mapped managed voter set must fit the configured election deadlines.
+The V2 policy protects custody loss while its identity survives. It cannot detect
+replacement of the whole state root and identity by an older or fresh bootstrap;
+that requires a separately trusted control binding.
+
+This scheduler currently needs a surviving chosen certificate. If every chosen
+certificate is lost, accepted-only higher-round recovery remains to be integrated.
+Valid partial decision-input continuation, repeated transition lifecycles,
+removed/re-added roles and conflict/abort handling also remain required. A
+collected publication quorum is historical evidence, not a durable cluster-wide
+admission record. Replicated control/catalog admission, bounded history and
+retention, independent-group routing, independent-host/region capacity and machine
+power-loss qualification remain open. No operator membership command is enabled.

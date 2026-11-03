@@ -51,6 +51,10 @@ impl ConfigurationHistory {
         self.publications.get(&plan).map(std::sync::Arc::as_ref)
     }
 
+    pub(super) fn has_membership_publication(&self) -> bool {
+        !self.publications.is_empty()
+    }
+
     // Replicas can have installed different empty views or learned different
     // committed boundaries. Shared view identities must still name the same
     // primary/voters; committed data is checked separately by the installer.

@@ -563,3 +563,6 @@ fn real_tls_staged_membership_requires_materializer_and_survives_peer_restart() 
     drop(learner);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[path = "membership_decision/retained.rs"]
+mod retained;

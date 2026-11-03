@@ -7,7 +7,7 @@ use rsf_vsr::{
 mod client;
 mod server;
 
-fn check_published(
+pub(super) fn check_published(
     report: &VsrMembershipPublishedReport,
     replica: NodeId,
     quorum: &VsrMembershipStagedQuorum,

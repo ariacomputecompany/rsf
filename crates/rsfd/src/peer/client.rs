@@ -137,6 +137,20 @@ impl ClientService {
             mutation,
             reason,
         };
+        // Check before lending cells: rejecting admission must not mark a
+        // healthy voting prefix pending. Recheck on every request because an
+        // ordinary peer installation can introduce publication ancestry.
+        match server.membership_admission_required() {
+            Ok(false) => {}
+            Ok(true) => {
+                return rejected(
+                    MutationOutcome::NotAttempted,
+                    "membership publication requires replicated control admission before serving clients"
+                        .into(),
+                );
+            }
+            Err(reason) => return rejected(MutationOutcome::NotAttempted, reason),
+        }
         if let Err(error) = crate::security::authorize(&self.state, fingerprint, &envelope) {
             return rejected(MutationOutcome::NotAttempted, error.message);
         }

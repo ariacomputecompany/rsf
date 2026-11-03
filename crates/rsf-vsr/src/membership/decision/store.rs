@@ -185,6 +185,30 @@ impl MembershipDecisionStore {
         self.healthy()?;
         self.read_approval(id)
     }
+    /// Return complete retained input without requiring a learned chosen proof.
+    /// Only an absent, unreferenced directory returns None. Missing journal-bound
+    /// input, malformed custody, and incomplete uploads remain errors; callers
+    /// must not replace those with an inbox copy. This does not learn a choice
+    /// or acknowledge application effects.
+    pub fn retained_approval(&self, id: [u8; 32]) -> RsfResult<Option<VsrMembershipApproval>> {
+        self.healthy()?;
+        let bound = id == self.authority
+            || self.state.accepted.is_some_and(|(_, stored)| stored == id)
+            || self.state.staged.is_some_and(|(_, stored)| stored == id)
+            || self
+                .state
+                .chosen
+                .as_ref()
+                .is_some_and(|chosen| chosen.input_id() == id);
+        match std::fs::symlink_metadata(self.directory(id)) {
+            Ok(metadata) if metadata.file_type().is_dir() => self.read_approval(id).map(Some),
+            Ok(_) => Err(corrupt(
+                "retained membership input is not an owned directory",
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && !bound => Ok(None),
+            Err(error) => Err(io_error(error)),
+        }
+    }
     /// Authenticated proposed-voter coordinators may raise the recovery round.
     /// Exact retries preserve the highest accepted plan; lower rounds reject.
     pub fn promise(
@@ -224,17 +248,7 @@ impl MembershipDecisionStore {
         }
         let id = input.id()?;
         self.check_value(round, id)?;
-        if id == self.authority
-            || self.state.accepted.is_some_and(|(_, old)| old == id)
-            || self.state.staged.is_some_and(|(_, old)| old == id)
-            || self
-                .state
-                .chosen
-                .as_ref()
-                .is_some_and(|chosen| chosen.input_id() == id)
-        {
-            self.read_records(id)?;
-        }
+        self.validate_retained_input(id)?;
         self.create_input(&input)?;
         let (_, records) = self.read_records(id)?;
         let mut next = self.state.clone();
@@ -258,6 +272,7 @@ impl MembershipDecisionStore {
                 "membership upload is not the selected round input",
             ));
         }
+        self.validate_retained_input(id)?;
         let (input, _) = self.read_records(id)?;
         self.append_records(&input, batch)
     }
@@ -379,6 +394,7 @@ impl MembershipDecisionStore {
             }
             return Ok(());
         }
+        self.validate_retained_input(input.id()?)?;
         self.create_input(&input)?;
         let mut ordinal = 0;
         while ordinal < records.len() {
@@ -431,6 +447,23 @@ impl MembershipDecisionStore {
         }
         next.chosen = Some(chosen);
         self.write_state(next, || {})
+    }
+    /// Authority, acceptance and choice acknowledge complete replayable input.
+    /// A valid shorter WAL is data loss, not an upload cursor to repair.
+    fn validate_retained_input(&self, id: [u8; 32]) -> RsfResult<()> {
+        if id == self.authority
+            || self.state.accepted.is_some_and(|(_, stored)| stored == id)
+            || self
+                .state
+                .chosen
+                .as_ref()
+                .is_some_and(|chosen| chosen.input_id() == id)
+        {
+            self.read_approval(id)?;
+        } else if self.state.staged.is_some_and(|(_, stored)| stored == id) {
+            self.read_records(id)?;
+        }
+        Ok(())
     }
     fn authorize(&self, sender: NodeId, round: VsrMembershipRound) -> RsfResult<()> {
         round.validate(&self.proposal)?;
@@ -501,7 +534,6 @@ impl MembershipDecisionStore {
             }
         }
     }
-    #[cfg(test)]
     fn directory(&self, id: [u8; 32]) -> PathBuf {
         self.root.join("inputs").join(hex(id))
     }
@@ -541,7 +573,6 @@ fn bootstrap_id(approval: &VsrMembershipApproval) -> RsfResult<[u8; 32]> {
 fn io_error(error: std::io::Error) -> RsfError {
     corrupt(format!("membership decision storage: {error}"))
 }
-#[cfg(test)]
 fn hex(id: [u8; 32]) -> String {
     id.iter().map(|b| format!("{b:02x}")).collect()
 }

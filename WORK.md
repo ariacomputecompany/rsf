@@ -24,37 +24,42 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. Peer publication source
-`23fb6b2` passes all 23 domains and aggregate evidence checks on an unchanged
-source fingerprint. Workspace passes 1,234 tests, zero failures and one opt-in
-stress test ignored; the separate debug/release stress domains both pass, as do
-automatic client takeover and SQL streaming in both profiles. All four new peer
-publication/current-prefix regressions pass in the recorded workspace run. Every
-domain includes strict five-run doctor, deterministic orchestration, real host
-execution, strict trace verification, replay and CI. Affected-target Clippy also
-passes. See `docs/peer-publication-full-verification-2026-11-02.json` and
-`docs/peer-publication-verification-2026-11-02.json`.
+Current release status: **not production qualified**. Native chosen-transition
+recovery and replay-derived native client admission guards are implemented. The
+latest affected-package run fails one real TLS staging request under concurrent
+load: `real_tls_stage_uses_finished_inbox_b_after_another_upload_selects_a` exceeds
+its unchanged 800 ms transport budget. This failure remains open; a passing
+isolated rerun would not clear it. Six final-source custody regressions, strict
+Fozzy doctor/test/host/trace/replay/CI and scoped strict Clippy pass. An earlier
+native recovery/admission source passed 431 affected-package tests. See
+`docs/native-membership-verification-2026-11-02.json` for exact source scopes.
 
-Native daemon transition orchestration and atomic control admission remain
-unfinished. Growing-history protocol reopening/replay, retention,
-legacy migration, independent-group routing and independent-host/region fault/
-numerical capacity qualification remain required. Scoped recovery and local
-factory tests do not establish these deployment properties. An unrestricted
-Clippy attempt also exposes existing lint debt in tuple/manifest/prepared; the
-passing lint scope above excludes dependency diagnostics.
+Resolve the timeout and run the expanded 24-domain gate on unchanged final source.
+The last complete full gate remains peer publication source `23fb6b2`: all 23
+domains, 1,234 workspace tests, zero failures and one separately executed opt-in
+stress test. Both stress, automatic takeover and SQL streaming profiles pass on
+that earlier source; see `docs/peer-publication-full-verification-2026-11-02.json`.
 
-### Next implementation: native transition recovery and control admission
+Autonomous pre-choice recovery and atomic replicated control admission remain
+unfinished. Growing-history reopening/replay, retention, legacy migration,
+independent-group routing and independent-host/region fault/numerical capacity
+qualification remain required. Current host tests do not establish those
+properties. Unrestricted dependency Clippy still has tuple/manifest/prepared lint
+debt; the passing lint scope excludes dependency diagnostics.
 
-- Configure native daemon transition custody and bounded background recovery for
-  learners and fenced/published voters. Recover choice, staging and publication
-  without depending on the original candidate or blocking the peer event loop
-  on an entire multi-peer transfer. Preserve ordinary new-set election liveness
-  through live promotion and cold restart.
+### Next implementation: autonomous choice and replicated control admission
+
+- Recover choice when no chosen certificate survives: reconstruct accepted
+  majorities, continue valid partial input, and coordinate higher rounds without
+  treating missing or corrupt acknowledged input as repairable. The native
+  scheduler currently starts from an existing chosen transition.
 - Persist publication completion through replicated control/catalog authority.
   Qualify repeated membership lifecycles, removed/re-added roles and partial
   proposal conflict/abort; the current fixed transition paths are one-shot.
-- Keep native client admission closed until replicated control/catalog authority
-  and application materialization agree on the same installed membership. Do not
+- Replace conservative client denial only when replayed control/catalog authority
+  and application materialization agree on exact current membership lineage.
+  Enforce the same boundary across native, standalone, cached router and admin
+  paths; local policy and equal voter IDs cannot establish admission. Do not
   enable an operator membership command ahead of that integration and its gates.
 - Independent-group routing, bounded retention/migration and independent-host/
   region numerical capacity/fault qualification remain required.
