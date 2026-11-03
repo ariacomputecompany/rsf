@@ -59,13 +59,8 @@ impl MembershipStagingStore {
         }
         disk::create_input(&root, &plan.input)?;
         let input_records = plan.input.flattened_records(&plan.approval)?;
-        let mut ordinal = 0;
         let mut failed = false;
-        while ordinal < input_records.len() {
-            let batch = VsrHistoryBatch::pack(ordinal as u64, &input_records[ordinal..])?;
-            ordinal += batch.records.len();
-            disk::append_records(&root, &mut failed, &plan.input, batch)?;
-        }
+        disk::retain_records(&root, &mut failed, &plan.input, &input_records)?;
         // Validate bytes recovered from the staged source, including a prior
         // upload acknowledged by another process before this factory resumed.
         let (input, records) = disk::read_records(&root, plan.input.id()?)?;

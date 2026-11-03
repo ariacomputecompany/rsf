@@ -462,6 +462,10 @@ peer_publication_evidence = {
 }
 peer_publication_valid = all(peer_publication_evidence.values())
 native_membership_names = [
+    'chosen_input_exact_proof_reuse_preserves_higher_promise_and_first_certificate_cold',
+    'chosen_input_proof_reuse_rejects_damaged_acknowledged_input_before_copy_boundary',
+    'chosen_input_proof_reuse_rereads_after_copy_and_public_learning_still_replays_full_input',
+    'membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal',
     'membership_bound_input_valid_short_prefix_never_repairs_acknowledged_custody',
     'membership_unacknowledged_staged_prefix_still_resumes_after_cold_reopen',
     'authority_input_temporaries_preserve_foreign_targets_warm_and_cold',

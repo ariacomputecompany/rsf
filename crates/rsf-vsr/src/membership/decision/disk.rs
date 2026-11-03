@@ -127,6 +127,53 @@ pub(in crate::membership) fn append_records(
     }
     Ok(end)
 }
+/// Retain a complete, already validated source using one writer. The caller
+/// owns the transition/stage lock and checks acknowledged-input obligations
+/// before invoking this copy path. Each appended record keeps Full sync.
+pub(in crate::membership) fn retain_records(
+    root: &Path,
+    failed: &mut bool,
+    input: &VsrMembershipInput,
+    records: &[VsrHistoryRecord],
+) -> RsfResult<()> {
+    if records.len() as u64 != input.records()? {
+        return Err(invalid_input("membership copy source is not complete"));
+    }
+    let id = input.id()?;
+    let (stored, prefix) = read_records(root, id)?;
+    if stored != *input || records.get(..prefix.len()) != Some(prefix.as_slice()) {
+        return Err(corrupt(
+            "membership copy changes the retained descriptor or prefix",
+        ));
+    }
+    let mut ordinal = prefix.len();
+    if ordinal == records.len() {
+        return Ok(());
+    }
+    // read_records checked owned components and the complete existing prefix.
+    // Hold one SegmentStore so its validated WAL cursor survives all suffix
+    // appends; reopening for every bounded batch replays the growing prefix.
+    let mut options = SegmentStoreOptions::default();
+    options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
+    let mut store = SegmentStore::open_with_options(directory(root, id).join("records"), options)?;
+    while ordinal < records.len() {
+        let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;
+        let next = ordinal + batch.records.len();
+        let bytes = batch.encode()?;
+        if let Err(error) = store.append_next_wal(
+            input.proposal().election.pg,
+            input.proposal().election.target_view,
+            WalRecordKind::ViewInstallation,
+            &bytes,
+        ) {
+            *failed = true;
+            return Err(error);
+        }
+        ordinal = next;
+    }
+    Ok(())
+}
+
 fn io_error(error: std::io::Error) -> RsfError {
     corrupt(format!("membership input storage: {error}"))
 }

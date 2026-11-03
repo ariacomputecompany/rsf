@@ -11,8 +11,9 @@ reachability probes do not install network membership; learner catch-up alone
 does not grant a vote. Installed histories reject local authority shortcuts;
 [historical authority](vsr-configuration-history.md) documents that fence.
 
-The current checkpoint has an unresolved staging RPC timeout in its broader
-qualification run. See [current verification](native-membership-verification-2026-11-02.json)
+The optimized native recovery source passes all 441 affected-package tests after
+resolving a reproduced staging timeout through bounded copy/proof reuse. The full
+expanded gate remains required. See [current verification](native-membership-optimized-verification-2026-11-02.json)
 and [the work ledger](../WORK.md). Verification counts in earlier sections describe
 historical milestones, not current release approval.
 
@@ -557,8 +558,13 @@ interrupted descriptor temporary can resume through exclusive file creation;
 foreign temporary targets stay untouched. BEGIN, APPEND and chosen-input import
 also reject structurally valid shortened input that was already retained as
 authority, accepted or chosen; such data loss cannot become an upload cursor.
-An unacknowledged staged prefix remains resumable after restart. Repeated chosen
-imports preserve the existing exact-byte fast path against replayed approval.
+An unacknowledged staged prefix remains resumable after restart.
+Complete input copies validate the retained prefix once and keep one Full-sync
+writer through bounded suffix batches. Chosen-input import compares all persisted
+bytes against the opaque replay-validated approval before recording choice;
+public chosen learning independently replays the retained input. Acknowledged
+custody is checked before copying, and retries preserve the first certificate
+and higher promises.
 These checks rely on exclusive store
 ownership and do not claim protection against a hostile process concurrently
 replacing arbitrary parent directories.

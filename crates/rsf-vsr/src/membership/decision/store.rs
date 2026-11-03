@@ -88,12 +88,7 @@ impl MembershipDecisionStore {
             };
             store.create_input(&input)?;
             let records = input.flattened_records(approval)?;
-            let mut ordinal = 0;
-            while ordinal < records.len() {
-                let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;
-                ordinal += batch.records.len();
-                store.append_records(&input, batch)?;
-            }
+            disk::retain_records(&store.root, &mut store.failed, &input, &records)?;
             store.read_approval(store.authority)?;
             store.write_state(State::default(), || {})?;
             return Ok(store);
@@ -356,58 +351,73 @@ impl MembershipDecisionStore {
         chosen: VsrMembershipChosen,
         approval: &VsrMembershipApproval,
     ) -> RsfResult<()> {
-        self.healthy()?;
-        chosen.encode()?;
+        self.retain_chosen_input_with_hook(chosen, approval, || {})
+    }
+
+    fn retain_chosen_input_with_hook(
+        &mut self,
+        chosen: VsrMembershipChosen,
+        approval: &VsrMembershipApproval,
+        after_copied: impl FnOnce(),
+    ) -> RsfResult<()> {
+        self.validate_choice(&chosen)?;
         let input = VsrMembershipInput::from_approval(approval)?;
-        if chosen.proposal() != &self.proposal
-            || input.proposal() != &self.proposal
-            || chosen.input_id() != input.id()?
+        let id = input.id()?;
+        if input.proposal() != &self.proposal
+            || chosen.input_id() != id
             || bootstrap_id(approval)? != self.bootstrap
         {
             return Err(invalid_input(
                 "retained membership choice/input differs from anchored authority",
             ));
         }
-        if self
-            .state
-            .chosen
-            .as_ref()
-            .is_some_and(|old| old.input_id() != chosen.input_id())
-        {
-            return Err(invalid_input(
-                "membership choice is already bound to another input",
-            ));
-        }
+        // VsrMembershipApproval is opaque replay-validated custody. Comparing
+        // complete retained bytes against it carries that same proof, without
+        // replaying all old-voter application histories a second time.
         let records = input.flattened_records(approval)?;
         if self
             .state
             .chosen
             .as_ref()
-            .is_some_and(|old| old.input_id() == chosen.input_id())
+            .is_some_and(|old| old.input_id() == id)
         {
-            // The supplied approval already replay-validated these exact bytes.
-            // Verify the retained copy without rewriting its directory entries
-            // or replaying the same proof again on a publication retry.
-            let (retained, previous) = self.read_records(input.id()?)?;
-            if retained != input || previous != records {
-                return Err(corrupt("chosen membership input changed or lost records"));
-            }
-            return Ok(());
+            return self.compare_retained_input(&input, &records);
         }
-        self.validate_retained_input(input.id()?)?;
+        if id == self.authority || self.state.accepted.is_some_and(|(_, stored)| stored == id) {
+            // This is before create/copy: acknowledged input may never use a
+            // trusted source to repair a shorter or damaged retained prefix.
+            self.compare_retained_input(&input, &records)?;
+        } else if self.state.staged.is_some_and(|(_, stored)| stored == id) {
+            self.read_records(id)?;
+        }
         self.create_input(&input)?;
-        let mut ordinal = 0;
-        while ordinal < records.len() {
-            let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;
-            ordinal += batch.records.len();
-            self.append_records(&input, batch)?;
+        disk::retain_records(&self.root, &mut self.failed, &input, &records)?;
+        after_copied();
+        self.compare_retained_input(&input, &records)?;
+        self.learn_verified_chosen(chosen)
+    }
+
+    fn compare_retained_input(
+        &self,
+        input: &VsrMembershipInput,
+        records: &[VsrHistoryRecord],
+    ) -> RsfResult<()> {
+        let (retained, previous) = self.read_records(input.id()?)?;
+        if retained != *input || previous != records {
+            return Err(corrupt("chosen membership input changed or lost records"));
         }
-        self.learn_chosen(chosen)
+        Ok(())
     }
 
     /// Record a new-quorum plan decision. This is not an application installation
     /// acknowledgement and does not publish a VSR configuration.
     pub fn learn_chosen(&mut self, chosen: VsrMembershipChosen) -> RsfResult<()> {
+        self.validate_choice(&chosen)?;
+        self.read_approval(chosen.input_id())?;
+        self.learn_verified_chosen(chosen)
+    }
+
+    fn validate_choice(&self, chosen: &VsrMembershipChosen) -> RsfResult<()> {
         self.healthy()?;
         chosen.encode()?;
         if chosen.proposal() != &self.proposal
@@ -425,7 +435,14 @@ impl MembershipDecisionStore {
                 "membership choice conflicts with retained authority or accepted input",
             ));
         }
-        self.read_approval(chosen.input_id())?;
+        Ok(())
+    }
+
+    /// Private proof boundary: callers have either replayed read_approval or
+    /// compared every persisted byte against an opaque validated approval.
+    /// This method still rechecks consensus state and never installs a cell.
+    fn learn_verified_chosen(&mut self, chosen: VsrMembershipChosen) -> RsfResult<()> {
+        self.validate_choice(&chosen)?;
         if self
             .state
             .chosen
@@ -448,6 +465,7 @@ impl MembershipDecisionStore {
         next.chosen = Some(chosen);
         self.write_state(next, || {})
     }
+
     /// Authority, acceptance and choice acknowledge complete replayable input.
     /// A valid shorter WAL is data loss, not an upload cursor to repair.
     fn validate_retained_input(&self, id: [u8; 32]) -> RsfResult<()> {

@@ -244,7 +244,11 @@ fn peer_process() {
             server.serve_connection(socket)
         };
         if started.elapsed() >= Duration::from_millis(100) || result.is_err() {
-            eprintln!("peer {node} service {:?}: {result:?}", started.elapsed());
+            eprintln!(
+                "peer {node} root={} service {:?}: {result:?}",
+                root.display(),
+                started.elapsed()
+            );
         }
     }
 }

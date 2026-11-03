@@ -44,7 +44,21 @@ fn real_tls_stage_uses_finished_inbox_b_after_another_upload_selects_a() {
     drop(decision);
     let (peer, network) = uploaded_b_selected_a(&fixture);
     let before = files(&root.join("membership-2/inbox"));
-    let report = network.stage_membership(NodeId(2), &fixture.plan).unwrap();
+    let started = Instant::now();
+    let report = network
+        .stage_membership(NodeId(2), &fixture.plan)
+        .unwrap_or_else(|error| {
+            panic!(
+                "stage after selected-input switch failed after {:?}, fixture={}: {error:?}",
+                started.elapsed(),
+                root.display()
+            )
+        });
+    eprintln!(
+        "stage after selected-input switch succeeded in {:?}, fixture={}",
+        started.elapsed(),
+        root.display()
+    );
     assert_eq!(report.replica, NodeId(2));
     assert_eq!(report.plan, fixture.plan.id());
     assert_eq!(files(&root.join("membership-2/inbox")), before);

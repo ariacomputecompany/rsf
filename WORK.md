@@ -26,19 +26,20 @@ The standard is strict:
 
 Current release status: **not production qualified**. Native chosen-transition
 recovery and replay-derived native client admission guards are implemented. The
-latest affected-package run fails one real TLS staging request under concurrent
-load: `real_tls_stage_uses_finished_inbox_b_after_another_upload_selects_a` exceeds
-its unchanged 800 ms transport budget. This failure remains open; a passing
-isolated rerun would not clear it. Six final-source custody regressions, strict
-Fozzy doctor/test/host/trace/replay/CI and scoped strict Clippy pass. An earlier
-native recovery/admission source passed 431 affected-package tests. See
-`docs/native-membership-verification-2026-11-02.json` for exact source scopes.
+final optimized source passes 441 affected-package tests, zero failures and one
+opt-in stress test ignored; stress is exercised by the separate full-gate domains. Strict Fozzy doctor/test/host/
+trace/replay/CI and scoped strict Clippy pass with unchanged source. The staging
+timeout reproduced under the full concurrent RPC suite; retaining one writer
+and reusing exact validated input proof removes repeated copy/replay work without
+changing deadlines, retries, payloads or test concurrency. The complete affected
+suite now passes. Evidence: `docs/native-membership-optimized-verification-2026-11-02.json`.
+The original failures remain in `docs/native-membership-verification-2026-11-02.json`.
 
-Resolve the timeout and run the expanded 24-domain gate on unchanged final source.
-The last complete full gate remains peer publication source `23fb6b2`: all 23
-domains, 1,234 workspace tests, zero failures and one separately executed opt-in
-stress test. Both stress, automatic takeover and SQL streaming profiles pass on
-that earlier source; see `docs/peer-publication-full-verification-2026-11-02.json`.
+Run the expanded 24-domain gate on unchanged final source. The last complete full
+gate remains peer publication source `23fb6b2`: all 23 domains, 1,234 workspace
+tests, zero failures and one separately executed opt-in stress test. Both stress,
+automatic takeover and SQL streaming profiles pass on that earlier source; see
+`docs/peer-publication-full-verification-2026-11-02.json`.
 
 Autonomous pre-choice recovery and atomic replicated control admission remain
 unfinished. Growing-history reopening/replay, retention, legacy migration,

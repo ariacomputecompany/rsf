@@ -14,6 +14,10 @@ struct Accepted {
 }
 impl Drop for Accepted {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("preserved membership fixture: {}", self.root.display());
+            return;
+        }
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }

@@ -200,3 +200,6 @@ fn partial_retained_input_is_an_error_and_a_conflicting_choice_cannot_replace_ac
     drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }
+
+#[path = "chosen_reuse_tests.rs"]
+mod chosen_reuse;

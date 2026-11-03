@@ -680,3 +680,6 @@ mod input_custody;
 
 #[path = "bound_input_tests.rs"]
 mod bound_input;
+
+#[path = "bulk_input_tests.rs"]
+mod bulk_input;
