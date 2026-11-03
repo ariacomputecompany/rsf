@@ -60,6 +60,9 @@ pub(super) struct Clock {
     // Authenticated inventory is a lower bound for the next proposal, not
     // evidence that a view is installed or application service is permitted.
     highest_observed: Epoch,
+    // Inventory grants one bounded adoption window for a newer installed view;
+    // repeated status reads cannot renew it or follower liveness.
+    newer_installed: Option<(Epoch, Instant)>,
 }
 impl Clock {
     pub(super) fn new(now: Instant) -> Self {
@@ -70,6 +73,7 @@ impl Clock {
             own_failures: 0,
             confirmed_view: None,
             highest_observed: Epoch(0),
+            newer_installed: None,
         }
     }
 }
@@ -262,9 +266,27 @@ impl PeerReplicaServer {
             .normal
             .view
             .max(status.promise.as_ref().map_or(Epoch(0), |p| p.target_view));
+        let local_view = self.cells[&pg].view();
         let clock = self.election_clock.get_mut(&pg).unwrap();
         clock.highest_observed = clock.highest_observed.max(view);
+        if status.promise.is_none()
+            && status.normal.view > local_view
+            && status.normal.primary != self.local
+            && clock
+                .newer_installed
+                .is_none_or(|(seen, _)| status.normal.view > seen)
+        {
+            clock.newer_installed = Some((status.normal.view, Instant::now()));
+        }
         view
+    }
+
+    fn awaiting_newer_view_repair(&self, pg: PlacementGroupId, timeout: Duration) -> bool {
+        self.election_clock[&pg]
+            .newer_installed
+            .is_some_and(|(view, first_seen)| {
+                view > self.cells[&pg].view() && first_seen.elapsed() < timeout
+            })
     }
     fn election_result(
         &mut self,

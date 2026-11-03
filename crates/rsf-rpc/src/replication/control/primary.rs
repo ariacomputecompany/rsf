@@ -37,6 +37,11 @@ impl PeerReplicaServer {
                         superseded |= self.observe_view(pg, &remote) > status.normal.view;
                     }
                 }
+                if self.awaiting_newer_view_repair(pg, timing.timeout) {
+                    return Err(
+                        "higher installed view observed; awaiting current primary repair".into(),
+                    );
+                }
                 if superseded || self.election_clock[&pg].own_failures >= 2 {
                     return self.elect(pg, status, timing, apply, progress);
                 }
@@ -151,6 +156,11 @@ impl PeerReplicaServer {
             }
         }
         if confirmed <= status.normal.voters.len() / 2 {
+            if self.awaiting_newer_view_repair(pg, timing.timeout) {
+                return Err(
+                    "higher installed view observed; awaiting current primary repair".into(),
+                );
+            }
             if now.saturating_duration_since(self.election_clock[&pg].last_contact)
                 >= timing.timeout
             {

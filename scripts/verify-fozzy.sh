@@ -373,8 +373,19 @@ idle_application_evidence = {
     for name in idle_application_names
 }
 idle_application_valid = all(idle_application_evidence.values())
+primary_recovery_names = [
+    "restarted_partial_primary_recovers_above_another_voters_higher_promise",
+    "previously_confirmed_primary_recovers_quorum_after_higher_promise",
+    "stale_primary_waits_once_for_newer_installed_view_then_recovers_if_repair_never_arrives",
+]
+primary_recovery_evidence = {
+    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+              for line in workspace_stdout.splitlines())
+    for name in primary_recovery_names
+}
+primary_recovery_valid = all(primary_recovery_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -394,6 +405,9 @@ summary = {
     "uncertain_sql_begin_workspace": uncertain_begin_workspace,
     "uncertain_sql_begin_profile_runs": uncertain_begin_profile_runs,
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
+    "primary_recovery_evidence_valid": primary_recovery_valid,
+    "primary_recovery_regressions": primary_recovery_evidence,
+    "primary_recovery_scope": "ordinary quorum election above superseding durable promises; unchanged native takeover deadlines and workload",
     "idle_application_evidence_valid": idle_application_valid,
     "idle_application_regressions": idle_application_evidence,
     "idle_application_scope": "one owned application writer survives idle polls; protocol ownership is released and reopens against exact history, current authority, transport and per-request authorization",

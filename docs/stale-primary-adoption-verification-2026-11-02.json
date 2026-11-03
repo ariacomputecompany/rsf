@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_gate_passed": false,
+  "baseline_commit": "c03eab1",
+  "previous_full_gate": {
+    "artifacts": "artifacts/verification.tkfvBr",
+    "source_unchanged": true,
+    "source_sha256": "19f32ae0b30d3ab2061525fe163cbd5843f6b375d55826de567f93797070e4ec",
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "membership-decision",
+      "membership-staging",
+      "membership-activation",
+      "protocol",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end"
+    ],
+    "failed_domains": [
+      "membership-peer",
+      "peer-rpc",
+      "daemon",
+      "automatic-client",
+      "sql-stream",
+      "daemon-stress",
+      "release-stress",
+      "workspace"
+    ],
+    "findings": [
+      "New confirmed-primary regression setup exhausted its 200 ms RPC deadline before preemption.",
+      "A returning stale primary immediately started an election above a newer installed view and displaced the selected primary.",
+      "Release automatic-client and SQL stream workloads exhausted existing three-attempt client I/O budgets.",
+      "Both stress profiles exhausted client I/O budgets.",
+      "Workspace includes regression setup failure and membership lost-reply test thread panic."
+    ]
+  },
+  "change": "Grant a returning stale primary one bounded adoption window for each higher installed view observed on authenticated peers; repeated status reads cannot renew the window or follower liveness. Recover through ordinary quorum election if repair never arrives. Higher promises without an installed leader still trigger recovery.",
+  "test_fixture_change": "Initial preemption fixture publication uses existing suite 800 ms host RPC budget; controller remains 200 ms with unchanged five-second convergence bound. Native request deadlines, budgets, workloads and convergence limits unchanged.",
+  "verification": {
+    "scenario": "artifacts/adoption-recovery-20261102.pass.fozzy.json",
+    "doctor_runs": 5,
+    "strict_scripted_passed": true,
+    "host_trace": "artifacts/adoption-recovery-20261102-final.trace.fozzy",
+    "tls_regressions_passed": 3,
+    "daemon_stale_primary_rejoin_passed": true,
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true,
+    "clippy_log": "artifacts/adoption-recovery-20261102-clippy.log",
+    "clippy_all_targets_warnings_denied_passed": true
+  },
+  "limitations": [
+    "Fozzy scripted determinism and replay do not prove deterministic Rust socket/thread scheduling.",
+    "Complete final-source 23-domain rerun required.",
+    "Client I/O, stress and prior workspace failures remain open until broad verification.",
+    "Membership publication/promotion, control admission and other production blockers remain in WORK.md."
+  ]
+}

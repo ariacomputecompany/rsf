@@ -24,21 +24,23 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The latest complete
-23-domain run on `22b045b` passes 22 domains. Workspace passes 1,195 tests with
-zero failures and one ignored test; automatic-client fails its debug takeover
-convergence deadline. Preserved durable peer histories identify an installed
-primary retrying an older retained installation after a higher promise supersedes
-it. The controller now observes authenticated higher views and starts a fresh
-ordinary quorum election; a previously confirmed primary also retries election
-after losing matching quorum for the existing timeout.
+Current release status: **not production qualified**. The last frozen-source
+23-domain gate on `c03eab1` passes 15 domains and fails eight. It exposes a new
+regression setup timeout and stale-primary leadership churn, plus client I/O
+budget failures in native workloads/stress and a workspace test-process panic.
+The full failed evidence remains in `artifacts/verification.tkfvBr`.
 
-Two real TLS regressions fail on the previous controller and pass with this fix,
-preserving committed data and receipts through cold recovery. RPC/daemon Clippy
-with warnings denied passes. Broad final-source host qualification, both native
-automatic takeover profiles, and a fresh complete 23-domain gate remain required.
-No request deadline, wire retry budget, workload or convergence deadline changed.
-See `docs/preempted-primary-verification-2026-10-21.json` for scoped evidence.
+The controller now gives a stale returning primary one bounded chance to adopt a
+higher installed view before ordinary re-election. Repeated authenticated status
+reads cannot renew this window or follower liveness. Three real TLS recovery
+regressions and the daemon stale-primary rejoin test pass, with strict recorded
+trace verification, replay, CI and warnings-denied RPC/daemon Clippy. Initial
+preemption fixture setup uses the suite's ordinary host RPC budget; the recovery
+controller and native workload/deadline/retry settings retain their bounds.
+See `docs/stale-primary-adoption-verification-2026-11-02.json`.
+
+A fresh complete gate is required. Diagnose and fix any remaining client I/O,
+stress and workspace failures without weakening workload or durability checks.
 
 Kernel activation is verified; native peer membership publication/promotion and
 atomic control admission remain unfinished. Growing-history memory, cold protocol
