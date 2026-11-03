@@ -62,6 +62,15 @@ pub enum ObjectHeadKind {
     DeleteMarker,
 }
 
+/// Compare-and-swap preconditions and destination for an object head ownership transfer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ObjectHeadOwnershipChange {
+    pub expected_current: CommitVersion,
+    pub expected_owner_epoch: Epoch,
+    pub new_owner_pg: PlacementGroupId,
+    pub new_owner_epoch: Epoch,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObjectHeadOwnershipTransfer {
     pub bucket: String,
@@ -618,11 +627,14 @@ impl ObjectMetadataEngine {
         metadata_pg: PlacementGroupId,
         bucket: impl Into<String>,
         key: impl Into<String>,
-        expected_current: CommitVersion,
-        expected_owner_epoch: Epoch,
-        new_owner_pg: PlacementGroupId,
-        new_owner_epoch: Epoch,
+        change: ObjectHeadOwnershipChange,
     ) -> RsfResult<ObjectMetadataDecision> {
+        let ObjectHeadOwnershipChange {
+            expected_current,
+            expected_owner_epoch,
+            new_owner_pg,
+            new_owner_epoch,
+        } = change;
         let bucket = bucket.into();
         let key = key.into();
         self.require_bucket(&bucket)?;
@@ -1253,10 +1265,12 @@ mod tests {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                CommitVersion(4),
-                Epoch(4),
-                PlacementGroupId(3),
-                Epoch(5),
+                ObjectHeadOwnershipChange {
+                    expected_current: CommitVersion(4),
+                    expected_owner_epoch: Epoch(4),
+                    new_owner_pg: PlacementGroupId(3),
+                    new_owner_epoch: Epoch(5),
+                },
             )
             .expect("ownership transfer");
 
@@ -1312,10 +1326,12 @@ mod tests {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                CommitVersion(4),
-                Epoch(4),
-                PlacementGroupId(3),
-                Epoch(5),
+                ObjectHeadOwnershipChange {
+                    expected_current: CommitVersion(4),
+                    expected_owner_epoch: Epoch(4),
+                    new_owner_pg: PlacementGroupId(3),
+                    new_owner_epoch: Epoch(5),
+                },
             )
             .expect("ownership transfer");
 
@@ -1325,10 +1341,12 @@ mod tests {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                CommitVersion(4),
-                Epoch(4),
-                PlacementGroupId(2),
-                Epoch(6),
+                ObjectHeadOwnershipChange {
+                    expected_current: CommitVersion(4),
+                    expected_owner_epoch: Epoch(4),
+                    new_owner_pg: PlacementGroupId(2),
+                    new_owner_epoch: Epoch(6),
+                },
             )
             .expect_err("stale transfer rejected");
 
@@ -1362,10 +1380,12 @@ mod tests {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                CommitVersion(4),
-                Epoch(3),
-                PlacementGroupId(3),
-                Epoch(5),
+                ObjectHeadOwnershipChange {
+                    expected_current: CommitVersion(4),
+                    expected_owner_epoch: Epoch(3),
+                    new_owner_pg: PlacementGroupId(3),
+                    new_owner_epoch: Epoch(5),
+                },
             )
             .expect_err("stale owner epoch rejected");
         assert!(stale_epoch.message.contains("expected owner epoch"));
@@ -1376,10 +1396,12 @@ mod tests {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                CommitVersion(4),
-                Epoch(4),
-                PlacementGroupId(3),
-                Epoch(4),
+                ObjectHeadOwnershipChange {
+                    expected_current: CommitVersion(4),
+                    expected_owner_epoch: Epoch(4),
+                    new_owner_pg: PlacementGroupId(3),
+                    new_owner_epoch: Epoch(4),
+                },
             )
             .expect_err("non-advancing owner epoch rejected");
         assert!(

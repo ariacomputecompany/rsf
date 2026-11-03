@@ -314,11 +314,13 @@ impl LearnerHistoryStore {
             return Err(invalid_input("learner transfer is incomplete"));
         }
         let stage = self.stage.take().unwrap();
-        let descriptor = stage.descriptor.clone();
-        drop(stage);
         // Bind publication to bytes recovered from disk, including records that
-        // were acknowledged before this process or transfer attempt began.
-        let candidate = self.validate_complete(self.recover_stage(descriptor)?)?;
+        // were acknowledged before this process or transfer attempt began. Keep
+        // the existing writer until validation takes ownership; reopening an
+        // intermediate writer would repeat namespace publication unnecessarily.
+        let recovery = stage.store.recover_current()?.recovery;
+        let stage = self.stage_from_recovery(stage.descriptor, stage.store, recovery)?;
+        let candidate = self.validate_complete(stage)?;
         if let Some(previous) = &self.published {
             let old = &previous.cell;
             let new = &candidate.cell;
@@ -422,8 +424,15 @@ impl LearnerHistoryStore {
     }
     fn recover_stage(&self, descriptor: VsrHistoryDescriptor) -> RsfResult<Stage> {
         let directory = self.directory(&descriptor.id()?).join("cell");
-        let store = SegmentStore::open(&directory)?;
-        let recovery = store.recover_current()?.recovery;
+        let (store, recovery) = SegmentStore::open_recovered(&directory, Default::default())?;
+        self.stage_from_recovery(descriptor, store, recovery.recovery)
+    }
+    fn stage_from_recovery(
+        &self,
+        descriptor: VsrHistoryDescriptor,
+        store: SegmentStore,
+        recovery: rsf_storage::Recovery,
+    ) -> RsfResult<Stage> {
         let mut digest = Digest::blake3_bytes(b"RSF history chain v1");
         let mut previous_hash = [0; 32];
         let count = recovery.wal_records.len() as u64;

@@ -1135,7 +1135,7 @@ fn hex_bytes(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(value: &str) -> RsfResult<Bytes> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
             "hex value has odd length",

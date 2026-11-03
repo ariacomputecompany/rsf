@@ -54,6 +54,10 @@ pub struct SqlPipelineReport {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Reports are returned by value; retain the public payload API without allocating each statement result"
+)]
 pub enum SqlStatementReport {
     Query(SqlPipelineReport),
     Dml(SqlDmlPipelineReport),
@@ -125,6 +129,18 @@ pub enum SqlPipelineDecision {
     },
 }
 
+/// Exclusively borrowed state used when a statement commits a mutation. These
+/// ports stay with their caller and may be reborrowed across statement calls;
+/// query dispatch never mutates them. Catalog, token and authorization remain
+/// explicit per-call inputs rather than becoming cached execution credentials.
+#[derive(Debug)]
+pub struct SqlMutationContext<'a, R: FabricRouterPort> {
+    pub transactions: &'a mut TransactionCoordinator,
+    pub isolation: &'a mut IsolationTracker,
+    pub kv: &'a mut KvEngine,
+    pub router: &'a mut R,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SqlPipeline;
 
@@ -134,10 +150,7 @@ impl SqlPipeline {
         catalog: &CatalogEngine,
         auth: &AuthEngine,
         token: &AuthToken,
-        transactions: &mut TransactionCoordinator,
-        isolation: &mut IsolationTracker,
-        kv: &mut KvEngine,
-        router: &mut impl FabricRouterPort,
+        mutation: &mut SqlMutationContext<'_, impl FabricRouterPort>,
         request: SqlPipelineRequest,
     ) -> RsfResult<(SqlStatementReport, Vec<SqlPipelineDecision>)> {
         let bound = SessionBinder.bind(
@@ -170,10 +183,10 @@ impl SqlPipeline {
                     catalog,
                     auth,
                     token,
-                    transactions,
-                    isolation,
-                    kv,
-                    router,
+                    mutation.transactions,
+                    mutation.isolation,
+                    mutation.kv,
+                    mutation.router,
                     request,
                 )?;
                 Ok((
@@ -512,10 +525,12 @@ mod tests {
                 &fixture.catalog,
                 &fixture.auth,
                 &fixture.token,
-                &mut transactions,
-                &mut isolation,
-                &mut kv,
-                &mut router,
+                &mut SqlMutationContext {
+                    transactions: &mut transactions,
+                    isolation: &mut isolation,
+                    kv: &mut kv,
+                    router: &mut router,
+                },
                 fixture.request("INSERT INTO users(id, name, active) VALUES (3, 'lin', true)"),
             )
             .unwrap();
@@ -561,10 +576,12 @@ mod tests {
                     &fixture.catalog,
                     &fixture.auth,
                     &fixture.token,
-                    &mut transactions,
-                    &mut isolation,
-                    &mut kv,
-                    &mut router,
+                    &mut SqlMutationContext {
+                        transactions: &mut transactions,
+                        isolation: &mut isolation,
+                        kv: &mut kv,
+                        router: &mut router,
+                    },
                     fixture
                         .request("INSERT INTO users(id, name, active) VALUES (4, 'lamarr', true)"),
                 )
@@ -592,6 +609,120 @@ mod tests {
         .expect("statement-level DML certificate must recover");
         assert_eq!(recovered.len(), 1);
         assert_eq!(recovered[0].version, CommitVersion(1));
+    }
+
+    #[test]
+    fn statement_query_preserves_query_report_without_mutating_commit_ports() {
+        let fixture = Fixture::new();
+        let statement = "SELECT id, name FROM users WHERE active = true LIMIT 1";
+        let (expected, expected_decisions) = SqlPipeline
+            .execute(
+                &fixture.catalog,
+                &fixture.auth,
+                &fixture.token,
+                fixture.request(statement),
+            )
+            .unwrap();
+        let mut transactions = TransactionCoordinator::default();
+        let mut isolation = IsolationTracker::default();
+        let mut kv = KvEngine::default();
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1), PlacementGroupId(2)]);
+        let mut mutation = SqlMutationContext {
+            transactions: &mut transactions,
+            isolation: &mut isolation,
+            kv: &mut kv,
+            router: &mut router,
+        };
+        let (report, decisions) = SqlPipeline
+            .execute_statement(
+                &fixture.catalog,
+                &fixture.auth,
+                &fixture.token,
+                &mut mutation,
+                fixture.request(statement),
+            )
+            .unwrap();
+        assert_eq!(report.bound(), &expected.bound);
+        assert_eq!(report.committed_version(), None);
+        let SqlStatementReport::Query(report) = report else {
+            panic!("SELECT must produce a query report")
+        };
+        assert_eq!(report, expected);
+        assert_eq!(decisions, expected_decisions);
+        assert!(transactions.committed().is_empty());
+        assert!(isolation.committed().is_empty());
+        assert_eq!(kv.visible_key_count(), 0);
+        assert!(router.committed().is_empty());
+    }
+
+    #[test]
+    fn mutation_context_preserves_caller_state_across_rejection_and_multiple_commits() {
+        let fixture = Fixture::new();
+        let mut transactions = TransactionCoordinator::default();
+        let mut isolation = IsolationTracker::default();
+        let mut kv = KvEngine::default();
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1), PlacementGroupId(2)]);
+        let mut mutation = SqlMutationContext {
+            transactions: &mut transactions,
+            isolation: &mut isolation,
+            kv: &mut kv,
+            router: &mut router,
+        };
+        for (index, statement) in [
+            "INSERT INTO users(id, name, active) VALUES (3, 'lin', true)",
+            "INSERT INTO users(id, name, active) VALUES (4, 'lamarr', false)",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if index == 1 {
+                let mut expired = fixture.request(statement);
+                expired.now = CommitVersion(21);
+                let error = SqlPipeline
+                    .execute_statement(
+                        &fixture.catalog,
+                        &fixture.auth,
+                        &fixture.token,
+                        &mut mutation,
+                        expired,
+                    )
+                    .unwrap_err();
+                assert_eq!(error.code, ErrorCode::InvalidInput);
+                assert!(
+                    error.message.contains("authorization denied"),
+                    "{}",
+                    error.message
+                );
+                assert_eq!(mutation.transactions.committed().len(), 1);
+                assert_eq!(mutation.isolation.committed().len(), 1);
+                assert_eq!(mutation.kv.visible_key_count(), 2);
+                assert_eq!(mutation.router.committed().len(), 1);
+            }
+            let mut request = fixture.request(statement);
+            request.transaction_id = TransactionId([index as u8 + 1; 16]);
+            let (report, _) = SqlPipeline
+                .execute_statement(
+                    &fixture.catalog,
+                    &fixture.auth,
+                    &fixture.token,
+                    &mut mutation,
+                    request,
+                )
+                .unwrap();
+            assert_eq!(report.bound().class, StatementClass::Dml);
+            assert_eq!(
+                report.committed_version(),
+                Some(CommitVersion(index as u64 + 1))
+            );
+            let SqlStatementReport::Dml(report) = report else {
+                panic!("INSERT must produce a DML report")
+            };
+            assert_eq!(report.applied_mutations, 2);
+        }
+        assert_eq!(transactions.committed().len(), 2);
+        assert_eq!(isolation.committed().len(), 2);
+        assert_eq!(kv.visible_key_count(), 4);
+        assert_eq!(router.committed().len(), 2);
     }
 
     #[test]

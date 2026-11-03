@@ -10,6 +10,12 @@ pub(in crate::membership) fn create_input(
     root: &Path,
     input: &VsrMembershipInput,
 ) -> RsfResult<()> {
+    create_input_store(root, input).map(drop)
+}
+
+// The returned Full-sync writer has crossed the same publication boundary as
+// create_input. A stage can keep it for the ensuing copy instead of reopening.
+fn create_input_store(root: &Path, input: &VsrMembershipInput) -> RsfResult<SegmentStore> {
     let id = input.id()?;
     let dir = input_directory(root, id, true)?;
     sync(root)?;
@@ -43,11 +49,9 @@ pub(in crate::membership) fn create_input(
     }
     let mut options = SegmentStoreOptions::default();
     options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
-    drop(SegmentStore::open_with_options(
-        dir.join("records"),
-        options,
-    )?);
-    sync_input_publication(root, id)
+    let store = SegmentStore::open_with_options(dir.join("records"), options)?;
+    sync_input_publication(root, id)?;
+    Ok(store)
 }
 /// Complete directory publication before input custody can be acknowledged.
 /// Seeing a final descriptor or manifest after restart does not prove that its
@@ -168,6 +172,32 @@ pub(in crate::membership) fn retain_records(
     input: &VsrMembershipInput,
     records: &[VsrHistoryRecord],
 ) -> RsfResult<()> {
+    retain_records_with_store(root, failed, input, records, None)
+}
+
+/// Create/resume an unsealed stage input and retain its complete source using
+/// the same published writer. Bound decision input must use the stricter caller
+/// checks before any factory/copy operation.
+pub(in crate::membership) fn create_and_retain_records(
+    root: &Path,
+    failed: &mut bool,
+    input: &VsrMembershipInput,
+    records: &[VsrHistoryRecord],
+) -> RsfResult<()> {
+    if records.len() as u64 != input.records()? {
+        return Err(invalid_input("membership copy source is not complete"));
+    }
+    let store = create_input_store(root, input)?;
+    retain_records_with_store(root, failed, input, records, Some(store))
+}
+
+fn retain_records_with_store(
+    root: &Path,
+    failed: &mut bool,
+    input: &VsrMembershipInput,
+    records: &[VsrHistoryRecord],
+    store: Option<SegmentStore>,
+) -> RsfResult<()> {
     if records.len() as u64 != input.records()? {
         return Err(invalid_input("membership copy source is not complete"));
     }
@@ -187,7 +217,10 @@ pub(in crate::membership) fn retain_records(
     // appends; reopening for every bounded batch replays the growing prefix.
     let mut options = SegmentStoreOptions::default();
     options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
-    let mut store = SegmentStore::open_with_options(directory(root, id).join("records"), options)?;
+    let mut store = match store {
+        Some(store) => store,
+        None => SegmentStore::open_with_options(directory(root, id).join("records"), options)?,
+    };
     while ordinal < records.len() {
         let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;
         let next = ordinal + batch.records.len();

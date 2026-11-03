@@ -43,3 +43,14 @@ fn successor_rank_rotates_after_each_authority_without_changing_the_voter_set() 
     assert_eq!(successor_rank(&voters, NodeId(9), NodeId(2)).unwrap(), 1);
     assert!(successor_rank(&voters, NodeId(1), NodeId(2)).is_err());
 }
+
+// Test-only observation of the exact first authenticated installed-view sighting.
+// No clock mutation or production API is exposed to the TLS regression.
+impl PeerReplicaServer {
+    pub(in crate::replication) fn election_adoption_window(
+        &self,
+        pg: PlacementGroupId,
+    ) -> Option<(Epoch, Instant)> {
+        self.election_clock[&pg].newer_installed
+    }
+}

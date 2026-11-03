@@ -57,10 +57,9 @@ impl MembershipStagingStore {
                 "membership stage receipt or publication exists without sealed authority",
             ));
         }
-        disk::create_input(&root, &plan.input)?;
         let input_records = plan.input.flattened_records(&plan.approval)?;
         let mut failed = false;
-        disk::retain_records(&root, &mut failed, &plan.input, &input_records)?;
+        disk::create_and_retain_records(&root, &mut failed, &plan.input, &input_records)?;
         // Validate bytes recovered from the staged source, including a prior
         // upload acknowledged by another process before this factory resumed.
         let (input, records) = disk::read_records(&root, plan.input.id()?)?;
@@ -310,9 +309,9 @@ fn write_history(root: &Path, plan: &VsrMembershipStagedPlan) -> RsfResult<()> {
     disk::records_route(&root.join("selected"), true)?;
     let mut options = SegmentStoreOptions::default();
     options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
-    let mut store = SegmentStore::open_with_options(root.join("selected"), options)?;
-    let existing = read_history(
-        root,
+    let (mut store, recovery) = SegmentStore::open_recovered(root.join("selected"), options)?;
+    let existing = decode_history(
+        recovery.recovery,
         plan.input.proposal().election.pg,
         plan.input.proposal().election.previous_view,
     )?;
@@ -341,6 +340,13 @@ fn read_history(
 ) -> RsfResult<Vec<VsrHistoryRecord>> {
     disk::records_route(&root.join("selected"), false)?;
     let recovery = SegmentStore::recover_existing(root.join("selected"))?.recovery;
+    decode_history(recovery, pg, epoch)
+}
+fn decode_history(
+    recovery: rsf_storage::Recovery,
+    pg: PlacementGroupId,
+    epoch: Epoch,
+) -> RsfResult<Vec<VsrHistoryRecord>> {
     let mut records = Vec::new();
     for (n, record) in recovery.wal_records.iter().enumerate() {
         if record.index != LogIndex(n as u64 + 1)

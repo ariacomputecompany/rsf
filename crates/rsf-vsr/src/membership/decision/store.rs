@@ -26,7 +26,7 @@ impl MembershipDecisionStore {
         local: NodeId,
         approval: &VsrMembershipApproval,
     ) -> RsfResult<Self> {
-        Self::open_inner(path.as_ref(), local, Some(approval), None)
+        Self::open_inner(path.as_ref(), local, Some(approval), None, |_, _| Ok(()))
     }
     /// Reopen retained authority and promises without contacting the original
     /// proposer or any old voter. Every retained proof is independently replayed.
@@ -35,13 +35,28 @@ impl MembershipDecisionStore {
         pg: PlacementGroupId,
         local: NodeId,
     ) -> RsfResult<Self> {
-        Self::open_inner(path.as_ref(), local, None, Some(pg))
+        Self::open_existing_with_validation(path, pg, local, |_, _| Ok(()))
     }
+    /// Reopen and validate hosted authority from each distinct complete input
+    /// while its opaque replay proof is already owned by this cold operation.
+    /// The callback cannot replace journal, bootstrap or input validation; all
+    /// bound inputs and namespace barriers complete before ownership escapes.
+    /// It receives no mutable acceptor and no approval is cached after return.
+    pub fn open_existing_with_validation(
+        path: impl AsRef<Path>,
+        pg: PlacementGroupId,
+        local: NodeId,
+        validate: impl FnMut(&Self, &VsrMembershipApproval) -> RsfResult<()>,
+    ) -> RsfResult<Self> {
+        Self::open_inner(path.as_ref(), local, None, Some(pg), validate)
+    }
+
     fn open_inner(
         root: &Path,
         local: NodeId,
         approval: Option<&VsrMembershipApproval>,
         pg: Option<PlacementGroupId>,
+        mut validate: impl FnMut(&Self, &VsrMembershipApproval) -> RsfResult<()>,
     ) -> RsfResult<Self> {
         if approval.is_none() && !root.join("journal/MANIFEST").is_file() {
             return Err(corrupt("membership decision journal is missing"));
@@ -92,8 +107,9 @@ impl MembershipDecisionStore {
             store.create_input(&input)?;
             let records = input.flattened_records(approval)?;
             disk::retain_records(&store.root, &mut store.failed, &input, &records)?;
-            store.read_approval(store.authority)?;
+            let retained = store.read_approval(store.authority)?;
             store.write_state(State::default(), || {})?;
+            validate(&store, &retained)?;
             return Ok(store);
         }
         let mut identity = None;
@@ -151,22 +167,22 @@ impl MembershipDecisionStore {
             import: None,
             _lock: lock,
         };
-        store.read_approval(authority)?;
-        if let Some((_, id)) = store.state.accepted {
-            store.read_approval(id)?;
+        // One strongest proof per exact input ID, irrespective of how many
+        // journal roles refer to it. A staged-only upload may remain partial.
+        let mut inputs = std::collections::BTreeSet::from([authority]);
+        inputs.extend(store.state.accepted.map(|(_, id)| id));
+        inputs.extend(store.state.chosen.as_ref().map(|chosen| chosen.input_id()));
+        for id in &inputs {
+            let approval = store.read_approval(*id)?;
+            validate(&store, &approval)?;
         }
-        if let Some(chosen) = &store.state.chosen {
-            store.read_approval(chosen.input_id())?;
-        }
-        if let Some((_, id)) = store.state.staged {
+        if let Some((_, id)) = store.state.staged
+            && inputs.insert(id)
+        {
             store.read_records(id)?;
         }
         // Replay validates authority; cold ownership also renews the namespace
         // of every journal-bound input before this acceptor can acknowledge.
-        let mut inputs = std::collections::BTreeSet::from([authority]);
-        inputs.extend(store.state.accepted.map(|(_, id)| id));
-        inputs.extend(store.state.staged.map(|(_, id)| id));
-        inputs.extend(store.state.chosen.as_ref().map(|chosen| chosen.input_id()));
         for id in inputs {
             disk::sync_input_publication(&store.root, id)?;
         }
@@ -428,6 +444,10 @@ impl MembershipDecisionStore {
             // This is before create/copy: acknowledged input may never use a
             // trusted source to repair a shorter or damaged retained prefix.
             self.compare_retained_input(&input, &records)?;
+            // This exact complete input already crossed its first binding's
+            // publication barrier, or was renewed on cold recovery. Re-copying
+            // it would reopen a factory without adding proof or durable bytes.
+            return self.learn_verified_chosen(chosen);
         } else if self.state.staged.is_some_and(|(_, stored)| stored == id) {
             self.read_records(id)?;
         }

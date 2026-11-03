@@ -34,12 +34,12 @@ impl Trace {
             action: action.into(),
             detail: detail.into(),
         });
-        if self.echo_stdout {
-            if let Some(event) = self.events.last() {
-                let mut stdout = std::io::stdout().lock();
-                let _ = writeln!(stdout, "{}", render_event(event));
-                let _ = stdout.flush();
-            }
+        if self.echo_stdout
+            && let Some(event) = self.events.last()
+        {
+            let mut stdout = std::io::stdout().lock();
+            let _ = writeln!(stdout, "{}", render_event(event));
+            let _ = stdout.flush();
         }
     }
 

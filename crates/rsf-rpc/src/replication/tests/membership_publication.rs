@@ -181,6 +181,7 @@ fn publication_process() {
     std::io::stdout().flush().unwrap();
     for socket in listener.incoming() {
         let socket = socket.unwrap();
+        let started = Instant::now();
         let result = if apply {
             server.serve_connection_with_apply(socket, &mut |entry| {
                 if root.join(format!("fail-apply-{node}")).exists() {
@@ -192,7 +193,11 @@ fn publication_process() {
             server.serve_connection(socket)
         };
         if let Err(error) = result {
-            eprintln!("publication peer {node}: {error}");
+            eprintln!(
+                "publication peer {node} root={} service {:?}: {error}",
+                root.display(),
+                started.elapsed()
+            );
         }
     }
 }
@@ -255,11 +260,16 @@ impl Drop for Ready {
     fn drop(&mut self) {
         drop(self.remote.take());
         drop(self.local.take());
-        let _ = std::fs::remove_dir_all(&self.root);
+        if std::thread::panicking() {
+            eprintln!("preserved publication fixture: {}", self.root.display());
+        } else {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }
 fn fixture() -> Ready {
     let root = root("native-membership-publication");
+    eprintln!("publication fixture: {}", root.display());
     provision(&root);
     let first = PublicationPeer::start(&root, 1, false, true).unwrap();
     let second = PublicationPeer::start(&root, 2, false, true).unwrap();
@@ -340,10 +350,50 @@ fn fixture() -> Ready {
             })
         })
         .unwrap();
-    let alternate = candidate
-        .collect_membership_stages(report, stage.plan())
-        .unwrap();
-    assert_eq!(alternate.reports().len(), 3);
+    // This alternate proof must include all three real materialized reports;
+    // the survivor proof below contains only 2/3. A majority collector correctly
+    // succeeds after one peer fails, so it cannot establish this setup premise.
+    // Use the same provision/stage exchanges, without any additional retry.
+    let mut reports = vec![report];
+    for replica in [NodeId(2), NodeId(3)] {
+        let started = Instant::now();
+        candidate
+            .provision_membership_authority(replica, stage.plan().approval())
+            .unwrap_or_else(|error| {
+                panic!(
+                    "all-voter fixture authority provisioning failed: root={} replica={} elapsed={:?}: {error:?}",
+                    root.display(), replica.0, started.elapsed()
+                )
+            });
+        let started = Instant::now();
+        let report = candidate
+            .stage_membership(replica, stage.plan())
+            .unwrap_or_else(|error| {
+                panic!(
+                    "all-voter fixture STAGE failed: root={} replica={} elapsed={:?}: {error:?}",
+                    root.display(),
+                    replica.0,
+                    started.elapsed()
+                )
+            });
+        eprintln!(
+            "all-voter fixture STAGE completed: root={} replica={} elapsed={:?}",
+            root.display(),
+            replica.0,
+            started.elapsed()
+        );
+        reports.push(report);
+    }
+    let alternate = VsrMembershipStagedQuorum::from_reports(reports).unwrap();
+    assert_eq!(
+        alternate
+            .reports()
+            .iter()
+            .map(|r| r.replica)
+            .collect::<Vec<_>>(),
+        vec![NodeId(1), NodeId(2), NodeId(3)]
+    );
+    assert_eq!(alternate.plan_id(), stage.plan().id());
     drop(stage);
     drop(decision);
     drop(anchor);
@@ -699,3 +749,6 @@ mod reply_loss;
 
 #[path = "membership_publication/adversarial.rs"]
 mod adversarial;
+
+#[path = "membership_publication/startup_validation.rs"]
+mod startup_validation;

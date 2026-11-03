@@ -7,9 +7,16 @@ const RPC_MS: u64 = 150;
 const HEARTBEAT_MS: u64 = 100;
 const ELECTION_MS: u64 = 1500;
 
+#[derive(Clone, Default)]
+struct ControlEvents {
+    events: Vec<serde_json::Value>,
+    truncated: bool,
+}
+
 pub(super) struct AutomaticProcess {
     pub(super) process: Process,
     elections: Arc<Mutex<Vec<serde_json::Value>>>,
+    control_events: Arc<Mutex<ControlEvents>>,
     pub(super) cache: Arc<Mutex<Option<serde_json::Value>>>,
 }
 impl AutomaticProcess {
@@ -24,6 +31,8 @@ impl AutomaticProcess {
         let stdout = child.stdout.take().unwrap();
         let elections = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::clone(&elections);
+        let control_events = Arc::new(Mutex::new(ControlEvents::default()));
+        let controls = Arc::clone(&control_events);
         let cache = Arc::new(Mutex::new(None));
         let cache_events = Arc::clone(&cache);
         let (send, receive) = std::sync::mpsc::channel();
@@ -36,6 +45,16 @@ impl AutomaticProcess {
                     }
                     continue;
                 };
+                if event["event"] == "peer.control" || event["event"] == "peer.election" {
+                    // Preserve initial phase order, and explicitly reject a
+                    // truncated trace in tests that use it as an oracle.
+                    let mut trace = controls.lock().unwrap();
+                    if trace.events.len() < 512 {
+                        trace.events.push(event.clone());
+                    } else {
+                        trace.truncated = true;
+                    }
+                }
                 if event["event"] == "peer.ready" {
                     let _ = send.send(
                         event["listen"]
@@ -75,6 +94,7 @@ impl AutomaticProcess {
                 health: None,
             },
             elections,
+            control_events,
             cache,
         }
     }
@@ -484,18 +504,30 @@ fn automatic_daemon_restart_resumes_a_candidate_killed_after_only_local_publicat
     reader.join().unwrap();
     durable.unwrap();
     drop(follower);
-    {
-        let local =
+    let (original_input, original_history) = {
+        let mut local =
             DurableVsrCell::open_existing(state(&root, 1).join("pg-1"), PlacementGroupId(1))
                 .unwrap();
         assert_eq!(local.view(), Epoch(2));
         assert!(local.view_change_promise().is_none());
+        let input = local.installation_input().unwrap().unwrap();
+        assert_eq!(input.request().target_view, Epoch(2));
+        assert_eq!(input.request().candidate, NodeId(1));
+        let snapshots = local.installation_snapshots(input.id().unwrap()).unwrap();
+        let history = local.history_snapshot().unwrap();
+        assert_eq!(
+            rsf_vsr::VsrViewInstallation::select(&snapshots)
+                .unwrap()
+                .id(),
+            history.descriptor.digest.bytes,
+        );
         let remote =
             DurableVsrCell::open_existing(state(&root, 2).join("pg-1"), PlacementGroupId(1))
                 .unwrap();
         assert_eq!(remote.view(), Epoch(1));
-        assert_eq!(remote.view_change_promise().unwrap().target_view, Epoch(2));
-    }
+        assert_eq!(remote.view_change_promise(), Some(input.request()));
+        (input, history)
+    };
     let mut listeners = reserve(&mut peers);
     configure(&root, &peers, true);
     let mut processes = (0..3)
@@ -508,22 +540,168 @@ fn automatic_daemon_restart_resumes_a_candidate_killed_after_only_local_publicat
         .collect::<Vec<_>>();
     let (primary, view) = await_primary(&root, &peers, &mut processes, &[0, 1, 2], 2);
     assert_eq!(
-        (primary, view),
-        (1, 2),
-        "the restarted candidate must confirm its existing installation before a fresh election"
+        primary, 1,
+        "the retained candidate must recover this fixture"
     );
+    let trace = processes[1]
+        .as_ref()
+        .unwrap()
+        .control_events
+        .lock()
+        .unwrap()
+        .clone();
     assert!(
-        processes[1]
-            .as_ref()
-            .unwrap()
-            .elections
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|event| event["view"] == 2
+        !trace.truncated,
+        "control evidence was truncated: {}",
+        root.display()
+    );
+    let events = &trace.events;
+    let first = events
+        .iter()
+        .find(|event| event["event"] == "peer.control")
+        .expect("retained candidate emitted no control phase");
+    assert_eq!(
+        first["phase"], "resume",
+        "skipped retained installation: {events:?}"
+    );
+    let collect = events
+        .iter()
+        .position(|event| event["event"] == "peer.control" && event["phase"] == "collect");
+    if let Some(collect) = collect {
+        assert!(
+            view > 2,
+            "fresh election did not advance the installed view: {events:?}"
+        );
+        let mut attempts = 0;
+        let mut last_failed = None;
+        for event in &events[..collect] {
+            assert_eq!(event["pg"], 1);
+            if event["event"] == "peer.control" {
+                assert_eq!(event["node"], 1);
+                assert_eq!(
+                    event["phase"], "resume",
+                    "unexpected completion before escalation: {events:?}"
+                );
+                if attempts != 0 {
+                    assert!(
+                        last_failed.is_some(),
+                        "resume repeated without a failed result: {events:?}"
+                    );
+                }
+                attempts += 1;
+            } else {
+                assert_eq!(event["event"], "peer.election");
+                assert_eq!(
+                    event["view"], 2,
+                    "unobserved supersession branch: {events:?}"
+                );
+                assert_eq!(event["primary"], 1);
+                assert_eq!(
+                    event["quorum_confirmed"], false,
+                    "confirmed resume cannot justify failure escalation: {events:?}"
+                );
+                assert!(!event["detail"].as_str().unwrap().is_empty());
+                assert!(
+                    attempts != 0,
+                    "failed result preceded the first resume: {events:?}"
+                );
+                last_failed = Some(event);
+            }
+        }
+        // The daemon suppresses identical election-result events. Two resume
+        // phases plus the still-unconfirmed emitted result establish ordering;
+        // requiring two duplicate result lines would reject legitimate retries.
+        assert!(
+            attempts >= 2 && last_failed.is_some(),
+            "fresh election skipped bounded resume attempts: {events:?}"
+        );
+    } else {
+        assert_eq!(
+            view, 2,
+            "advanced without a fresh-election phase: {events:?}"
+        );
+        assert!(
+            events.iter().any(|event| {
+                event["event"] == "peer.election"
+                    && event["view"] == 2
+                    && event["primary"] == 1
+                    && event["quorum_confirmed"] == true
+                    && event["detail"].as_str().unwrap().contains("resumed")
+            }),
+            "retained installation was not confirmed: {events:?}"
+        );
+    }
+    assert!(
+        events.iter().any(|event| {
+            event["event"] == "peer.election"
+                && event["pg"] == 1
+                && event["view"] == view
+                && event["primary"] == primary
                 && event["quorum_confirmed"] == true
-                && event["detail"].as_str().unwrap().contains("resumed"))
+        }),
+        "final installed quorum was not confirmed: {events:?}"
     );
     drop(processes);
+
+    // A later safe election can replace the upload pointer, but cannot discard
+    // the original installed history. Validate complete selected proof and
+    // authoritative replay on every cold survivor, not just the event stream.
+    let expected = rsf_vsr::VsrPrimaryProbe {
+        view: Epoch(view),
+        primary: NodeId(primary),
+        ..original_history.descriptor.probe.clone()
+    };
+    let mut final_input = None;
+    let mut final_history = None;
+    for node in 0..3 {
+        let mut cell =
+            DurableVsrCell::open_existing(state(&root, node).join("pg-1"), PlacementGroupId(1))
+                .unwrap();
+        let status = cell.replica_status().unwrap();
+        assert_eq!(
+            status.normal, expected,
+            "cold voter {node} changed authority"
+        );
+        assert!(status.promise.is_none());
+        assert!(cell.has_installed_view());
+        let input = cell.installation_input().unwrap().unwrap();
+        assert_eq!(
+            *input.request(),
+            rsf_vsr::VsrViewChangeRequest {
+                target_view: expected.view,
+                ..original_input.request().clone()
+            }
+        );
+        let snapshots = cell.installation_snapshots(input.id().unwrap()).unwrap();
+        let selected = rsf_vsr::VsrViewInstallation::select(&snapshots).unwrap();
+        let history = cell.history_snapshot().unwrap();
+        assert_eq!(selected.request(), input.request());
+        assert_eq!(
+            selected.id(),
+            history.descriptor.digest.bytes,
+            "voter {node} active history differs from its selected proof"
+        );
+        assert_eq!(selected.committed_tail(), expected.committed_tail);
+        assert_eq!(selected.accepted_tail(), rsf_core::LogIndex(0));
+        assert!(
+            history.records.starts_with(&original_history.records),
+            "voter {node} lost the original installed history"
+        );
+        if view == 2 {
+            assert_eq!(input, original_input);
+            assert_eq!(history.records, original_history.records);
+        } else {
+            assert_ne!(input.id().unwrap(), original_input.id().unwrap());
+        }
+        if let Some(first) = &final_input {
+            assert_eq!(&input, first);
+        }
+        if let Some((descriptor, records)) = &final_history {
+            assert_eq!(&history.descriptor, descriptor);
+            assert_eq!(&history.records, records);
+        }
+        final_input = Some(input);
+        final_history = Some((history.descriptor, history.records));
+    }
     std::fs::remove_dir_all(root).unwrap();
 }

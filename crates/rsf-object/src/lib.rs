@@ -134,6 +134,10 @@ impl ObjectEngine {
         self.complete_multipart(router, metadata_pg, upload.id)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep object identity, routing, payload and erasure placement explicit in the public API"
+    )]
     pub fn put_cold_erasure(
         &mut self,
         router: &mut impl FabricRouterPort,

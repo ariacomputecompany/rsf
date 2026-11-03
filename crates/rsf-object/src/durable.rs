@@ -111,6 +111,10 @@ impl DurableObjectStore {
         self.create_bucket_request(router, metadata_pg, request, bucket)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep routing, durable request identity, object identity and payload explicit in the public API"
+    )]
     pub fn put(
         &mut self,
         router: &mut impl FabricRouterPort,
@@ -535,7 +539,7 @@ fn decode_string(value: &str, label: &str) -> RsfResult<String> {
 }
 
 fn hex_decode(value: &str) -> RsfResult<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
             "hex field has an odd number of digits",

@@ -10,16 +10,20 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-fn root(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "rsf-peer-{name}-{}-{}",
-        std::process::id(),
+#[path = "tests/fixture_roots.rs"]
+mod fixture_roots;
+
+pub(super) fn root(name: &str) -> PathBuf {
+    fixture_roots::reserve(
+        &std::env::temp_dir(),
+        name,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
-    ))
+            .as_nanos(),
+    )
 }
+
 fn cluster() -> ClusterId {
     ClusterId::new("test-cluster").unwrap()
 }
@@ -897,7 +901,8 @@ impl LearnerPeer {
                 match listener.accept() {
                     Ok((socket, _)) => {
                         let shutdown = socket.try_clone().unwrap();
-                        let _ = server.serve_connection_with_apply(socket, &mut |_| {
+                        let started = std::time::Instant::now();
+                        let result = server.serve_connection_with_apply(socket, &mut |_| {
                             applied.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             if drop_first_reply && !lost_reply {
                                 shutdown.shutdown(std::net::Shutdown::Both).unwrap();
@@ -905,6 +910,9 @@ impl LearnerPeer {
                             }
                             Ok(())
                         });
+                        if result.is_err() || started.elapsed() >= Duration::from_millis(100) {
+                            eprintln!("learner service {:?}: {result:?}", started.elapsed());
+                        }
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(1))

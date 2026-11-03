@@ -242,32 +242,126 @@ fn stale_primary_waits_once_for_newer_installed_view_then_recovers_if_repair_nev
         timeout: Duration::from_millis(1000),
         rank_delay: Duration::from_millis(200),
     };
+    let initial = server.cells[&pg].replica_status().unwrap();
     let update = server
         .poll_elections(timing, &mut |_| Ok(()))
         .unwrap()
         .unwrap();
     assert!(!update.quorum_confirmed);
+    assert_eq!(update.pg, pg);
     assert_eq!(update.view, Epoch(2));
-    assert!(server.cells[&pg].view_change_promise().is_none());
+    assert_eq!(update.primary, NodeId(1));
+    assert_eq!(
+        update.detail,
+        "higher installed view observed; awaiting current primary repair"
+    );
+    assert!(initial.promise.is_none());
+    assert_eq!(server.cells[&pg].replica_status().unwrap(), initial);
+    let adoption = server.election_adoption_window(pg).unwrap();
+    assert_eq!(adoption.0, Epoch(3));
+    let may_elect_at = adoption.1 + timing.timeout;
+    let expected_request = |target_view| VsrViewChangeRequest {
+        pg,
+        previous_view: Epoch(1),
+        target_view,
+        candidate: NodeId(1),
+        voters: initial.normal.voters.clone(),
+    };
     // Repeated authenticated inventory must not renew the adoption window.
     // This peer serves RPCs but has no controller to perform primary repair.
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut recovered = false;
+    let mut updates = Vec::new();
+    let mut checked_installed_input = None;
+    let mut last_status = initial.clone();
     while Instant::now() < deadline {
-        if let Some(update) = server.poll_elections(timing, &mut |_| Ok(())).unwrap() {
+        let update = server
+            .poll_elections_with_progress(timing, &mut |_| Ok(()), &mut |phase| {
+                assert_eq!(phase.pg, pg);
+                assert_eq!(phase.node, NodeId(1));
+                assert!(
+                    Instant::now() >= may_elect_at,
+                    "election started before the original adoption window: {phase:?}"
+                );
+            })
+            .unwrap();
+        assert_eq!(server.election_adoption_window(pg), Some(adoption));
+        let status = server.cells[&pg].replica_status().unwrap();
+        if let Some(update) = update {
+            let observed_at = Instant::now();
+            let cell = server.cells.get_mut(&pg).unwrap();
+            updates.push(format!("{update:?}; local={status:?}"));
+            assert_eq!(update.pg, pg);
+            assert_eq!(update.primary, NodeId(1));
+            assert_eq!(
+                status.normal,
+                rsf_vsr::VsrPrimaryProbe {
+                    view: update.view,
+                    ..initial.normal.clone()
+                }
+            );
+            assert!(update.view == Epoch(2) || update.view >= Epoch(4));
+            assert!(cell.has_installed_view());
+            if observed_at < may_elect_at {
+                assert_eq!(status, initial);
+                assert!(!update.quorum_confirmed);
+            }
+            if let Some(promise) = &status.promise {
+                assert_eq!(*promise, expected_request(promise.target_view));
+                assert!(promise.target_view >= Epoch(4));
+                assert!(promise.target_view > status.normal.view);
+                assert!(!update.quorum_confirmed);
+            } else {
+                assert_eq!(cell.primary_probe().unwrap(), status.normal);
+            }
+            // Local publication precedes remote confirmation. An unconfirmed
+            // newer view must still have exact, complete installation custody;
+            // a partial next upload must bind the current local promise.
+            let input = cell.installation_input().unwrap().unwrap();
+            assert_eq!(
+                *input.request(),
+                expected_request(input.request().target_view)
+            );
+            if input.request().target_view == status.normal.view {
+                let id = input.id().unwrap();
+                if checked_installed_input != Some(id) {
+                    cell.installation_snapshots(id).unwrap();
+                    checked_installed_input = Some(id);
+                }
+            } else {
+                assert_eq!(status.promise.as_ref(), Some(input.request()));
+            }
             if update.quorum_confirmed {
                 assert!(update.view >= Epoch(4));
-                assert_eq!(update.primary, NodeId(1));
+                assert!(status.promise.is_none());
+                assert!(observed_at <= deadline, "late recovery: {updates:?}");
                 recovered = true;
                 break;
             }
-            assert_eq!(update.view, Epoch(2));
-            assert!(server.cells[&pg].view_change_promise().is_none());
+        } else {
+            assert_eq!(status, last_status);
         }
+        last_status = status;
         std::thread::sleep(Duration::from_millis(25));
     }
-    assert!(recovered, "read-only inventory prevented bounded recovery");
+    assert!(
+        recovered,
+        "read-only inventory prevented bounded recovery: {updates:?}"
+    );
+    let installed = server.cells[&pg].replica_status().unwrap();
     drop(server);
     drop(peer);
+    // Node zero remained absent. Confirmation therefore requires the real
+    // surviving voter, whose complete installed identity must survive reopen.
+    for node in [1, 2] {
+        let mut recovered = cell(&root, node);
+        assert!(recovered.has_installed_view());
+        assert_eq!(recovered.replica_status().unwrap(), installed);
+        let input = recovered.installation_input().unwrap().unwrap();
+        assert_eq!(*input.request(), expected_request(installed.normal.view));
+        recovered
+            .installation_snapshots(input.id().unwrap())
+            .unwrap();
+    }
     std::fs::remove_dir_all(root).unwrap();
 }

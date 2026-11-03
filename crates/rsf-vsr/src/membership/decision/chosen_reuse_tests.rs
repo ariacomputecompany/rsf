@@ -234,3 +234,160 @@ fn chosen_input_proof_reuse_rereads_after_copy_and_public_learning_still_replays
         std::fs::remove_dir_all(path).unwrap();
     }
 }
+
+#[test]
+fn chosen_finish_revalidates_missing_and_valid_short_input_before_first_choice() {
+    for fault in ["missing-manifest", "valid-short"] {
+        let path = root(&format!("chosen-finish-first-{fault}"));
+        let (mut store, approval, chosen) = accepted_b(&path);
+        let input = VsrMembershipInput::from_approval(&approval).unwrap();
+        let id = input.id().unwrap();
+        let records = input.flattened_records(&approval).unwrap();
+        let high = round(91, 3);
+        store.promise(NodeId(3), high).unwrap();
+        store
+            .begin_chosen_input(NodeId(1), chosen.clone(), input.clone())
+            .unwrap();
+        assert!(store.chosen().is_none());
+        let before = store.decision_state().unwrap();
+        let journal = store
+            .journal
+            .recover_current()
+            .unwrap()
+            .recovery
+            .wal_records;
+        let directory = store.directory(id);
+        if fault == "missing-manifest" {
+            std::fs::remove_file(directory.join("records/MANIFEST")).unwrap();
+        } else {
+            replace_records(
+                &path.join("short"),
+                &input,
+                &records[..1],
+                &directory.join("records"),
+            );
+            assert_eq!(store.read_records(id).unwrap().1, records[..1]);
+        }
+        for _ in 0..2 {
+            assert!(store.finish_chosen_input(NodeId(1), id).is_err(), "{fault}");
+            assert_eq!(store.decision_state().unwrap(), before);
+            assert_eq!(
+                store
+                    .journal
+                    .recover_current()
+                    .unwrap()
+                    .recovery
+                    .wal_records,
+                journal
+            );
+        }
+        if fault == "missing-manifest" {
+            assert!(!directory.join("records/MANIFEST").exists());
+        } else {
+            assert_eq!(store.read_records(id).unwrap().1, records[..1]);
+        }
+        drop(store);
+        assert!(
+            MembershipDecisionStore::open_existing(
+                path.join("decision-2"),
+                PlacementGroupId(1),
+                NodeId(2),
+            )
+            .is_err()
+        );
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+fn chosen_finish_valid_retry_keeps_one_journal_entry_and_checks_custody_again() {
+    let path = root("chosen-finish-exact-retry");
+    let (mut store, approval, chosen) = accepted_b(&path);
+    let input = VsrMembershipInput::from_approval(&approval).unwrap();
+    let id = input.id().unwrap();
+    let high = round(91, 3);
+    store.promise(NodeId(3), high).unwrap();
+    let accepted = store.accepted();
+    assert_eq!(
+        store
+            .begin_chosen_input(NodeId(1), chosen.clone(), input.clone())
+            .unwrap(),
+        VsrMembershipImportReply::Retained {
+            input: id,
+            records: input.records().unwrap()
+        }
+    );
+    let before = store
+        .journal
+        .recover_current()
+        .unwrap()
+        .recovery
+        .wal_records;
+    assert_eq!(
+        store.finish_chosen_input(NodeId(1), id).unwrap(),
+        VsrMembershipImportReply::Chosen { input: id }
+    );
+    assert_eq!(store.chosen(), Some(&chosen));
+    assert_eq!(store.accepted(), accepted);
+    assert_eq!(store.decision_state().unwrap().promised, Some(high));
+    let journal = store
+        .journal
+        .recover_current()
+        .unwrap()
+        .recovery
+        .wal_records;
+    assert_eq!(journal.len(), before.len() + 1);
+    assert_eq!(&journal[..before.len()], before.as_slice());
+    assert_eq!(
+        store.finish_chosen_input(NodeId(3), id).unwrap(),
+        VsrMembershipImportReply::Chosen { input: id }
+    );
+    assert_eq!(
+        store
+            .journal
+            .recover_current()
+            .unwrap()
+            .recovery
+            .wal_records,
+        journal
+    );
+    drop(store);
+    let mut store = MembershipDecisionStore::open_existing(
+        path.join("decision-2"),
+        PlacementGroupId(1),
+        NodeId(2),
+    )
+    .unwrap();
+    assert_eq!(store.chosen(), Some(&chosen));
+    assert_eq!(store.accepted(), accepted);
+    assert_eq!(store.decision_state().unwrap().promised, Some(high));
+    assert_eq!(
+        store.finish_chosen_input(NodeId(1), id).unwrap(),
+        VsrMembershipImportReply::Chosen { input: id }
+    );
+    assert_eq!(
+        store
+            .journal
+            .recover_current()
+            .unwrap()
+            .recovery
+            .wal_records,
+        journal
+    );
+    let manifest = store.directory(id).join("records/MANIFEST");
+    std::fs::remove_file(&manifest).unwrap();
+    assert!(store.finish_chosen_input(NodeId(1), id).is_err());
+    assert_eq!(store.chosen(), Some(&chosen));
+    assert_eq!(
+        store
+            .journal
+            .recover_current()
+            .unwrap()
+            .recovery
+            .wal_records,
+        journal
+    );
+    assert!(!manifest.exists());
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}

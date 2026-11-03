@@ -784,14 +784,13 @@ mod tests {
 
         assert!(!report.is_ok());
         assert_eq!(report.failed(), 1);
-        assert_eq!(
-            report
+        assert!(
+            !report
                 .checks
                 .iter()
                 .find(|check| check.id == InvariantId::MultiSurfaceLayout)
                 .unwrap()
-                .passed,
-            false
+                .passed
         );
     }
 

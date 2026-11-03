@@ -203,3 +203,6 @@ fn partial_retained_input_is_an_error_and_a_conflicting_choice_cannot_replace_ac
 
 #[path = "chosen_reuse_tests.rs"]
 mod chosen_reuse;
+
+#[path = "stage_performance_tests.rs"]
+mod stage_performance;

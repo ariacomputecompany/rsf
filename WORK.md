@@ -24,11 +24,32 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified; work paused at the user's
-request on November 3, 2026**. The current source is a development checkpoint,
-with one failing learner-transfer regression and incomplete full qualification.
-See `docs/production-pause-2026-11-03.md` and
-`docs/prechoice-checkpoint-2026-11-03.json` for the exact resume boundary.
+Current release status: **not production qualified; full work resumed at the
+user's request on November 3, 2026**. Learner FINISH, concurrent fixture isolation
+and staged input ownership fixes pass the affected suites. Startup proof reuse
+passes the original debug/release partial-transfer case without changing its
+deadlines. The third full gate completed: 23 domains passed, membership-peer
+and workspace failed recovery assertions. Workspace recorded 1,373 passing
+tests, one failure and one opt-in stress test ignored; both separate stress
+profiles and all 16 native-membership commands passed. The election assertion
+incorrectly equated unconfirmed publication with an unchanged local view. The
+daemon assertion required view 2 although two resume attempts were followed by
+quorum-confirmed view 3. Corrections must preserve timing/concurrency and verify
+complete recovery proof. Evidence is in
+`docs/baseline-full-v3-attempt-2026-11-03.json`; the preceding incomplete attempt
+remains in `docs/baseline-full-attempt-2026-11-03.json`. A fresh passing complete
+gate is required after corrections. The historical pause boundary remains in
+`docs/production-pause-2026-11-03.md` and
+`docs/prechoice-checkpoint-2026-11-03.json`.
+
+The fourth gate is running on the repaired source. Membership-peer passed, but
+membership-staging exposed a separate two-group fixture failure: its adversarial
+peer panicked on an ordinary reply deadline, then recovery failed to converge.
+The failed trace and fixture are preserved; a correction is under review and
+has not been integrated. Focused election, concurrent RPC, debug/release daemon
+restart, all-target strict Clippy and 248 lint-affected crate tests passed.
+This verified repair checkpoint is recorded in
+`docs/baseline-repair-checkpoint-2026-11-03.json`; it is not a green full baseline.
 
 Native chosen-transition
 recovery and replay-derived native admission guards are implemented. Incremental
@@ -59,8 +80,9 @@ Autonomous pre-choice recovery is integrated but not fully qualified; atomic
 replicated control admission remains unfinished. Growing-history reopening/replay, retention, legacy migration,
 independent-group routing and independent-host/region fault/numerical capacity
 qualification remain required. Current host tests do not establish those
-properties. Unrestricted dependency Clippy still has tuple/manifest/prepared lint
-debt; the passing lint scope excludes dependency diagnostics.
+properties. Unrestricted workspace all-target Clippy now passes with warnings
+denied. Recovery assertion corrections pass focused real TLS/daemon checks,
+including debug/release restart; the fresh full gate remains required.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 

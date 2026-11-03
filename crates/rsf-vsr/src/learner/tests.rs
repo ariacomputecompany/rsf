@@ -1,3 +1,5 @@
+mod finish;
+
 use super::*;
 
 fn path(name: &str) -> PathBuf {

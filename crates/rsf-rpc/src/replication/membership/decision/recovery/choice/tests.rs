@@ -134,21 +134,19 @@ impl Drop for Fixture {
         drop(self.local.take());
         drop(self.remote.take());
         drop(self.original.take());
-        let _ = std::fs::remove_dir_all(&self.root);
+        if std::thread::panicking() {
+            eprintln!("preserving failed choice fixture: {}", self.root.display());
+        } else {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }
 fn minority() -> Fixture {
     seed(true, false)
 }
 fn seed(accept_second: bool, retain_original: bool) -> Fixture {
-    let root = std::env::temp_dir().join(format!(
-        "rsf-choice-driver-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let root = crate::replication::tests::root("choice-driver");
+    eprintln!("membership choice fixture: {}", root.display());
     let mut cells = (0..3)
         .map(|n| {
             DurableVsrCell::open(

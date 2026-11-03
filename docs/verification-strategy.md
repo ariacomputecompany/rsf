@@ -16,10 +16,31 @@ script checks the CLI identity and accepts an explicit engine path:
 FOZZY_BIN=/path/to/fozzy FOZZY_SEED=20260930 sh scripts/verify-fozzy.sh
 ```
 
-Each invocation creates a fresh `artifacts/verification.*` directory containing
+By default, each invocation creates a fresh `artifacts/verification.*` directory containing
 host scenarios and recorded traces for storage, VSR, membership, protocol, authenticated peer RPC, KV
 transactions, SQL, authentication, tenancy, the daemon, objects/blobs, recovery, policy, the POC, and the
 complete workspace test suite, plus automatic client takeover in debug and release.
+Use `--artifact-dir artifacts/verification.example` to choose a new directory.
+The runner saves each phase's raw outputs and exit codes alongside an atomic
+run checkpoint. Run `python3 -B scripts/test_verify_fozzy.py` to check the bookkeeping;
+those isolated fake-engine tests do not qualify RSF itself.
+
+An existing run can be resumed with `--resume <artifact-directory>`. Completed
+domains are reused only after checking their complete six-phase evidence,
+source, engine, toolchain, Cargo configuration and test-concurrency identity.
+Recorded failures stay failed. An observed identity change invalidates that
+run permanently; use a fresh directory after fixing the source.
+
+If the checkpoint has an active owner, inspect the runner and all relevant
+Fozzy/Cargo/daemon descendants before resuming. A released lock or missing tool
+session does not prove those processes have stopped. The `--no-live-processes`
+option requires a JSON attestation with `version: 1`, the absolute
+`artifact_root`, current `checkpoint_sha256`, `no_live_processes: true`, a
+nonempty `checked_by` description, and the absolute `evidence` path and
+`evidence_sha256` for the saved process inspection. The runner retains that
+attestation and any interrupted attempt before creating a new attempt. It does
+not import older uncheckpointed runs or overwrite their failures.
+
 It also runs two real-process KV stress workloads:
 
 | Profile | Clients | Acknowledged logical writes | Forced process shutdowns | Uncertain writes resolved |
@@ -38,7 +59,7 @@ exactly one applied version. Client I/O timeout limits stay enabled.
 The script continues independent domains after a failure and writes
 `summary.json` with their individual results, workload counts, build profiles,
 latency/throughput measurements and source fingerprints. Overall success
-requires all 18 domains, the expected real workload evidence, and unchanged
+requires all 25 domains, the expected real workload evidence, and unchanged
 Rust/test/script inputs throughout the run. A filter accidentally running zero
 stress tests, or edits made during verification, cannot produce a successful
 release summary. Hardware/WAN capacity targets and the complete machine-failure

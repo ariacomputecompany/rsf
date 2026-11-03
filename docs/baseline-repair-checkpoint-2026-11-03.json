@@ -1,0 +1,80 @@
+{
+  "date": "2026-11-03",
+  "status": "verified-repair-checkpoint-full-gate-still-failing",
+  "production_qualified": false,
+  "full_gate_passed": false,
+  "parent_commit": "9cbbc4b836a97d52e96ad87760888e2704f1a492",
+  "current_source_sha256": "6c56addef1002238b980463d5193e989fdd54212ef5f84de7da9fd4b56752c74",
+  "validated": {
+    "strict_workspace_clippy": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+    "verifier_bookkeeping_tests": 14,
+    "verifier_bookkeeping_scope": "isolated fake engine; not RSF qualification",
+    "targeted_election_tests": 1,
+    "concurrent_rpc_scenario_tests": 186,
+    "daemon_restart_tests": {
+      "debug": 1,
+      "release": 1
+    },
+    "lint_affected_crate_tests": 248,
+    "scoped_real_host_pipeline": [
+      "five-run doctor",
+      "strict deterministic scenario",
+      "recorded real host execution",
+      "strict trace verification",
+      "replay",
+      "CI"
+    ]
+  },
+  "full_gate": {
+    "root": "artifacts/verification.baseline-20261103-v4",
+    "status": "running with known failure",
+    "passed_domains_at_checkpoint": [
+      "control-state",
+      "membership",
+      "membership-activation",
+      "membership-decision",
+      "membership-peer",
+      "protocol",
+      "storage",
+      "vsr"
+    ],
+    "failed_domains_at_checkpoint": [
+      "membership-staging"
+    ],
+    "active_domain": {
+      "attempt": 1,
+      "domain": "peer-rpc"
+    }
+  },
+  "open_failure": {
+    "test": "real_tls_two_group_recovery_serves_inbound_and_rotates_past_a_blackhole",
+    "observed": "The adversarial GatedPeer thread panicked on an ordinary reply write deadline; the test subsequently failed convergence.",
+    "fix_status": "Artifact-only diagnosis; no fix integrated in this checkpoint.",
+    "evidence": "artifacts/two-group-baseline-development"
+  },
+  "public_rust_api_changes": [
+    "ManifestEntry::new groups namespace/object in ManifestObject",
+    "ObjectMetadataEngine::transfer_head_ownership accepts ObjectHeadOwnershipChange",
+    "SqlPipeline::execute_statement groups mutable ports in SqlMutationContext"
+  ],
+  "unchanged_constraints": [
+    "RPC/election/readiness/convergence deadlines",
+    "retry counts",
+    "test concurrency and workload sizes",
+    "durable/wire formats"
+  ],
+  "limits": [
+    "Full gate remains failed; a fresh gate is required after the remaining correction.",
+    "Managed control writer, durable delivery confirmation, admission and repeated membership lifecycle remain unfinished.",
+    "Single-host TLS/fsync does not establish independent-host capacity or power-loss qualification."
+  ],
+  "evidence_sha256": {
+    "artifacts/baseline-clippy-20261103-final.log": "4db6dea353c2bbb15d42f62a40e15ed2848992cd338b886c5307e5ecb8d4a5e9",
+    "artifacts/verifier-identity-failure-development/all-tests-integrated.log": "d2a1bfaa9d401767f19bc2e55d829a06c592010d70f5ecbfad79139c2981430a",
+    "artifacts/election-adoption-baseline-20261103.trace.fozzy": "b7d88747441cbfc652d980799216f0f9cf7a7ef0bc73aaa700785aea50d0358f",
+    "artifacts/election-adoption-concurrent-20261103.trace.fozzy": "acf316bdb6ac248fe9801c0cd723f5d8a3b056946864c518a85532946efcfb9c",
+    "artifacts/automatic-restart-baseline-20261103.trace.fozzy": "c0627b4cf6c11a919e86b13091144034dd5dac12e979547b4c249bc4f3a2314d",
+    "artifacts/baseline-lint-affected-20261103.trace.fozzy": "849e85e5a8b8ade189a213c490ea54f6cb775b79780b34a10abfdcb97b2b0b0d",
+    "artifacts/two-group-baseline-development/failed-trace-verify.json": "0a3f979801bc0ddb85f3add84424896501fde7f32950f84f9e338e25fde0d9e4"
+  }
+}

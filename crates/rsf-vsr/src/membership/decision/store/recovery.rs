@@ -301,7 +301,9 @@ impl MembershipDecisionStore {
         self.validate_import(&context.chosen, &context.input)?;
         self.read_approval(id)?;
         let chosen = context.chosen.clone();
-        self.learn_chosen(chosen)?;
+        // The complete retained input was freshly replayed above. No effect or
+        // callback intervenes before the private proof-consuming journal path.
+        self.learn_verified_chosen(chosen)?;
         self.import = None;
         Ok(VsrMembershipImportReply::Chosen { input: id })
     }

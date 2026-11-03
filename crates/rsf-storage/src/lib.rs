@@ -1231,7 +1231,7 @@ mod tests {
 
     use super::*;
     use rsf_core::{CommitVersion, Digest};
-    use rsf_manifest::{ByteRange, ManifestEntry};
+    use rsf_manifest::{ByteRange, ManifestEntry, ManifestObject};
 
     #[test]
     fn append_and_recover_records_in_order() {
@@ -2094,8 +2094,7 @@ mod tests {
     ) -> ManifestEntry {
         ManifestEntry::new(
             kind,
-            "app",
-            object,
+            ManifestObject::new("app", object),
             version,
             Digest::blake3_bytes(format!("storage-manifest-extent:{object}:{seed}").as_bytes()),
             pg,

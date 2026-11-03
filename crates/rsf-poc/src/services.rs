@@ -55,14 +55,17 @@ use rsf_kv::{KvBatch, KvEngine, KvMutation};
 use rsf_lease::{FenceDecision, FenceToken, LeaseTable};
 use rsf_manifest::{
     BackupManifest, BlobManifest, ByteRange, ExtentManifest, KvManifest, ManifestChecksumProof,
-    ManifestDecision, ManifestEntry, ManifestKind, ObjectManifest, ProviderMetadata,
-    ProviderReplica, ProviderStorageClass, SnapshotManifest, SqlManifest, TypedManifest,
+    ManifestDecision, ManifestEntry, ManifestKind, ManifestObject, ObjectManifest,
+    ProviderMetadata, ProviderReplica, ProviderStorageClass, SnapshotManifest, SqlManifest,
+    TypedManifest,
 };
 use rsf_materialize::{MaterializationDecision, RowMaterializer};
 use rsf_membership::{Member, MembershipCell, MembershipDecision};
 use rsf_migration::{MigrationDecision, MigrationLifecycle};
 use rsf_object::ObjectEngine;
-use rsf_objectmeta::{ObjectMetadataDecision, ObjectMetadataEngine, ObjectPartRef};
+use rsf_objectmeta::{
+    ObjectHeadOwnershipChange, ObjectMetadataDecision, ObjectMetadataEngine, ObjectPartRef,
+};
 use rsf_observability::{AuditEvent, HealthStatus, ObservabilityRegistry};
 use rsf_page::{PageDecision, PageFrame, PageId, PageImage, PageServer, RedoOperation, RedoRecord};
 use rsf_planner::{AccessPath, PhysicalPlan, PhysicalPlanner, PhysicalPlanningContext, TableStats};
@@ -8282,10 +8285,12 @@ impl ObjectMetadataService {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                head.version,
-                head.owner_epoch,
-                PlacementGroupId(3),
-                Epoch(head.owner_epoch.0 + 1),
+                ObjectHeadOwnershipChange {
+                    expected_current: head.version,
+                    expected_owner_epoch: head.owner_epoch,
+                    new_owner_pg: PlacementGroupId(3),
+                    new_owner_epoch: Epoch(head.owner_epoch.0 + 1),
+                },
             )
             .expect("simulated object metadata ownership transfer must commit");
         trace.push(
@@ -8300,10 +8305,12 @@ impl ObjectMetadataService {
                 PlacementGroupId(2),
                 "media",
                 "hero.png",
-                head.version,
-                head.owner_epoch,
-                PlacementGroupId(4),
-                Epoch(head.owner_epoch.0 + 2),
+                ObjectHeadOwnershipChange {
+                    expected_current: head.version,
+                    expected_owner_epoch: head.owner_epoch,
+                    new_owner_pg: PlacementGroupId(4),
+                    new_owner_epoch: Epoch(head.owner_epoch.0 + 2),
+                },
             )
             .expect_err("simulated object metadata stale ownership transfer must reject");
         trace.push(
@@ -8952,8 +8959,7 @@ impl ManifestService {
         let mut entries = Self::entries();
         entries.push(ManifestEntry::new(
             ManifestKind::OrderedKvSstable,
-            "app",
-            "kv/app/config/run-7",
+            ManifestObject::new("app", "kv/app/config/run-7"),
             CommitVersion(22),
             Digest::blake3([77_u8; 32])
                 .expect("simulated manifest extent digest must be non-empty"),
@@ -8968,8 +8974,7 @@ impl ManifestService {
     fn entry(kind: ManifestKind, object: &str, seed: u8, offset: u64, len: u64) -> ManifestEntry {
         ManifestEntry::new(
             kind,
-            "app",
-            object,
+            ManifestObject::new("app", object),
             CommitVersion(22),
             Digest::blake3([seed; 32]).expect("simulated manifest extent digest must be non-empty"),
             PlacementGroupId(u64::from(seed % 3) + 1),
@@ -9738,12 +9743,11 @@ impl Cache {
                 CommitVersion(snapshot.0 + 1),
             ),
         );
-        for read in [cache.read(
+        let read = cache.read(
             &CacheKey::new(CacheSurface::Blob, "app", "sha256-demo"),
             snapshot,
-        )] {
-            Self::record_read(trace, runtime, read);
-        }
+        );
+        Self::record_read(trace, runtime, read);
 
         let blob = Self::entry(CacheSurface::Blob, "sha256-demo", snapshot, 320, false);
         Self::record_admission(trace, runtime, cache.put(blob).expect("cache put"));
@@ -10923,28 +10927,27 @@ impl Rebalance {
             if let Some(group) = groups
                 .iter()
                 .find(|group| group.id == rebalance_action_pg(action))
+                && let Some(proof) = plan.policy_proofs.iter().find(|proof| proof.pg == group.id)
             {
-                if let Some(proof) = plan.policy_proofs.iter().find(|proof| proof.pg == group.id) {
-                    let moved = RebalancePlanner
-                        .execute_move(runtime.admin.cluster_map(), group, action, proof)
-                        .expect("simulated placement-group movement must execute");
-                    trace.push(
-                        "rebalance",
-                        "move-execute",
-                        format!(
-                            "pg={} from={} to={} epoch={}=>{} primary={}=>{} replicas={}=>{}",
-                            moved.pg.0,
-                            moved.from.0,
-                            moved.to.0,
-                            moved.previous_epoch.0,
-                            moved.resulting_epoch.0,
-                            moved.previous_primary.0,
-                            moved.resulting_primary.0,
-                            node_list(&moved.previous_replicas),
-                            node_list(&moved.resulting_replicas)
-                        ),
-                    );
-                }
+                let moved = RebalancePlanner
+                    .execute_move(runtime.admin.cluster_map(), group, action, proof)
+                    .expect("simulated placement-group movement must execute");
+                trace.push(
+                    "rebalance",
+                    "move-execute",
+                    format!(
+                        "pg={} from={} to={} epoch={}=>{} primary={}=>{} replicas={}=>{}",
+                        moved.pg.0,
+                        moved.from.0,
+                        moved.to.0,
+                        moved.previous_epoch.0,
+                        moved.resulting_epoch.0,
+                        moved.previous_primary.0,
+                        moved.resulting_primary.0,
+                        node_list(&moved.previous_replicas),
+                        node_list(&moved.resulting_replicas)
+                    ),
+                );
             }
             trace.push("rebalance", "action", rebalance_action(action.clone()));
         }

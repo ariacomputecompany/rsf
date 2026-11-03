@@ -139,7 +139,16 @@ impl MembershipAuthorityInbox {
         validate(&input, self.pg, self.local)?;
         authorize(sender, &input)?;
         if let Some(previous) = &self.selected {
-            disk::read_records(&self.root, previous.id()?)?;
+            let (retained, records) = disk::read_records(&self.root, previous.id()?)?;
+            if retained != *previous {
+                return Err(corrupt("membership authority descriptor changed"));
+            }
+            if previous == &input {
+                // An existing selected upload needs fresh byte validation and
+                // the complete input publication barrier, not a new writer.
+                disk::sync_input_publication(&self.root, input.id()?)?;
+                return Ok(records.len() as u64);
+            }
         }
         disk::create_input(&self.root, &input)?;
         let (_, records) = disk::read_records(&self.root, input.id()?)?;

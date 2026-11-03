@@ -26,7 +26,10 @@ impl NetworkVsrTransport {
             .descriptor
             .encode()
             .map_err(|err| fail(err.message))?;
-        let count = self.request(target, HISTORY_BEGIN, &descriptor)?.0;
+        let count = self
+            .request(target, HISTORY_BEGIN, &descriptor)
+            .map_err(|err| fail(format!("learner BEGIN: {}", err.reason)))?
+            .0;
         if count > snapshot.descriptor.records {
             return Err(fail("learner resume position exceeds snapshot".into()));
         }
@@ -35,7 +38,8 @@ impl NetworkVsrTransport {
             bytes.extend_from_slice(&id);
             bytes.extend_from_slice(&(ordinal as u64).to_le_bytes());
             bytes.extend_from_slice(&record.encode().map_err(|err| fail(err.message))?);
-            self.expect_index(target, HISTORY_RECORD, &bytes, LogIndex(ordinal as u64 + 1))?;
+            self.expect_index(target, HISTORY_RECORD, &bytes, LogIndex(ordinal as u64 + 1))
+                .map_err(|err| fail(format!("learner RECORD {ordinal}: {}", err.reason)))?;
         }
         // Re-probe before publication: a stale primary must not report successful
         // catch-up after it has lost current configuration authority.
@@ -47,7 +51,8 @@ impl NetworkVsrTransport {
             HISTORY_FINISH,
             &bytes,
             snapshot.descriptor.probe.committed_tail,
-        )?;
+        )
+        .map_err(|err| fail(format!("learner FINISH: {}", err.reason)))?;
         Ok(snapshot.descriptor.probe.committed_tail)
     }
 

@@ -56,35 +56,72 @@ impl PeerReplicaServer {
             };
             let decision_path = path.join("decision");
             if transition_path_present(&decision_path)? {
-                let store =
-                    match MembershipDecisionStore::open_existing(&decision_path, pg, self.local) {
-                        Ok(store) => store,
-                        Err(original) if existing => return Err(original.message),
-                        Err(original) => {
-                            // The factory never resets a nonempty journal. A complete
-                            // inbox may resume an interrupted initial authority copy.
-                            // This remains the strict pre-publication path.
-                            let input = inbox
-                                .selected_input()
-                                .ok_or_else(|| original.message.clone())?;
-                            let approval = inbox
-                                .finish(self.local, input.id().map_err(|e| e.message)?)
-                                .map_err(|e| e.message)?;
-                            self.validate_decision_authority(pg, &approval)?;
-                            MembershipDecisionStore::open(&decision_path, self.local, &approval)
-                                .map_err(|e| format!("{}; {}", original.message, e.message))?
-                        }
-                    };
-                if !self.published_decision_anchor(pg, &store, stage.as_ref())? {
-                    self.validate_decision_authority(
+                // Strict native startup can consume each opaque input proof in
+                // the same cold operation that already replayed it. The generic
+                // factory-resume path keeps its existing error/fallback boundary.
+                let opened = if existing {
+                    MembershipDecisionStore::open_existing_with_validation(
+                        &decision_path,
                         pg,
-                        &store.authority().map_err(|e| e.message)?,
-                    )?;
-                    if let Some((_, id)) = store.accepted() {
+                        self.local,
+                        |store, approval| {
+                            // Published B can anchor the same journal whose
+                            // initial authority was A. Decide ancestry BEFORE
+                            // applying the pre-publication current-view check.
+                            if !self
+                                .published_decision_anchor(pg, store, stage.as_ref())
+                                .map_err(|message| {
+                                    rsf_core::RsfError::new(
+                                        rsf_core::ErrorCode::InvalidInput,
+                                        message,
+                                    )
+                                })?
+                            {
+                                self.validate_decision_authority(pg, approval).map_err(
+                                    |message| {
+                                        rsf_core::RsfError::new(
+                                            rsf_core::ErrorCode::InvalidInput,
+                                            message,
+                                        )
+                                    },
+                                )?;
+                            }
+                            Ok(())
+                        },
+                    )
+                } else {
+                    MembershipDecisionStore::open_existing(&decision_path, pg, self.local)
+                };
+                let store = match opened {
+                    Ok(store) => store,
+                    Err(original) if existing => return Err(original.message),
+                    Err(original) => {
+                        // The factory never resets a nonempty journal. A complete
+                        // inbox may resume an interrupted initial authority copy.
+                        // This remains the strict pre-publication path.
+                        let input = inbox
+                            .selected_input()
+                            .ok_or_else(|| original.message.clone())?;
+                        let approval = inbox
+                            .finish(self.local, input.id().map_err(|e| e.message)?)
+                            .map_err(|e| e.message)?;
+                        self.validate_decision_authority(pg, &approval)?;
+                        MembershipDecisionStore::open(&decision_path, self.local, &approval)
+                            .map_err(|e| format!("{}; {}", original.message, e.message))?
+                    }
+                };
+                if !self.published_decision_anchor(pg, &store, stage.as_ref())? {
+                    if !existing {
                         self.validate_decision_authority(
                             pg,
-                            &store.approval(id).map_err(|e| e.message)?,
+                            &store.authority().map_err(|e| e.message)?,
                         )?;
+                        if let Some((_, id)) = store.accepted() {
+                            self.validate_decision_authority(
+                                pg,
+                                &store.approval(id).map_err(|e| e.message)?,
+                            )?;
+                        }
                     }
                     if let Some(stage) = &stage {
                         if let Some(cell) = self.cells.get(&pg) {

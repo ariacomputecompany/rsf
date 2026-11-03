@@ -208,8 +208,13 @@ impl ConfigurationHistory {
                 "committed entry primary differs from its historical configuration",
             ));
         }
-        if self.learned_commits.get(&(prepare.view, prepare.index))
-            == Some(&rsf_core::Digest::blake3_bytes(&prepare.encode()?).bytes)
+        // Encoding also validates public catch-up prepares. Keep those checks,
+        // but only hash the payload when this index has a learned exception.
+        let encoded = prepare.encode()?;
+        if self
+            .learned_commits
+            .get(&(prepare.view, prepare.index))
+            .is_some_and(|known| *known == rsf_core::Digest::blake3_bytes(&encoded).bytes)
         {
             return Ok(());
         }

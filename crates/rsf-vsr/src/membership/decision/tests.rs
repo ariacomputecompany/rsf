@@ -692,3 +692,6 @@ mod input_publication;
 
 #[path = "custody_publication_tests.rs"]
 mod custody_publication;
+
+#[path = "startup_validation_tests.rs"]
+mod startup_validation;
