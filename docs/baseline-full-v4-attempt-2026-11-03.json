@@ -1,0 +1,73 @@
+{
+  "date": "2026-11-03",
+  "status": "completed-full-gate-with-three-failed-domains",
+  "production_qualified": false,
+  "full_gate_passed": false,
+  "source_sha256": "6c56addef1002238b980463d5193e989fdd54212ef5f84de7da9fd4b56752c74",
+  "source_identity_invalidated": null,
+  "artifact_root": "artifacts/verification.baseline-20261103-v4",
+  "passed_domains": [
+    "authentication",
+    "automatic-client",
+    "control-state",
+    "daemon",
+    "daemon-stress",
+    "end-to-end",
+    "kv-transactions",
+    "membership",
+    "membership-activation",
+    "membership-decision",
+    "membership-peer",
+    "native-membership",
+    "object-blob",
+    "policy",
+    "protocol",
+    "recovery",
+    "release-stress",
+    "sql",
+    "sql-stream",
+    "storage",
+    "tenancy",
+    "vsr"
+  ],
+  "failed_domains": [
+    "membership-staging",
+    "peer-rpc",
+    "workspace"
+  ],
+  "workspace_counts": {
+    "passed": 1375,
+    "failed": 1,
+    "ignored": 1
+  },
+  "failures": [
+    {
+      "domains": [
+        "membership-staging",
+        "peer-rpc"
+      ],
+      "test": "real_tls_two_group_recovery_serves_inbound_and_rotates_past_a_blackhole",
+      "observed": "GatedPeer ordinary reply write panicked on TimedOut, destroying the only responsive remote new voter; unchanged two-group convergence then timed out.",
+      "fix_scope": "Test listener lifecycle; regression-first and correction prepared, not yet applied."
+    },
+    {
+      "domains": [
+        "workspace"
+      ],
+      "test": "automatic_peer_elections_preserve_payloads_across_primary_loss_and_stale_primary_rejoin",
+      "observed": "await_primary 30-second convergence bound expired at automatic.rs:224; node2 latest view17 unconfirmed, node0 EAGAIN and node1 connection refused.",
+      "fix_scope": "Under investigation; not established as a test-oracle defect."
+    }
+  ],
+  "limits": [
+    "Failed attempts remain failed; fresh complete gate required after corrections.",
+    "Single-host loopback TLS/fsync does not qualify independent-host capacity or machine power loss."
+  ],
+  "evidence_sha256": {
+    "artifacts/verification.baseline-20261103-v4/checkpoint.json": "8fff9fbaf12727253973f7e1be92d29d588a22761376a5b270e54e185f0b29f9",
+    "artifacts/verification.baseline-20261103-v4/summary.json": "5afeef7d869400bde4215a8aff7b8def605636a214cdcfee1befce755fd2cec5",
+    "artifacts/verification.baseline-20261103-v4/membership-staging/attempt-0001/trace.fozzy": "ef0ba01f668f45d2e56dfb721f8894821ae0c15e0f124bbdb1b0bb8b9a26e446",
+    "artifacts/verification.baseline-20261103-v4/peer-rpc/attempt-0001/trace.fozzy": "61aa599e5791c2715407021982e05c1e0e76fb2cfe1727908038633225395e97",
+    "artifacts/verification.baseline-20261103-v4/workspace/attempt-0001/trace.fozzy": "5e6b4ec98afd138a404e64f2804726754cadc8d1f94f0e0ceb45b465a48bbd61"
+  }
+}

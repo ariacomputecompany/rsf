@@ -2,14 +2,18 @@ use super::*;
 
 type TlsStream = StreamOwned<ServerConnection, DeadlineStream>;
 
-fn request(
-    socket: TcpStream,
-    identity: &PeerIdentity,
-) -> io::Result<(TlsStream, Vec<u8>, [u8; 32])> {
-    let mut stream = StreamOwned::new(
-        ServerConnection::new(Arc::clone(&identity.server)).map_err(|e| invalid(e.to_string()))?,
-        DeadlineStream::new(socket, Instant::now() + RPC)?,
-    );
+struct Request {
+    stream: TlsStream,
+    bytes: Vec<u8>,
+    fingerprint: [u8; 32],
+    deadline: Instant,
+}
+
+fn request(socket: TcpStream, identity: &PeerIdentity) -> io::Result<Request> {
+    let connection =
+        ServerConnection::new(Arc::clone(&identity.server)).map_err(|e| invalid(e.to_string()))?;
+    let deadline = Instant::now() + RPC;
+    let mut stream = StreamOwned::new(connection, DeadlineStream::new(socket, deadline)?);
     while stream.conn.is_handshaking() {
         stream.conn.complete_io(&mut stream.sock)?;
     }
@@ -23,7 +27,12 @@ fn request(
             .as_ref(),
     );
     let bytes = read_frame(&mut stream)?;
-    Ok((stream, bytes, fingerprint))
+    Ok(Request {
+        stream,
+        bytes,
+        fingerprint,
+        deadline,
+    })
 }
 
 pub(super) struct Blackhole {
@@ -51,7 +60,12 @@ impl Blackhole {
             while !stopping.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((socket, _)) => {
-                        let (stream, bytes, fingerprint) = request(socket, &identity).unwrap();
+                        let Request {
+                            stream,
+                            bytes,
+                            fingerprint,
+                            ..
+                        } = request(socket, &identity).unwrap();
                         assert_eq!(fingerprint, expected);
                         let (kind, _) = parse(&bytes, &cluster, NodeId(2), NodeId(1)).unwrap();
                         assert!(matches!(
@@ -96,21 +110,85 @@ enum Command {
     Release,
     Stop,
 }
+#[derive(Debug)]
+struct ConnectionFailure {
+    node: NodeId,
+    sender: Option<NodeId>,
+    opcode: Option<u8>,
+    phase: &'static str,
+    kind: io::ErrorKind,
+    detail: String,
+}
+
+fn record_failure(
+    failures: &Sender<ConnectionFailure>,
+    node: NodeId,
+    sender: Option<NodeId>,
+    opcode: Option<u8>,
+    phase: &'static str,
+    error: &io::Error,
+) {
+    let failure = ConnectionFailure {
+        node,
+        sender,
+        opcode,
+        phase,
+        kind: error.kind(),
+        detail: error.to_string(),
+    };
+    eprintln!("gated-peer connection failure: {failure:?}");
+    failures.send(failure).unwrap();
+}
+
+// Only an ended or expired connection is recoverable by this listener.
+// Authentication, frame validation and dispatcher assertions stay strict.
+fn connection_ended(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::UnexpectedEof
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+    )
+}
+
+struct ExpiredPublication {
+    inventory: Inventory,
+    retained: Vec<u8>,
+    applies: Vec<u8>,
+}
+
 pub(super) struct GatedPeer {
     pub address: SocketAddr,
     pub gated: Receiver<()>,
     pub delivered: Receiver<()>,
+    failures: Receiver<ConnectionFailure>,
+    expired: Receiver<ExpiredPublication>,
     commands: Sender<Command>,
     thread: Option<std::thread::JoinHandle<PeerReplicaServer>>,
 }
 impl GatedPeer {
-    pub fn start(mut server: PeerReplicaServer, root: PathBuf, hold: bool, corrupt: bool) -> Self {
+    pub fn start(server: PeerReplicaServer, root: PathBuf, hold: bool, corrupt: bool) -> Self {
+        Self::start_inner(server, root, hold, corrupt, false)
+    }
+
+    fn start_inner(
+        mut server: PeerReplicaServer,
+        root: PathBuf,
+        hold: bool,
+        corrupt: bool,
+        mut expire_publication: bool,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         listener.set_nonblocking(true).unwrap();
         let (commands, receive) = channel();
         let (gated_send, gated) = channel();
         let (delivered_send, delivered) = channel();
+        let (failures_send, failures) = channel();
+        let (expired_send, expired) = channel();
         let thread = std::thread::spawn(move || {
             let mut held: Option<(TlsStream, Vec<u8>)> = None;
             let mut gate_once = hold;
@@ -137,7 +215,22 @@ impl GatedPeer {
                     }
                     Err(error) => panic!("gated peer accept: {error}"),
                 };
-                let (mut stream, bytes, fingerprint) = request(socket, &server.identity).unwrap();
+                let Request {
+                    mut stream,
+                    bytes,
+                    fingerprint,
+                    deadline,
+                } = match request(socket, &server.identity) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        record_failure(&failures_send, server.local, None, None, "request", &error);
+                        assert!(
+                            connection_ended(&error),
+                            "unexpected gated-peer request error: {error}"
+                        );
+                        continue;
+                    }
+                };
                 let sender = server.nodes[&fingerprint];
                 let (kind, payload) = parse(&bytes, &server.cluster, sender, server.local).unwrap();
                 server.guard_membership_recovery(kind, payload).unwrap();
@@ -194,8 +287,41 @@ impl GatedPeer {
                     held = Some((stream, bytes));
                     gated_send.send(()).unwrap();
                 } else {
-                    write_frame(&mut stream, &bytes).unwrap();
-                    let _ = stream.flush();
+                    if expire_publication && kind == MEMBERSHIP_PUBLISH && reply_kind != 255 {
+                        expire_publication = false;
+                        // Observe the real completed publication, then let this
+                        // connection's original deadline expire. No request or
+                        // response is forged and the held-Release path is unused.
+                        expired_send
+                            .send(ExpiredPublication {
+                                inventory: inventory(&root, local),
+                                retained: std::fs::read(
+                                    root.join(format!("membership-{local}/staging/PUBLICATION")),
+                                )
+                                .unwrap(),
+                                applies: std::fs::read(
+                                    root.join(format!("materialized-{local}/.applies")),
+                                )
+                                .unwrap(),
+                            })
+                            .unwrap();
+                        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    }
+                    let result = write_frame(&mut stream, &bytes).and_then(|()| stream.flush());
+                    if let Err(error) = &result {
+                        record_failure(
+                            &failures_send,
+                            server.local,
+                            Some(sender),
+                            Some(kind),
+                            "reply",
+                            error,
+                        );
+                        if connection_ended(error) {
+                            continue;
+                        }
+                    }
+                    result.unwrap();
                 }
             }
         });
@@ -203,6 +329,8 @@ impl GatedPeer {
             address,
             gated,
             delivered,
+            failures,
+            expired,
             commands,
             thread: Some(thread),
         }
@@ -221,3 +349,6 @@ impl Drop for GatedPeer {
         }
     }
 }
+
+#[path = "peer/tests.rs"]
+mod tests;

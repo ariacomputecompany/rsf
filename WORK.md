@@ -25,31 +25,24 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified; full work resumed at the
-user's request on November 3, 2026**. Learner FINISH, concurrent fixture isolation
-and staged input ownership fixes pass the affected suites. Startup proof reuse
-passes the original debug/release partial-transfer case without changing its
-deadlines. The third full gate completed: 23 domains passed, membership-peer
-and workspace failed recovery assertions. Workspace recorded 1,373 passing
+user's request on November 3, 2026**. The fourth complete gate finished with
+22 passing domains and three failed domains. Workspace recorded 1,375 passing
 tests, one failure and one opt-in stress test ignored; both separate stress
-profiles and all 16 native-membership commands passed. The election assertion
-incorrectly equated unconfirmed publication with an unchanged local view. The
-daemon assertion required view 2 although two resume attempts were followed by
-quorum-confirmed view 3. Corrections must preserve timing/concurrency and verify
-complete recovery proof. Evidence is in
-`docs/baseline-full-v3-attempt-2026-11-03.json`; the preceding incomplete attempt
-remains in `docs/baseline-full-attempt-2026-11-03.json`. A fresh passing complete
-gate is required after corrections. The historical pause boundary remains in
-`docs/production-pause-2026-11-03.md` and
-`docs/prechoice-checkpoint-2026-11-03.json`.
+profiles and all 16 native-membership commands passed. The failed attempts remain
+preserved in `docs/baseline-full-v4-attempt-2026-11-03.json`.
 
-The fourth gate is running on the repaired source. Membership-peer passed, but
-membership-staging exposed a separate two-group fixture failure: its adversarial
-peer panicked on an ordinary reply deadline, then recovery failed to converge.
-The failed trace and fixture are preserved; a correction is under review and
-has not been integrated. Focused election, concurrent RPC, debug/release daemon
-restart, all-target strict Clippy and 248 lint-affected crate tests passed.
-This verified repair checkpoint is recorded in
-`docs/baseline-repair-checkpoint-2026-11-03.json`; it is not a green full baseline.
+The adversarial peer listener's expired-connection failure is corrected and
+passes the actual failing-before/fixed-after TLS regression, all six adversarial
+cases, 104 concurrent RPC/auth/wire tests and strict workspace Clippy. Exact
+receipts, publication bytes and callbacks are checked with unchanged deadlines,
+retry count and concurrency; see `docs/peer-connection-regression-2026-11-03.json`.
+A fresh passing full gate is still required. The remaining native automatic
+peer-election failure is a genuine 30-second convergence timeout during the
+later two-peer recovery; repeated installation grows retained history without
+quorum confirmation. Its exact fixture is preserved and the production install
+path is under investigation. No test-oracle relaxation is justified by current
+evidence. Prior repair evidence remains in
+`docs/baseline-repair-checkpoint-2026-11-03.json`.
 
 Native chosen-transition
 recovery and replay-derived native admission guards are implemented. Incremental

@@ -395,6 +395,7 @@ integrated_recovery_names = [
     'real_tls_round_bound_copy_activity_rejects_stale_reads_and_keeps_observers_inert',
     'managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody',
     'real_tls_two_group_recovery_serves_inbound_and_rotates_past_a_blackhole',
+    'real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live',
     'managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise',
     'managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss',
     'managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers',
