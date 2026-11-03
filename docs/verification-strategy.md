@@ -475,3 +475,14 @@ This does not establish binary equivalence to the installed engine or hosted CI.
 Full qualification uses an explicit `FOZZY_BIN` and retains the complete
 source-frozen gate evidence for the selected engine. No hosted workflow or
 required check is enabled by these bootstrap scripts.
+
+`.github/workflows/qualification.yml` defines the hosted pilot on `main` pushes
+and pull requests, with Ubuntu 24.04 and macOS 15 runners. Each job checks out the
+event revision, builds the pinned engine in an isolated source directory, runs
+bookkeeping checks and strict Clippy, then records the complete 25-domain gate.
+Success and failure artifacts are retained for 14 days. Concurrency preserves
+the active run and keeps at most one pending run per event ref; always qualify
+the actual event SHA. Workflow configuration is not evidence of a successful
+hosted run, and no required branch check is established by this pilot. Manual
+dispatch discovery still depends on the workflow being present on the repository's
+default branch; the pilot does not change that branch or spending controls.
