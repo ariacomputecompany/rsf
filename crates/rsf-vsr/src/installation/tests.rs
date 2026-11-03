@@ -991,6 +991,71 @@ fn installation_input_validates_all_histories_before_publication() {
 }
 
 #[test]
+fn installation_input_rejects_wrong_plan_identity_with_valid_quorum_bytes_after_reopen() {
+    for reopen in [false, true] {
+        let path = root(if reopen {
+            "wrong-plan-cold"
+        } else {
+            "wrong-plan-warm"
+        });
+        let (mut first, second, snapshots) = fixture(&path);
+        let mut encoded = VsrInstallationInput::from_snapshots(&snapshots)
+            .unwrap()
+            .encode()
+            .unwrap();
+        // Reports and all uploaded history bytes remain valid. Only the claimed
+        // selected plan differs; a canonical descriptor is not a replay proof.
+        encoded[5] ^= 1;
+        let input = VsrInstallationInput::decode(&encoded).unwrap();
+        let id = input.id().unwrap();
+        let records = input
+            .reports()
+            .iter()
+            .flat_map(|report| {
+                snapshots
+                    .iter()
+                    .find(|snapshot| snapshot.report == *report)
+                    .unwrap()
+                    .records
+                    .iter()
+                    .cloned()
+            })
+            .collect::<Vec<_>>();
+        first
+            .begin_installation_input(NodeId(1), NodeId(1), input.clone())
+            .unwrap();
+        let count = first
+            .append_installation_batch(
+                NodeId(1),
+                id,
+                crate::VsrHistoryBatch {
+                    ordinal: 0,
+                    records,
+                },
+            )
+            .unwrap();
+        assert_eq!(count, input.records().unwrap());
+        if reopen {
+            drop(first);
+            first = open(&path.join("1"));
+        }
+        for error in [
+            first.installation_snapshots(id).unwrap_err(),
+            first.finish_installation_input(NodeId(1), id).unwrap_err(),
+        ] {
+            assert_eq!(error.code, ErrorCode::CorruptionDetected);
+            assert!(error.message.contains("selected plan identity mismatch"));
+        }
+        assert_eq!(first.view(), Epoch(1));
+        assert_eq!(first.view_change_promise(), Some(&request()));
+        assert!(!path.join("1/VSR_ACTIVE").exists());
+        drop(first);
+        drop(second);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
 fn installation_batches_recover_logical_ordinals_overlap_retries_and_reject_changed_prefixes() {
     let path = root("input-batches");
     let (mut first, second, snapshots) = fixture(&path);
@@ -1451,3 +1516,5 @@ fn published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker()
     drop(second);
     std::fs::remove_dir_all(path).unwrap();
 }
+
+mod group_publication;

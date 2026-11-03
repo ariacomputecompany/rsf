@@ -8,6 +8,8 @@ pub use exclusive_lock::ExclusiveFileLock;
 
 mod catalog;
 mod store;
+#[cfg(test)]
+mod sync_observation;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -24,8 +26,27 @@ use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
     CompactionReport, QuarantineReport, SegmentDescriptor, SegmentScan, SegmentScanFilter,
     SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody, SegmentStoreOptions,
-    SegmentStoreRecovery, SegmentStoreRevision, TruncateReport,
+    SegmentStoreRecovery, SegmentStoreRevision, TruncateReport, WalGroupRecord,
 };
+
+fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {
+    #[cfg(test)]
+    let observed = sync_observation::before(path, policy)?;
+    #[cfg(not(test))]
+    let _ = path;
+    let result = match policy {
+        SyncPolicy::None => Ok(()),
+        SyncPolicy::Data => file
+            .sync_data()
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
+        SyncPolicy::Full => file
+            .sync_all()
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
+    };
+    #[cfg(test)]
+    sync_observation::after(observed, result.is_ok());
+    result
+}
 
 const MAGIC: [u8; 4] = *b"RSF1";
 const SEGMENT_RECORD_VERSION: u16 = 1;
@@ -153,6 +174,14 @@ impl SegmentLog {
     }
 
     pub fn append(&mut self, payload: &[u8]) -> RsfResult<u64> {
+        let offset = self.append_unsynced(payload)?;
+        self.sync_after_append()?;
+        Ok(offset)
+    }
+
+    // Private framing primitive. The store-owned durable group is the only
+    // alternate caller; it must flush before returning or rotating this file.
+    fn append_unsynced(&mut self, payload: &[u8]) -> RsfResult<u64> {
         let offset = self
             .file
             .seek(SeekFrom::End(0))
@@ -184,7 +213,6 @@ impl SegmentLog {
         self.file
             .write_all(payload)
             .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.sync_after_append()?;
 
         Ok(offset)
     }
@@ -471,17 +499,7 @@ impl SegmentLog {
     }
 
     fn sync_after_append(&mut self) -> RsfResult<()> {
-        match self.options.sync_policy {
-            SyncPolicy::None => Ok(()),
-            SyncPolicy::Data => self
-                .file
-                .sync_data()
-                .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
-            SyncPolicy::Full => self
-                .file
-                .sync_all()
-                .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
-        }
+        sync_segment(&self.file, &self.path, self.options.sync_policy)
     }
 
     pub fn benchmark_append_replay(

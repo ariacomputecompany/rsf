@@ -31,18 +31,20 @@ tests, one failure and one opt-in stress test ignored; both separate stress
 profiles and all 16 native-membership commands passed. The failed attempts remain
 preserved in `docs/baseline-full-v4-attempt-2026-11-03.json`.
 
-The adversarial peer listener's expired-connection failure is corrected and
-passes the actual failing-before/fixed-after TLS regression, all six adversarial
-cases, 104 concurrent RPC/auth/wire tests and strict workspace Clippy. Exact
-receipts, publication bytes and callbacks are checked with unchanged deadlines,
-retry count and concurrency; see `docs/peer-connection-regression-2026-11-03.json`.
-A fresh passing full gate is still required. The remaining native automatic
-peer-election failure is a genuine 30-second convergence timeout during the
-later two-peer recovery; repeated installation grows retained history without
-quorum confirmation. Its exact fixture is preserved and the production install
-path is under investigation. No test-oracle relaxation is justified by current
-evidence. Prior repair evidence remains in
-`docs/baseline-repair-checkpoint-2026-11-03.json`.
+The baseline repairs pass scoped qualification, including 445 affected tests,
+the original automatic peer rejoin in debug and release, and 29 concurrent
+native tests (the separate opt-in stress case remains ignored in that suite).
+VSR generation publication now groups writes without relaxing Data/Full barriers
+and renews retained data after uncertain sync; the same-call selected plan avoids
+redundant replay. No peer deadline, retry, workload or concurrency was weakened.
+See `docs/grouped-installation-verification-2026-11-03.json` and
+`docs/peer-connection-regression-2026-11-03.json`.
+
+A fresh passing complete gate is still required. Prior full-gate failures remain
+preserved; scoped results do not establish the full baseline, production capacity
+or independent-host/machine-failure durability. Temporary diagnostics are removed.
+The next full run must include all 99 integrated recovery regressions and both
+separate stress profiles on unchanged source.
 
 Native chosen-transition
 recovery and replay-derived native admission guards are implemented. Incremental

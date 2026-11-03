@@ -271,6 +271,16 @@ impl DurableVsrCell {
         &mut self,
         id: [u8; 32],
     ) -> RsfResult<Vec<VsrViewChangeSnapshot>> {
+        self.validated_installation_input(id)
+            .map(|(snapshots, _)| snapshots)
+    }
+
+    // Keep the replay-derived plan from this exact recovered input so FINISH
+    // need not select the same quorum twice. Nothing survives this operation.
+    fn validated_installation_input(
+        &mut self,
+        id: [u8; 32],
+    ) -> RsfResult<(Vec<VsrViewChangeSnapshot>, VsrViewInstallation)> {
         self.ensure_healthy()?;
         self.load_installation_input(id)?;
         let stage = self.installation_input.as_mut().unwrap();
@@ -302,7 +312,7 @@ impl DurableVsrCell {
                 "installation input selected plan identity mismatch",
             ));
         }
-        Ok(snapshots)
+        Ok((snapshots, plan))
     }
 
     pub fn finish_installation_input(&mut self, sender: NodeId, id: [u8; 32]) -> RsfResult<Epoch> {
@@ -321,8 +331,7 @@ impl DurableVsrCell {
             self.ensure_active_view()?;
             return Ok(self.cell.view);
         }
-        let snapshots = self.installation_snapshots(id)?;
-        let plan = VsrViewInstallation::select(&snapshots)?;
+        let (_, plan) = self.validated_installation_input(id)?;
         self.install_view(&plan)?;
         Ok(self.cell.view)
     }

@@ -7,8 +7,11 @@ use std::time::{Instant, SystemTime};
 mod coordination;
 mod custody;
 pub use custody::SegmentStoreCustody;
+mod group;
 mod initialization;
+mod wal;
 use coordination::{StoreGate, lock_gate, store_gate};
+pub use group::WalGroupRecord;
 
 use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
@@ -269,47 +272,11 @@ impl SegmentStore {
         input: WalAppend<'_>,
         tail: Option<WalTail>,
     ) -> RsfResult<(u64, u64, WalRecord)> {
-        let expected_index = tail
-            .map_or(Some(1), |tail| tail.index.0.checked_add(1))
-            .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, "WAL index exhausted"))?;
-        if input.index.0 != expected_index {
-            return Err(RsfError::new(
-                ErrorCode::InvalidInput,
-                format!(
-                    "wal index {} does not match next placement-group index {expected_index} for pg {}",
-                    input.index.0, input.pg.0
-                ),
-            ));
-        }
-
-        let expected_previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-        if input.previous_hash != expected_previous_hash {
-            return Err(RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!(
-                    "wal previous hash does not match recovered placement-group tail for pg {}",
-                    input.pg.0
-                ),
-            ));
-        }
-        if tail.is_some_and(|tail| input.epoch < tail.epoch) {
-            return Err(RsfError::new(
-                ErrorCode::StaleEpoch,
-                "WAL epoch would move backward",
-            ));
-        }
-
-        let payload_hash = digest(input.payload);
-        let record_hash = wal_record_hash(
-            input.pg,
-            input.epoch,
-            input.index,
-            input.kind,
-            &input.previous_hash,
-            &payload_hash,
-            input.payload,
-        );
-        let encoded = encode_wal_record(input, payload_hash, record_hash)?;
+        let wal::Frame {
+            encoded,
+            payload_hash,
+            record_hash,
+        } = wal::encode_at_tail(input, tail)?;
         let length = record_disk_len(encoded.len())?;
         self.write_failed = true;
         let result = (|| {
@@ -778,17 +745,24 @@ impl SegmentStore {
         Ok(())
     }
 
-    fn rotate_if_needed(&mut self, pending_bytes: u64) -> RsfResult<()> {
+    fn rotation_required(&self, pending_bytes: u64) -> bool {
         if self.options.max_segment_bytes == 0 {
-            return Ok(());
+            return false;
         }
         let current_len = fs::metadata(self.active.path())
             .map(|metadata| metadata.len())
             .unwrap_or(0);
-        if current_len == 0 || current_len + pending_bytes <= self.options.max_segment_bytes {
-            return Ok(());
-        }
+        current_len != 0 && current_len + pending_bytes > self.options.max_segment_bytes
+    }
 
+    fn rotate_if_needed(&mut self, pending_bytes: u64) -> RsfResult<()> {
+        if self.rotation_required(pending_bytes) {
+            self.rotate()?;
+        }
+        Ok(())
+    }
+
+    fn rotate(&mut self) -> RsfResult<()> {
         let next_id = self.manifest.next_id()?;
         let mut manifest = self.manifest.clone();
         manifest.segments.push(SegmentDescriptor {

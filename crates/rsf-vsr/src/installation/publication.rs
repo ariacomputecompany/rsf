@@ -211,9 +211,24 @@ pub(crate) fn publish(
     {
         return Err(corrupt("staged VSR generation conflicts with installation"));
     }
-    for record in records.iter().skip(existing.len()) {
-        store.append_next_wal(pg, record.epoch, record.kind, &record.payload)?;
+    if !existing.is_empty() {
+        // A prior writer may have observed complete bytes after a failed sync,
+        // then rotated on reopen. Renew every retained closed segment before
+        // sealing; the group renews active bytes even when no suffix is missing.
+        let retained = store.capture_owned_custody()?;
+        store.sync_owned_closed_segments(&retained)?;
     }
+    store.append_next_wal_group(
+        pg,
+        records
+            .iter()
+            .skip(existing.len())
+            .map(|record| rsf_storage::WalGroupRecord {
+                epoch: record.epoch,
+                kind: record.kind,
+                payload: &record.payload,
+            }),
+    )?;
     let mut seal = b"VSS1".to_vec();
     seal.extend_from_slice(&pg.0.to_le_bytes());
     seal.extend_from_slice(&id);

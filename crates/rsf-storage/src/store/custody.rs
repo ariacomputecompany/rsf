@@ -50,6 +50,67 @@ impl SegmentStore {
     pub fn validate_owned_custody(&self, expected: &SegmentStoreCustody) -> RsfResult<()> {
         self.ensure_writable()?;
         let _guard = lock_gate(&self.gate)?;
+        self.validate_owned_custody_locked(expected)
+    }
+
+    /// Renew retained closed-file data barriers for an exclusively owned
+    /// recovered prefix before publishing it as authority. A valid manifest or
+    /// successful replay alone cannot prove a previous writer's sync succeeded.
+    /// The active file is renewed by `append_next_wal_group`, including an empty
+    /// suffix; this avoids an early and late flush of that same descriptor.
+    /// No generic open/read path gains a barrier or changes its sync policy.
+    pub fn sync_owned_closed_segments(&mut self, expected: &SegmentStoreCustody) -> RsfResult<()> {
+        self.ensure_writable()?;
+        if self.options.log_options.sync_policy == crate::SyncPolicy::None {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "durable prefix renewal requires Data or Full sync",
+            ));
+        }
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.write_failed = true;
+        let result = (|| {
+            self.validate_owned_custody_locked(expected)?;
+            for ((id, stamp), descriptor) in expected.segments.iter().zip(&self.manifest.segments) {
+                if *id == self.manifest.active_id || stamp.bytes == 0 {
+                    continue;
+                }
+                if descriptor.id != *id {
+                    return Err(custody_error("retained segment lost its descriptor"));
+                }
+                let path = self.root.join(SEGMENT_DIR).join(&descriptor.file_name);
+                let mut options = OpenOptions::new();
+                options.read(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.custom_flags(libc::O_NOFOLLOW);
+                }
+                let file = options.open(&path).map_err(custody_io)?;
+                if file_stamp(&file.metadata().map_err(custody_io)?)? != *stamp {
+                    return Err(custody_error(
+                        "retained segment descriptor differs from validated custody",
+                    ));
+                }
+                crate::sync_segment(&file, &path, self.options.log_options.sync_policy)?;
+                if file_stamp(&file.metadata().map_err(custody_io)?)? != *stamp {
+                    return Err(custody_error(
+                        "retained segment changed during durability renewal",
+                    ));
+                }
+            }
+            self.validate_owned_custody_locked(expected)
+        })();
+        if result.is_err() {
+            self.cursor = None;
+        } else {
+            self.write_failed = false;
+        }
+        result
+    }
+
+    fn validate_owned_custody_locked(&self, expected: &SegmentStoreCustody) -> RsfResult<()> {
         if !Arc::ptr_eq(&self.observer, &expected.observer) {
             return Err(custody_error(
                 "custody stamp belongs to another store handle",

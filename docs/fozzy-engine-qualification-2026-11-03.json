@@ -84,7 +84,6 @@
   },
   "remaining": [
     "Full final-source RSF qualification with candidate engine.",
-    "Corrected bootstrap independent re-review.",
     "Linux/macOS hosted pilots, capacity and billed-runner budget.",
     "Required-check integration only after actual hosted qualification."
   ],
@@ -94,5 +93,11 @@
     "artifacts/ci-qualification-development/root-engine-scoped-verification.json": "abb187b21d7f464b156441db10750d2818c388f59f9a4994b3694eba6a53ea05",
     "artifacts/ci-qualification-development/bookkeeping-evidence/integrated.stderr": "c3bfb2d946cb3fb21c8b699a148126ccd0541a46d90852577fbc241f5fd0ea14",
     "artifacts/fozzy-engine-candidate-20261103/provenance.json": "e46fcf7bfa58eb6fbe034972af898cd737825e2c64f012c3fbbd6bd18cb54b60"
+  },
+  "corrected_independent_review": {
+    "status": "all five original findings closed; no remaining concrete blocker in bounded bootstrap review",
+    "artifact": "artifacts/ci-qualification-development/corrected-independent-review.md",
+    "sha256": "3fbafe43ae808b95fe8f7fce4dab3119266879742112744c38fc60b1f6cd98f6",
+    "execution": "Read-only artifact and source inspection; no new runtime execution."
   }
 }
