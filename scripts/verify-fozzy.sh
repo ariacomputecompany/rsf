@@ -392,8 +392,20 @@ primary_recovery_evidence = {
     for name in primary_recovery_names
 }
 primary_recovery_valid = all(primary_recovery_evidence.values())
+membership_capacity_names = [
+    "membership_capacity_rejects_oversized_transition_before_any_durable_fence",
+    "membership_capacity_matches_complete_encoded_input_and_recovery_decision",
+    "historical_oversized_membership_fence_remains_readable_and_exact_retry_does_not_rewrite_it",
+    "membership_capacity_checks_old_and_new_cardinalities_at_the_publication_boundary",
+    "oversized_membership_is_rejected_before_any_tls_voter_is_fenced",
+]
+membership_capacity_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in membership_capacity_names
+}
+membership_capacity_valid = all(membership_capacity_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -413,6 +425,9 @@ summary = {
     "uncertain_sql_begin_workspace": uncertain_begin_workspace,
     "uncertain_sql_begin_profile_runs": uncertain_begin_profile_runs,
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
+    "membership_capacity_evidence_valid": membership_capacity_valid,
+    "membership_capacity_regressions": membership_capacity_evidence,
+    "membership_capacity_scope": "bounded complete proofs rejected before new old-voter fences; historical fence decoding/retry preserved; native membership publication/promotion and control admission remain unfinished",
     "primary_recovery_evidence_valid": primary_recovery_valid,
     "primary_recovery_regressions": primary_recovery_evidence,
     "primary_recovery_scope": "ordinary quorum election above superseding durable promises; unchanged native takeover deadlines and workload",

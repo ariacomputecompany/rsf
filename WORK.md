@@ -25,26 +25,21 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified**. The frozen-source run on
-`e74dc20` passes all 23 domain executions, including 1,198 workspace tests with
-zero failures and one ignored stress test. Both automatic takeover and SQL stream
-profiles pass. Debug/release stress verify 198/774 acknowledged writes, three
-uncertain-write resolutions and 18 abrupt shutdowns per profile. These are local
-loopback durability checks, not independent-host or regional capacity evidence.
+`ddefd48` passes all 23 domain executions, including 1,198 workspace tests with
+zero failures and one ignored stress test. Its aggregate gate still exits 1: peer
+stderr interrupts a passing libtest stdout line without whitespace. Both complete
+streams are now captured separately before replay, preserving exact results and
+original command exit codes. Recorded host smoke tests verify exit 0/17 and both
+raw streams. Earlier aggregates remain preserved as failed.
 
-The original aggregate gate exits 1 because a child diagnostic prefixes a passing
-membership regression result on the same line. Its preserved report misses that
-result. The evidence parser now recognizes exact libtest result tokens after such
-prefixes while rejecting failed results and name/status suffixes. Direct checks
-cover the actual missed line and negative examples; a fresh final-harness gate
-remains required. See `docs/stale-primary-full-verification-2026-11-02.json`.
-
-Returning stale primaries receive one bounded adoption window for a higher
-installed view; repeated status reads do not renew it or follower liveness. All
-three recovery regressions, broader daemon tests, strict traces/replay/CI and
-warnings-denied RPC/daemon Clippy pass. Existing native deadlines, workload sizes
-and retry budgets remain intact. Earlier failed gates are preserved and are not
-reclassified as passing. Growing-history protocol reopening remains expensive in
-a scoped stress-primary stack sample and still needs performance work.
+New membership initiation rejects full nested proofs that cannot fit bounded
+publication records before any durable fence. The four storage regressions and
+real TLS no-fence/later-write regression pass within 228 affected-package tests.
+Historical proposal decoding and exact fence retries remain available. Strict
+traces, replay, CI and warnings-denied VSR/RPC/protocol/daemon Clippy pass. See
+`docs/membership-capacity-verification-2026-11-02.json`. A fresh final-source full
+gate is required; existing native deadlines, retry budgets and workloads retain
+their limits. Growing-history protocol reopening still needs performance work.
 
 Kernel activation is verified; native peer membership publication/promotion and
 atomic control admission remain unfinished. Growing-history memory, cold protocol
@@ -60,7 +55,6 @@ region workload/fault qualification also remain open.
 - Retain removed-voter fencing and support ordinary election on the new voter
   set after permanent loss of the original candidate through actual TLS peers.
   Qualify repeated membership lifecycles and partial-proposal conflict/abort.
-- Preflight the bounded activation proof size before fencing an old quorum.
 - Keep native client admission closed until replicated control/catalog authority
   and application materialization agree on the same installed membership. Do not
   enable an operator membership command ahead of that integration and its gates.

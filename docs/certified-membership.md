@@ -98,6 +98,15 @@ sets. The current old primary alone can initiate a new proposal; a stored exact
 retry does not append another vote. Old voters persist a `MembershipPromise`
 record (WAL tag 41, transferred-history tag 6) before acknowledging.
 
+Before initiating an unfenced proposal, `validate_publication_capacity()` bounds
+the complete old-input, recovered decision, chosen, staged-quorum and activation
+proofs. It counts every distinct configured reporter, so any subset fits; the
+individual 4,096-voter codec limit alone is insufficient. An oversized proposal
+fails before a local or remote old voter is fenced. Normal old-view operations
+remain available. Existing acknowledged fences keep their original decoding and
+exact retry behavior; this check does not make an older oversized fence
+publishable. Native membership publication and client admission remain separate.
+
 The same authoritative replay used on open restores the membership fence. Normal
 prepares, commits, primary probes, local reconfiguration, ordinary election
 promises and ordinary view installations cannot discard it. The old cell's voter

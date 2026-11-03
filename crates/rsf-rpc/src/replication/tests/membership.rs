@@ -323,3 +323,70 @@ fn membership_continuation_without_surviving_report_never_initiates_proposal() {
     drop(remote);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn oversized_membership_is_rejected_before_any_tls_voter_is_fenced() {
+    let root = root("membership-capacity-native");
+    provision(&root);
+    let first = PeerProcess::spawn_with_learner(&root, 1, true);
+    let second = PeerProcess::spawn_with_learner(&root, 2, true);
+    let mut peers = endpoints(&root);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = second.address;
+    let mut network = transport(&root, peers);
+    let mut leader = cell(&root, 0);
+    let original = prepare(&mut leader, b"committed before rejected membership");
+    leader
+        .replicate_with_transport(NodeId(0), original.index, &mut network)
+        .unwrap();
+    let proposal = rsf_vsr::VsrMembershipProposal {
+        election: rsf_vsr::VsrViewChangeRequest {
+            pg: PlacementGroupId(1),
+            previous_view: Epoch(1),
+            target_view: Epoch(2),
+            candidate: NodeId(1),
+            voters: vec![NodeId(0), NodeId(1), NodeId(2)],
+        },
+        old_primary: NodeId(0),
+        new_voters: (0..512).map(NodeId).collect(),
+    };
+    let rejected = network
+        .approve_membership(&mut leader, &proposal)
+        .unwrap_err();
+    assert!(
+        rejected.reason.contains("publication record limit"),
+        "{}",
+        rejected.reason
+    );
+    assert!(leader.membership_fence().is_none());
+    assert!(leader.view_change_promise().is_none());
+    for node in [1, 2] {
+        let status = network
+            .replica_status(NodeId(node), PlacementGroupId(1))
+            .unwrap();
+        assert!(status.promise.is_none());
+        assert_eq!(status.normal.view, Epoch(1));
+    }
+    let later = prepare(&mut leader, b"old quorum remains writable after rejection");
+    leader
+        .replicate_with_transport(NodeId(0), later.index, &mut network)
+        .unwrap();
+    drop(leader);
+    drop(first);
+    drop(second);
+    for node in 0..3 {
+        let recovered = cell(&root, node);
+        assert!(recovered.membership_fence().is_none());
+        assert!(recovered.view_change_promise().is_none());
+        assert_eq!(recovered.committed_tail(), LogIndex(2));
+        assert_eq!(
+            recovered.committed_operation(LogIndex(1)),
+            Some(&original.operation)
+        );
+        assert_eq!(
+            recovered.committed_operation(LogIndex(2)),
+            Some(&later.operation)
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

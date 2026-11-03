@@ -3,6 +3,7 @@
 //! quorum evidence, not independent node signatures.
 use super::*;
 mod authority;
+mod capacity;
 pub(crate) mod staging;
 pub use staging::{
     MembershipStagingStore, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
@@ -297,6 +298,11 @@ impl DurableVsrCell {
             return Err(invalid_input(
                 "membership proposal requires authenticated old primary and voter",
             ));
+        }
+        if self.membership_fence.is_none() {
+            // Reject unpublishable nested proofs before persisting any fence.
+            // Exact retries and recovery of historical fences remain available.
+            proposal.validate_publication_capacity()?;
         }
         self.persist_membership_fence(&proposal, after_synced)?;
         self.membership_snapshot(replica, sender)
