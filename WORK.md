@@ -25,19 +25,17 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified**. The owned learner promotion
-factory passes 381 affected-package tests with zero failures and one ignored
-stress test on unchanged source. Coverage includes four real parent-issued
-SIGKILL boundaries, public-open fencing during initialization, original receipt
-and accepted-tail preservation, cold recovery without old voter/learner roots,
-later quorum commits/views, stale retries after removal and hostile target/
-metadata cases. Strict trace verification, replay, CI and warnings-denied Clippy
-pass. See `docs/learner-promotion-verification-2026-11-02.json`.
+source on `e2dc20e` passes all 23 domains and aggregate evidence checks with an
+unchanged source fingerprint. Workspace passes 1,210 tests, zero failures and
+1 ignored stress test. Both debug/release takeover, SQL streaming and process
+stress profiles pass. Every domain includes five-run strict doctor, deterministic
+orchestration, real host execution, strict trace verification, replay and CI.
+See `docs/learner-promotion-full-verification-2026-11-02.json`.
 
-The preceding frozen source passes all 23 domains and aggregate checks, with
-1,203 workspace tests, zero failures and one ignored stress test. That evidence
-is in `docs/membership-capacity-full-verification-2026-11-02.json`; a fresh full
-gate on the promotion source remains required. No native deadline, retry budget
-or workload size changed. Earlier failed runs remain preserved.
+The factory's scoped tests cover real parent SIGKILL boundaries, source-directory
+loss, original receipts/accepted tails, later commits/views, removal and target/
+provenance corruption. No native deadline, retry budget or workload size changed.
+Earlier failed reports remain preserved.
 
 Native peer publication quorum, voting-role/restart custody and atomic control
 admission remain unfinished. Growing-history protocol reopening/replay, retention,
