@@ -5,7 +5,8 @@ pub use installation::{VsrInstallationInput, VsrViewInstallation};
 pub use membership::{
     MembershipAuthorityInbox, MembershipDecisionStore, MembershipStagingStore,
     VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen, VsrMembershipDecision,
-    VsrMembershipInput, VsrMembershipPromise, VsrMembershipProposal, VsrMembershipReport,
+    VsrMembershipInput, VsrMembershipPromise, VsrMembershipProposal, VsrMembershipPublication,
+    VsrMembershipPublishedQuorum, VsrMembershipPublishedReport, VsrMembershipReport,
     VsrMembershipRound, VsrMembershipSnapshot, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
     VsrMembershipStagedReport,
 };

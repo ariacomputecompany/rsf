@@ -1,0 +1,91 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "base_commit": "32a0cdc",
+  "final_source_sha256": "0d0b7e5f4faf5aa54d58b7460a88a5c2cdfe860c36a53c9b944415a90818242c",
+  "final_source_unchanged": true,
+  "implementation": {
+    "ancestry": "Replay alone constructs immutable historical publication descriptors. A shared proof index supplies bounded lookup without rescanning history per query. Proof variants and physical reporters do not participate in configuration equivalence. New ordinary views, promises and later removal retain ancestry without restoring old authority.",
+    "retained_stage": "validate_published_anchor requires exact canonical proposal/input/plan, original bootstrap, committed-prefix authority and receiver-local receipt preservation. It neither materializes applications nor grants a current voting role.",
+    "publication_input": "Boot-materialized stages sync the complete authenticated staged quorum into a checksummed PUBLICATION file, then bind its first bytes through VSRMST2 META before acknowledgement. Cold recovery returns input but requires materialization again.",
+    "retries": "Equivalent quorum subsets preserve the first durable proof. V1 plus complete input resumes interrupted retention. V2 with missing/replaced input or lost staging receipt fails closed. Write failures fence the handle.",
+    "atomic_files": "Metadata temporary writes reject symlink/non-file obstructions, remove only regular unacknowledged leftovers, and use create_new before synced atomic replacement.",
+    "receipt_codec": "PublishedReport and PublishedQuorum bind distinct authenticated new voters to one canonical historical transition, independently of current ordinary view/tail. Encoding alone does not authenticate evidence or acknowledge application readiness.",
+    "capacity": "Pre-fence capacity checks include V2 metadata, retained input, publication reports and completion-quorum encodings; historical fence decoding and retry remain unchanged."
+  },
+  "affected_packages": {
+    "source_sha256": "9c1027fa0a798f3f57118a1982ff79472835475dbcae1c08f1c6332314cd95ab",
+    "source_unchanged": true,
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsf-storage",
+      "rsfd"
+    ],
+    "passed": 400,
+    "failed": 0,
+    "ignored": 1,
+    "trace": "artifacts/publication-recovery-packages-20261102.trace.fozzy",
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "host_execution_passed": true,
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true,
+    "subsequent_changes": "Only two existing test cases gained integration assertions; no production implementation changed after this run."
+  },
+  "final_source_focused_verification": {
+    "passed": 63,
+    "failed": 0,
+    "ignored": 0,
+    "trace": "artifacts/publication-recovery-final-20261102.trace.fozzy",
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true,
+    "combined_checks": [
+      "V2 retained quorum survives cold recovery after another reporter supplies the newer authoritative generation and an ordinary promise remains pending.",
+      "Historical lookup and retained-stage validation preserve the state token while a later membership removal fence is pending."
+    ]
+  },
+  "real_process_faults": {
+    "sigkill_boundaries": [
+      "publication input synced",
+      "V2 metadata synced"
+    ],
+    "unix_signal_asserted": 9,
+    "old_voter_learner_and_decision_directories_deleted": true,
+    "derived_application_rebuild_required": true,
+    "no_voter_activation_from_retention": true
+  },
+  "clippy": {
+    "passed": true,
+    "all_targets": true,
+    "warnings_denied": true,
+    "no_deps": true,
+    "log": "artifacts/publication-recovery-final-20261102-clippy.log"
+  },
+  "review": {
+    "agents": 2,
+    "separate_ownership": true,
+    "integration_review_completed": true,
+    "additional_joint_coverage_added": true
+  },
+  "full_gate_required_regressions": 12,
+  "previous_full_gate": {
+    "report": "docs/native-role-full-verification-2026-11-02.json",
+    "passed_domains": 23,
+    "workspace_passed": 1216,
+    "workspace_failed": 0
+  },
+  "limits": [
+    "Native publication/query RPCs, new-quorum completion persistence, live role handoff and original-candidate-loss orchestration remain unfinished.",
+    "Client admission still requires atomic replicated control/catalog integration; no operator membership command was enabled.",
+    "VSRMST2 retained stages require a supporting binary; older binaries reject this format.",
+    "Ancestry retains a shared proof per historical membership; total history/retention/migration and large-history memory qualification remain open.",
+    "The focused and affected-package runs do not replace a full final-source gate or independent-host/region numeric fault/capacity qualification.",
+    "SIGKILL and Fozzy trace replay do not establish machine power-loss behavior or deterministic native socket/thread scheduling.",
+    "Existing unrestricted dependency lint debt remains separate from the passing scoped Clippy command."
+  ]
+}

@@ -3,8 +3,11 @@ use super::decision::{Reader, put_bytes, put_u64};
 use super::*;
 use rsf_core::Digest;
 pub(crate) mod activation;
+pub use activation::VsrMembershipPublication;
 mod store;
 pub use store::MembershipStagingStore;
+mod published;
+pub use published::{VsrMembershipPublishedQuorum, VsrMembershipPublishedReport};
 mod proof;
 pub use proof::{VsrMembershipStagedQuorum, VsrMembershipStagedReport};
 

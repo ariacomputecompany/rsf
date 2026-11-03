@@ -150,6 +150,15 @@ fn learner_promotion_retry_preserves_later_quorum_commit_and_ordinary_view_chang
     ];
     let next = VsrViewInstallation::select(&snapshots).unwrap();
     promoted.install_view(&next).unwrap();
+    let publication = promoted
+        .membership_publication(r.stages[2].plan().id())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        publication.input_id(),
+        r.stages[2].plan().chosen().input_id()
+    );
+    r.stages[2].validate_published_anchor(&promoted).unwrap();
     let expected = promoted.committed_prefix().unwrap();
     drop(promoted);
     let cell =
@@ -164,6 +173,12 @@ fn learner_promotion_retry_preserves_later_quorum_commit_and_ordinary_view_chang
         Some(LogIndex(3))
     );
     assert_eq!(cell.promoted_replica().unwrap(), Some(NodeId(3)));
+    assert!(
+        cell.membership_publication(r.stages[2].plan().id())
+            .unwrap()
+            .is_some()
+    );
+    r.stages[2].validate_published_anchor(&cell).unwrap();
     drop(cell);
     drop(r);
     fs::remove_dir_all(path).unwrap();
@@ -474,6 +489,17 @@ fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership
             .unwrap(),
     ])
     .unwrap();
+    let fenced = promoted.recovery_state_token().unwrap();
+    assert!(promoted.membership_fence().is_some());
+    assert!(promoted.primary_probe().is_err());
+    assert!(
+        promoted
+            .membership_publication(r.stages[2].plan().id())
+            .unwrap()
+            .is_some()
+    );
+    r.stages[2].validate_published_anchor(&promoted).unwrap();
+    assert_eq!(promoted.recovery_state_token().unwrap(), fenced);
     let mut decisions = (0..2)
         .map(|n| {
             MembershipDecisionStore::open(
@@ -538,6 +564,16 @@ fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership
     assert!(!recovered.contains_replica(NodeId(3)));
     assert_eq!(recovered.view(), Epoch(3));
     assert_eq!(recovered.committed_prefix().unwrap(), expected);
+    assert!(
+        recovered
+            .membership_publication(r.stages[2].plan().id())
+            .unwrap()
+            .is_some()
+    );
+    r.stages[2].validate_published_anchor(&recovered).unwrap();
+    // Historical proof remains available, but the removed voter stays removed.
+    assert!(!recovered.contains_replica(NodeId(3)));
+    assert_eq!(recovered.promoted_replica().unwrap(), Some(NodeId(3)));
     drop(recovered);
     drop(second);
     drop(stage);

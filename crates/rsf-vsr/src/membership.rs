@@ -6,7 +6,8 @@ mod authority;
 mod capacity;
 pub(crate) mod staging;
 pub use staging::{
-    MembershipStagingStore, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
+    MembershipStagingStore, VsrMembershipPublication, VsrMembershipPublishedQuorum,
+    VsrMembershipPublishedReport, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
     VsrMembershipStagedReport,
 };
 mod decision;

@@ -17,6 +17,10 @@ impl VsrMembershipProposal {
             ("chosen", bounds.chosen),
             ("staged quorum", bounds.quorum),
             ("activation", bounds.activation),
+            ("staged metadata", bounds.metadata),
+            ("publication input", bounds.publication),
+            ("published report", bounds.published_report),
+            ("published quorum", bounds.published_quorum),
         ] {
             if bytes > MAX_HISTORY_RECORD_BYTES {
                 return Err(invalid_input(format!(
@@ -34,6 +38,10 @@ struct Bounds {
     chosen: usize,
     quorum: usize,
     activation: usize,
+    metadata: usize,
+    publication: usize,
+    published_report: usize,
+    published_quorum: usize,
 }
 
 fn proof_bounds(proposal: &VsrMembershipProposal) -> RsfResult<Bounds> {
@@ -111,12 +119,42 @@ fn proof_bounds(proposal: &VsrMembershipProposal) -> RsfResult<Bounds> {
         staged.encode()?.len(),
         8,
     ])?;
+    // META V2 adds a fixed publication digest without changing V1 decoding.
+    let metadata = sum(&[
+        b"VSRMST2".len(),
+        8,
+        8,
+        8,
+        input,
+        8,
+        chosen,
+        32,
+        32,
+        8,
+        32,
+        32,
+    ])?;
+    // PUBLICATION binds the exact physical local receipt plus a new-majority
+    // input. Its outer length fields and checksum count toward the same cap.
+    let publication = sum(&[b"VSRMPU1".len(), 8, staged.encode()?.len(), 8, quorum, 32])?;
+    let published = VsrMembershipPublishedReport {
+        proposal: proposal.clone(),
+        replica: proposal.new_voters[0],
+        input: [0; 32],
+        plan: [0; 32],
+    };
+    let published_report = published.encode()?.len();
+    let published_quorum = list_bytes(b"VSRMPQ1", new, published_report)?;
     Ok(Bounds {
         input,
         decision,
         chosen,
         quorum,
         activation,
+        metadata,
+        publication,
+        published_report,
+        published_quorum,
     })
 }
 fn list_bytes(magic: &[u8], count: usize, item: usize) -> RsfResult<usize> {

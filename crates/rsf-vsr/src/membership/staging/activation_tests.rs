@@ -556,3 +556,6 @@ fn successive_membership_activations_preserve_authority_and_fence_removed_voters
     drop(retired);
     fs::remove_dir_all(path).unwrap();
 }
+
+#[path = "ancestry_tests.rs"]
+mod ancestry_tests;

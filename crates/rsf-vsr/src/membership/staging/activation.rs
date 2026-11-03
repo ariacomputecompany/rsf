@@ -6,6 +6,38 @@ use crate::installation::publication::Boundary;
 
 const MAGIC: &[u8] = b"VSRMAI1";
 
+/// Historical membership activation proven by replay of authoritative history.
+/// This is not a publication acknowledgement, a current role, or evidence of
+/// application materialization on this boot. Ordinary views and later removal
+/// do not erase it. Only authoritative replay constructs this descriptor.
+#[derive(Clone, Debug)]
+pub struct VsrMembershipPublication {
+    input: VsrMembershipInput,
+    chosen: VsrMembershipChosen,
+    quorum: VsrMembershipStagedQuorum,
+    plan: [u8; 32],
+}
+impl VsrMembershipPublication {
+    pub fn proposal(&self) -> &VsrMembershipProposal {
+        self.input.proposal()
+    }
+    pub fn input(&self) -> &VsrMembershipInput {
+        &self.input
+    }
+    pub fn input_id(&self) -> [u8; 32] {
+        self.chosen.input_id()
+    }
+    pub fn chosen(&self) -> &VsrMembershipChosen {
+        &self.chosen
+    }
+    pub fn staged_quorum(&self) -> &VsrMembershipStagedQuorum {
+        &self.quorum
+    }
+    pub fn plan_id(&self) -> [u8; 32] {
+        self.plan
+    }
+}
+
 struct Activation {
     input: VsrMembershipInput,
     chosen: VsrMembershipChosen,
@@ -201,6 +233,14 @@ pub(crate) fn replay_activation(
         pending.acknowledgements.clear();
     }
     history.record(cell);
+    // Record ancestry only after validating the complete activation context,
+    // canonical prefix, local suffix and resulting committed/accepted bounds.
+    history.record_membership_publication(VsrMembershipPublication {
+        input: marker.input,
+        chosen: marker.chosen,
+        quorum: marker.quorum,
+        plan: marker.local.plan,
+    })?;
     *promise = None;
     *fence = None;
     *delta_start = None;
@@ -252,6 +292,18 @@ pub(crate) fn matches_promotion_plan(
 }
 
 impl DurableVsrCell {
+    /// Query historical activation in the currently authoritative history.
+    /// A higher ordinary view or pending promise does not invalidate ancestry.
+    /// The result grants no current voting role, client admission, publication
+    /// acknowledgement, or this-boot application-materialization guarantee.
+    pub fn membership_publication(
+        &self,
+        plan: [u8; 32],
+    ) -> RsfResult<Option<&VsrMembershipPublication>> {
+        self.ensure_healthy()?;
+        Ok(self.history.membership_publication(plan))
+    }
+
     /// Publish a staged/materialized membership with authenticated new-quorum
     /// receipts. This kernel operation does not update native client admission.
     /// The existing root must retain the matching durable membership fence so

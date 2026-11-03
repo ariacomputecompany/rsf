@@ -10,36 +10,66 @@ struct Configuration {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ConfigurationHistory(
-    BTreeMap<Epoch, Configuration>,
-    BTreeMap<(Epoch, LogIndex), [u8; 32]>,
-);
+pub(super) struct ConfigurationHistory {
+    configurations: BTreeMap<Epoch, Configuration>,
+    learned_commits: BTreeMap<(Epoch, LogIndex), [u8; 32]>,
+    // Replay-derived evidence, not part of configuration-equivalence checks.
+    // Chosen/staged proof subsets and source reporters may legitimately differ.
+    publications: BTreeMap<[u8; 32], std::sync::Arc<VsrMembershipPublication>>,
+}
 
 impl ConfigurationHistory {
     pub(super) fn new(cell: &VsrCell) -> Self {
-        let mut history = Self(BTreeMap::new(), BTreeMap::new());
+        let mut history = Self {
+            configurations: BTreeMap::new(),
+            learned_commits: BTreeMap::new(),
+            publications: BTreeMap::new(),
+        };
         history.record(cell);
         history
+    }
+
+    pub(super) fn record_membership_publication(
+        &mut self,
+        publication: VsrMembershipPublication,
+    ) -> RsfResult<()> {
+        match self.publications.entry(publication.plan_id()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(std::sync::Arc::new(publication));
+                Ok(())
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {
+                Err(corrupt("membership plan activated twice in one history"))
+            }
+        }
+    }
+
+    pub(super) fn membership_publication(
+        &self,
+        plan: [u8; 32],
+    ) -> Option<&VsrMembershipPublication> {
+        self.publications.get(&plan).map(std::sync::Arc::as_ref)
     }
 
     // Replicas can have installed different empty views or learned different
     // committed boundaries. Shared view identities must still name the same
     // primary/voters; committed data is checked separately by the installer.
     pub(super) fn compatible(&self, other: &Self) -> bool {
-        other.0.iter().all(|(view, old)| {
-            self.0
+        other.configurations.iter().all(|(view, old)| {
+            self.configurations
                 .get(view)
                 .is_none_or(|new| new.primary == old.primary && new.voters == old.voters)
-        }) && other
-            .1
-            .iter()
-            .all(|(key, digest)| self.1.get(key).is_none_or(|new| new == digest))
+        }) && other.learned_commits.iter().all(|(key, digest)| {
+            self.learned_commits
+                .get(key)
+                .is_none_or(|new| new == digest)
+        })
     }
 
     pub(super) fn contains_authority(&self, old: &Self) -> bool {
         self.compatible(old)
-            && old.0.iter().all(|(view, configuration)| {
-                self.0.get(view).is_some_and(|known| {
+            && old.configurations.iter().all(|(view, configuration)| {
+                self.configurations.get(view).is_some_and(|known| {
                     known.primary == configuration.primary && known.voters == configuration.voters
                 })
             })
@@ -54,7 +84,7 @@ impl ConfigurationHistory {
         commit: &VsrCommit,
     ) -> RsfResult<()> {
         let configuration = self
-            .0
+            .configurations
             .get(&prepare.view)
             .ok_or_else(|| corrupt("learned commit has no historical configuration"))?;
         if prepare.primary != configuration.primary || prepare.index <= configuration.preceding_tail
@@ -71,7 +101,7 @@ impl ConfigurationHistory {
         )?;
         let digest = rsf_core::Digest::blake3_bytes(&prepare.encode()?).bytes;
         if self
-            .1
+            .learned_commits
             .get(&(prepare.view, prepare.index))
             .is_some_and(|old| *old != digest)
         {
@@ -79,13 +109,14 @@ impl ConfigurationHistory {
                 "learned commit conflicts with an earlier installation",
             ));
         }
-        self.1.insert((prepare.view, prepare.index), digest);
+        self.learned_commits
+            .insert((prepare.view, prepare.index), digest);
         Ok(())
     }
 
     // Called only for initial bootstrap or an accepted, strictly newer view.
     pub(super) fn record(&mut self, cell: &VsrCell) {
-        self.0.insert(
+        self.configurations.insert(
             cell.view,
             Configuration {
                 primary: cell.primary,
@@ -97,7 +128,7 @@ impl ConfigurationHistory {
 
     pub(super) fn validate_prepare(&self, prepare: &VsrPrepare) -> RsfResult<()> {
         let configuration = self
-            .0
+            .configurations
             .get(&prepare.view)
             .ok_or_else(|| corrupt("committed entry has no installed historical configuration"))?;
         if prepare.primary != configuration.primary {
@@ -105,13 +136,13 @@ impl ConfigurationHistory {
                 "committed entry primary differs from its historical configuration",
             ));
         }
-        if self.1.get(&(prepare.view, prepare.index))
+        if self.learned_commits.get(&(prepare.view, prepare.index))
             == Some(&rsf_core::Digest::blake3_bytes(&prepare.encode()?).bytes)
         {
             return Ok(());
         }
         let next = self
-            .0
+            .configurations
             .range((
                 std::ops::Bound::Excluded(prepare.view),
                 std::ops::Bound::Unbounded,
@@ -130,7 +161,7 @@ impl ConfigurationHistory {
 
     pub(super) fn validate(&self, prepare: &VsrPrepare, commit: &VsrCommit) -> RsfResult<()> {
         self.validate_prepare(prepare)?;
-        let configuration = &self.0[&prepare.view];
+        let configuration = &self.configurations[&prepare.view];
         validate_commit_certificate(
             commit,
             prepare,

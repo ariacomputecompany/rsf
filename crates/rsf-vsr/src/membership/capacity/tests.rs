@@ -114,6 +114,22 @@ fn membership_capacity_matches_complete_encoded_input_and_recovery_decision() {
     assert_eq!(bounds.decision, decision.encode().unwrap().len());
     assert_eq!(bounds.chosen, chosen.encode().unwrap().len());
     assert_eq!(bounds.quorum, quorum.encode().unwrap().len());
+    let published_reports = p
+        .new_voters
+        .iter()
+        .map(|replica| VsrMembershipPublishedReport {
+            proposal: p.clone(),
+            replica: *replica,
+            input: input.id().unwrap(),
+            plan: [1; 32],
+        })
+        .collect::<Vec<_>>();
+    let published = VsrMembershipPublishedQuorum::from_reports(published_reports).unwrap();
+    assert_eq!(
+        bounds.published_report,
+        published.reports()[0].encode().unwrap().len()
+    );
+    assert_eq!(bounds.published_quorum, published.encode().unwrap().len());
     // Exercise the actual activation serializer through sealed staging and
     // local publication, rather than reconstructing its byte layout here.
     let mut stages = (0..3)
@@ -137,6 +153,19 @@ fn membership_capacity_matches_complete_encoded_input_and_recovery_decision() {
             .collect(),
     )
     .unwrap();
+    stages[0].retain_publication(&real_quorum).unwrap();
+    assert_eq!(
+        bounds.metadata,
+        std::fs::read(path.join("stage-0/META")).unwrap().len()
+    );
+    let one_more_report = 8 + real_quorum.reports()[0].encode().unwrap().len();
+    assert_eq!(
+        bounds.publication,
+        std::fs::read(path.join("stage-0/PUBLICATION"))
+            .unwrap()
+            .len()
+            + one_more_report
+    );
     cells[0]
         .install_membership(&stages[0], &real_quorum)
         .unwrap();

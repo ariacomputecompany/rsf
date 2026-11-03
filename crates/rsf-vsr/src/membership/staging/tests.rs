@@ -551,3 +551,6 @@ mod activation_tests;
 
 #[path = "promotion_tests.rs"]
 mod promotion_tests;
+
+#[path = "publication_tests.rs"]
+mod publication_tests;

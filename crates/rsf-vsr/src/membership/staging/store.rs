@@ -3,6 +3,7 @@ use super::*;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+mod publication;
 
 /// Separately sealed chosen prefix. Reopen replays its complete proof, validates
 /// every selected byte and resets this boot's materialization acknowledgement.
@@ -13,6 +14,8 @@ pub struct MembershipStagingStore {
     plan: VsrMembershipStagedPlan,
     stage: [u8; 32],
     materialized: bool,
+    // V2 metadata binds the first durable PUBLICATION bytes.
+    publication: Option<[u8; 32]>,
     failed: bool,
     _lock: rsf_storage::ExclusiveFileLock,
 }
@@ -46,9 +49,12 @@ impl MembershipStagingStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(io_error(e)),
         }
-        if root.join("INSTALLED").exists() {
+        if publication::present(&root.join("INSTALLED"))?
+            || publication::present(&root.join("PUBLICATION"))?
+            || publication::present(&root.join(".PUBLICATION.tmp"))?
+        {
             return Err(corrupt(
-                "membership stage receipt exists without sealed authority",
+                "membership stage receipt or publication exists without sealed authority",
             ));
         }
         disk::create_input(&root, &plan.input)?;
@@ -70,7 +76,7 @@ impl MembershipStagingStore {
         }
         write_history(&root, &plan)?;
         let stage = stage_id(&plan)?;
-        let metadata = encode_meta(local, &plan, stage)?;
+        let metadata = encode_meta(local, &plan, stage, None)?;
         atomic(&root, "META", &metadata)?;
         let store = Self {
             root,
@@ -78,10 +84,12 @@ impl MembershipStagingStore {
             plan,
             stage,
             materialized: false,
+            publication: None,
             failed: false,
             _lock: lock,
         };
         store.validate_receipt()?;
+        store.publication_quorum()?;
         Ok(store)
     }
     pub fn open_existing(
@@ -101,7 +109,8 @@ impl MembershipStagingStore {
         lock: rsf_storage::ExclusiveFileLock,
         bytes: &[u8],
     ) -> RsfResult<Self> {
-        let mut r = Reader::new(bytes, b"VSRMST1")?;
+        let version_two = bytes.starts_with(b"VSRMST2");
+        let mut r = Reader::new(bytes, if version_two { b"VSRMST2" } else { b"VSRMST1" })?;
         if r.u64()? != pg.0 || r.u64()? != local.0 {
             return Err(corrupt("membership stage identity mismatch"));
         }
@@ -110,6 +119,7 @@ impl MembershipStagingStore {
         let plan_id = r.id()?;
         let stage = r.id()?;
         let count = r.u64()?;
+        let publication = if version_two { Some(r.id()?) } else { None };
         let checksum = r.id()?;
         r.finish()?;
         if bytes.len() < 32
@@ -137,7 +147,7 @@ impl MembershipStagingStore {
             return Err(corrupt("membership sealed prefix lost staged records"));
         }
         plan.apply_local_suffix(&history)?;
-        if stage_id(&plan)? != stage || encode_meta(local, &plan, stage)? != bytes {
+        if stage_id(&plan)? != stage || encode_meta(local, &plan, stage, publication)? != bytes {
             return Err(corrupt(
                 "membership stage history differs from sealed identity",
             ));
@@ -148,10 +158,12 @@ impl MembershipStagingStore {
             plan,
             stage,
             materialized: false,
+            publication,
             failed: false,
             _lock: lock,
         };
         store.validate_receipt()?;
+        store.publication_quorum()?;
         Ok(store)
     }
     pub fn validate_anchor(&self, anchor: &DurableVsrCell) -> RsfResult<()> {
@@ -170,6 +182,28 @@ impl MembershipStagingStore {
         }
         Ok(())
     }
+    /// Validate a retained stage against a replay-proven historical activation.
+    /// Unlike validate_anchor, this accepts later ordinary views and membership
+    /// changes while preserving the stage's committed data and local receipts.
+    /// It neither materializes applications nor reactivates this stage's role.
+    pub fn validate_published_anchor(&self, anchor: &DurableVsrCell) -> RsfResult<()> {
+        self.healthy()?;
+        let publication = anchor
+            .membership_publication(self.plan.id())?
+            .ok_or_else(|| invalid_input("membership stage has no authoritative publication"))?;
+        if publication.proposal() != self.plan.input.proposal()
+            || publication.input_id() != self.plan.chosen.input_id()
+            || self.plan.records.first().map(|r| r.payload.as_slice())
+                != Some(anchor.initial_bootstrap.as_slice())
+            || !activation::retains_stage(anchor, self)
+        {
+            return Err(corrupt(
+                "membership publication does not retain the staged authority, prefix or receipts",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn plan(&self) -> &VsrMembershipStagedPlan {
         &self.plan
     }
@@ -304,8 +338,14 @@ fn encode_meta(
     local: NodeId,
     plan: &VsrMembershipStagedPlan,
     stage: [u8; 32],
+    publication: Option<[u8; 32]>,
 ) -> RsfResult<Vec<u8>> {
-    let mut bytes = b"VSRMST1".to_vec();
+    let mut bytes = if publication.is_some() {
+        b"VSRMST2"
+    } else {
+        b"VSRMST1"
+    }
+    .to_vec();
     put_u64(&mut bytes, plan.input.proposal().election.pg.0);
     put_u64(&mut bytes, local.0);
     put_bytes(&mut bytes, &plan.input.encode()?)?;
@@ -313,6 +353,9 @@ fn encode_meta(
     bytes.extend_from_slice(&plan.id);
     bytes.extend_from_slice(&stage);
     put_u64(&mut bytes, plan.records.len() as u64);
+    if let Some(digest) = publication {
+        bytes.extend_from_slice(&digest);
+    }
     let sum = Digest::blake3_bytes(&bytes).bytes;
     bytes.extend_from_slice(&sum);
     if bytes.len() > MAX_HISTORY_RECORD_BYTES {
@@ -337,9 +380,23 @@ fn lock(root: &Path) -> RsfResult<rsf_storage::ExclusiveFileLock> {
 }
 fn atomic(root: &Path, name: &str, bytes: &[u8]) -> RsfResult<()> {
     let temporary = root.join(format!(".{name}.tmp"));
+    // A regular temporary file can remain after an unacknowledged write. Under
+    // the exclusive stage lock, discard it without following a substituted
+    // symlink, then use create_new so a racing path cannot redirect writes.
+    match fs::symlink_metadata(&temporary) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            fs::remove_file(&temporary).map_err(io_error)?;
+        }
+        Ok(_) => {
+            return Err(corrupt(
+                "membership staging temporary is not a regular owned file",
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(io_error(error)),
+    }
     let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .write(true)
         .open(&temporary)
         .map_err(io_error)?;

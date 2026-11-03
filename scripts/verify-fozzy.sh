@@ -430,8 +430,27 @@ native_role_evidence = {
     for name in native_role_names
 }
 native_role_valid = all(native_role_evidence.values())
+publication_recovery_names = [
+    'membership_publication_ancestry_survives_proof_variants_new_views_and_promises',
+    'membership_publication_ancestry_ignores_inactive_generations_and_matching_voters',
+    'membership_publication_ancestry_requires_healthy_active_custody',
+    'membership_publication_input_codec_and_bound_local_stage_reject_tampering',
+    'membership_publication_retention_preserves_first_quorum_and_requires_boot_materialization',
+    'membership_publication_retention_rejects_conflicting_authority_without_overwrite',
+    'membership_publication_retention_corruption_or_missing_custody_never_recreates_authority',
+    'membership_publication_retention_io_failure_fences_handle_and_resumes_durable_input',
+    'membership_publication_retention_rejects_foreign_temporary_paths_and_resumes_regular_torn_files',
+    'killed_membership_publication_retention_recovers_input_without_activating_or_acknowledging',
+    'publication_quorums_require_distinct_majorities_of_one_canonical_transition',
+    'publication_codecs_reject_truncation_extra_bytes_and_noncanonical_order',
+]
+publication_recovery_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in publication_recovery_names
+}
+publication_recovery_valid = all(publication_recovery_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -454,6 +473,9 @@ summary = {
     "learner_promotion_evidence_valid": learner_promotion_valid,
     "learner_promotion_regressions": learner_promotion_evidence,
     "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills; native peer publication quorum, live role handoff and atomic control admission remain unfinished",
+    "publication_recovery_evidence_valid": publication_recovery_valid,
+    "publication_recovery_regressions": publication_recovery_evidence,
+    "publication_recovery_scope": "replay-proven historical activation, durable staged-quorum input custody and semantic publication receipt codecs; native publish/query RPC, live role handoff, publication completion and atomic control admission remain unfinished",
     "native_role_evidence_valid": native_role_valid,
     "native_role_regressions": native_role_evidence,
     "native_role_scope": "real native TLS peer restart from certified local promotion, non-voting partial claims, fail-closed provenance and actual recovered election budgets; no native publication quorum, live role handoff or atomic client/control admission",
