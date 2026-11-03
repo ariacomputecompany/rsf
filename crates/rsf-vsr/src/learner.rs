@@ -1,6 +1,7 @@
 //! Staged history is never a voting replica. Publication requires complete
 //! hash-checked history, normal VSR recovery, and extension of published truth.
 use super::*;
+pub(crate) mod promotion;
 use rsf_core::Digest;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;

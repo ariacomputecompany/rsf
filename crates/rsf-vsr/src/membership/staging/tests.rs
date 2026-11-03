@@ -548,3 +548,6 @@ fn killed_membership_stage_recovers_receipt_and_replays_materialization_before_r
 
 #[path = "activation_tests.rs"]
 mod activation_tests;
+
+#[path = "promotion_tests.rs"]
+mod promotion_tests;

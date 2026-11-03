@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "base_commit": "bfbb37f15881f7a30e310ce5b9c6cfa432a403d2",
+  "tested_source_sha256": "8da9f9d06734459746484707b47f6a276a702f5e87ba446729825f537e1372f9",
+  "source_unchanged": true,
+  "api": [
+    "LearnerHistoryStore::promote_membership",
+    "DurableVsrCell::promoted_replica"
+  ],
+  "implementation": {
+    "target_owner": "Checked VSRLP1 metadata binds placement group, configured newly added voter, canonical original plan and bootstrap digest before generation creation.",
+    "active_pointer": "VSA2 binds the owner digest to the active generation. Existing unpromoted VSA1 stores retain their format.",
+    "validation": "Complete shared authoritative replay plus historical promotion-plan provenance; normal view changes may select another voters local generation without losing the canonical plan.",
+    "publication": "Shared sealed generation publisher; exclusive writer-lock custody continues through the normal recovered-cell constructor. No writable old-authority root WAL is initialized.",
+    "retries": "Owned partial initialization resumes; existing complete targets are replayed, never replaced with stale stage data. Later commits, receipts and ordinary views survive. Removed voters cannot be reactivated by stale promotion.",
+    "ownership": "Reject unowned populated targets, source overlaps, symlinks and descendants of other VSR/learner stores that could reclaim them."
+  },
+  "final_source_verification": {
+    "trace": "artifacts/learner-promotion-final-packages-20261102.trace.fozzy",
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsf-storage",
+      "rsfd"
+    ],
+    "passed": 381,
+    "failed": 0,
+    "ignored": 1,
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "host_execution_passed": true,
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true
+  },
+  "focused_verification": {
+    "trace": "artifacts/learner-promotion-owned-20261102.trace.fozzy",
+    "passed": 7,
+    "failed": 0,
+    "real_parent_sigkill_boundaries": [
+      "owned",
+      "staged",
+      "renamed",
+      "published"
+    ],
+    "unix_signal_asserted": 9,
+    "cold_recovery_after_old_voter_and_learner_directories_deleted": true,
+    "accepted_tail_and_original_receipts_preserved": true,
+    "public_bootstrap_open_fenced_during_partial_promotion": true,
+    "matching_checksums_with_foreign_owner_plan_or_bootstrap_rejected": true,
+    "later_membership_removal_not_reversed": true,
+    "trace_verify_replay_ci_passed": true
+  },
+  "clippy": {
+    "passed": true,
+    "all_targets": true,
+    "warnings_denied": true,
+    "log": "artifacts/learner-promotion-owned-20261102-clippy.log"
+  },
+  "prior_full_gate": {
+    "report": "docs/membership-capacity-full-verification-2026-11-02.json",
+    "all_pass": true,
+    "domains": 23,
+    "workspace_passed": 1203,
+    "workspace_failed": 0,
+    "workspace_ignored": 1
+  },
+  "preserved_failed_attempt": "artifacts/learner-promotion-20261102.trace.fozzy records the initial incorrect child-test selector; its zero selected child tests caused an explicit failure. Later tests require observed boundary readiness and actual parent SIGKILL.",
+  "limits": [
+    "This is an owned local publication factory, not native peer publication quorum or client admission.",
+    "Native role/restart custody and candidate-independent peer orchestration remain unfinished.",
+    "No operator membership command is enabled.",
+    "VSA2 promoted stores require a binary supporting this format; older binaries reject them.",
+    "Promotion still replays complete histories; retention/checkpointing and large-history memory/capacity qualification remain open.",
+    "SIGKILL and trace replay do not establish independent-machine power-loss safety or deterministic native thread/socket schedules.",
+    "A fresh complete final-source gate remains required."
+  ]
+}

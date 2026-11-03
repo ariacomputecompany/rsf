@@ -6,7 +6,8 @@ Transition-only new-quorum plan consensus is implemented as a library store.
 Authenticated peer plan orchestration is implemented over configured transition paths.
 Sealed chosen-prefix staging and trusted materialization receipts are implemented.
 Proof-bound active generation publication and cold replay are implemented in the
-VSR storage kernel. Native peer publication, learner promotion and control-metadata
+VSR storage kernel. An owned resumable learner promotion factory is implemented.
+Native peer publication quorum, voting-role/restart custody and control-metadata
 publication remain unimplemented. Current application operation still uses a fixed admitted voter
 set with quorum-selected view changes. Learner catch-up does not grant a vote.
 Local configuration methods and reachability probes do not install network
@@ -388,7 +389,7 @@ stages, a real process killed after synced receipt before reply, derived-file
 rebuild after loss, explicit-materializer rejection, 128 KiB binary TLS delivery,
 peer restart and a staged quorum after the originally selected primary is lost.
 
-Current immutable-source verification passes 21 of 22 domains and 1,181 workspace
+The earlier staging-phase immutable-source verification passes 21 of 22 domains and 1,181 workspace
 tests with zero failures, including all nine required staging/directory/retention
 regressions. Each passing domain includes five-run doctor, strict deterministic
 orchestration, recorded host execution, strict trace verification, replay and CI.
@@ -396,10 +397,10 @@ The previously failing TLS staging test passes in the full workspace. Current
 evidence is in `membership-staging-verification-2026-10-21.json` and
 `artifacts/verification.sDhlKQ`.
 
-The full release gate remains failed: release automatic-client takeover rejects a
+That staging-phase release gate failed: release automatic-client takeover rejects a
 post-loss SQL BEGIN when durable commit evidence reaches only one replica before
 the peer deadline. Debug and a subsequent focused release rerun pass; the
-intermittent failure remains unresolved and the complete gate remains failed. Both native-KV
+intermittent failure remained unresolved at that source and its complete gate remains failed. Both native-KV
 stress profiles pass separately. Earlier ENOSPC and workspace-staging failures
 remain in `membership-staging-incomplete-verification-2026-10-21.json`.
 
@@ -410,7 +411,7 @@ replay or directory rewrites. Reopen still fully validates proof from disk;
 missing chosen input rejects without recreation. Payload, deadline and retry count
 remain unchanged.
 
-Native application installation/publication, learner promotion, removed-voter
+Native application installation/publication, voting-role custody, removed-voter
 role integration, abort/conflict handling, repeated network membership lifecycles
 and atomic distributed control admission remain unfinished. Retained
 proof memory/access and independent-host/region capacity/fault qualification
@@ -445,24 +446,57 @@ These are local host crash tests; independent machine power loss is unqualified.
 
 Report identities retain the authenticated crash-fault trust model. They are not
 independent signatures or Byzantine quorum proofs. Activation records retain the
-existing history-record size limit; proposal orchestration still needs to
-preflight that combined proof budget before old-quorum fencing. The native peer
-publisher, learner promotion factory, role custody and replicated atomic client
-admission are unfinished. This kernel API does not enable an operator membership
+existing history-record size limit. New membership initiation now preflights the
+complete combined proof budget before old-quorum fencing. The native peer
+publisher, role custody and replicated atomic client admission are unfinished. This kernel API does not enable an operator membership
 command or mark a cluster-wide transition complete. Scoped evidence is recorded
 in `membership-activation-verification-2026-10-21.json`.
 
 
-The subsequent immutable-source full gate passes 22/23 domains and all nine new
+The earlier activation-phase immutable-source full gate passes 22/23 domains and all nine new
 activation regressions in the workspace. The complete daemon domain and isolated
 SQL streaming debug/release runs pass, but workspace SQL setup exhausts its three
 same-frame transport attempts at INSERT `stream-91`: 1,192 tests pass, one fails,
 one is ignored. The failed trace and checksum-verified fixture are retained.
-This is an unresolved qualification failure; neither isolated passes nor trace
-integrity clear it. See `membership-activation-full-verification-2026-10-21.json`.
+That run remains a failed qualification result; neither isolated passes nor trace
+integrity clear its failure. See `membership-activation-full-verification-2026-10-21.json`.
 
 A separate working copy recovers `stream-91` at version/log index 100, rejects
 changed SQL under that identity and preserves its duplicate result across all
 three daemon restarts. The first recovered response is `replayed=false`; this
 establishes recoverable retry behavior, not prior durable completion before the
 original timeout. The original and preserved fixture checksums remain unchanged.
+
+
+`LearnerHistoryStore::promote_membership` now publishes an already anchored new
+voter into a separately owned target. It requires this configured learner's
+boot-materialized stage and a matching new-quorum staging proof. A checked
+`VSRLP1` identity binds the placement group, local node, original canonical plan
+and bootstrap before generation creation. The `VSA2` pointer binds that identity
+to the active generation; shared authoritative replay also validates historical
+plan provenance. Older unpromoted `VSA1` stores retain their format. Older binaries
+cannot open `VSA2` promoted stores.
+
+The factory preserves one exclusive writer lock through physical publication and
+the normal recovered-cell constructor. Unpublished claims stay closed to both
+existing-history and bootstrap opens. Targets cannot overlap the learner or sit
+inside another VSR/learner store's reclaimable directory tree. Missing/corrupt
+owner or pointer metadata rejects without stale republication. Warm retries keep
+later commits, receipts and ordinary views; a later removal cannot be reversed by
+retrying the original promotion. `promoted_replica()` exposes provenance for
+configured-node role validation, not client readiness.
+
+Final-source verification passes 381 affected-package tests, including seven
+promotion tests with four real parent-issued SIGKILL boundaries and cold recovery
+after deleting all old voter and learner directories. Strict recorded trace
+verification, replay, CI and Clippy pass. The preceding capacity source passes all
+23 domains and 1,203 workspace tests. A fresh full gate is required for this
+promotion source. See `learner-promotion-verification-2026-11-02.json` and
+`membership-capacity-full-verification-2026-11-02.json`.
+
+Local publication still does not establish new-quorum publication completion.
+Authenticated peer orchestration, role/restart custody, candidate-independent
+recovery and replicated control/catalog admission must complete before enabling
+an operator membership command or admitting clients under the new configuration.
+Full-history replay and independent-host/region capacity and machine power-loss
+qualification remain open.

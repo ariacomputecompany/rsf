@@ -207,6 +207,50 @@ pub(crate) fn replay_activation(
     Ok(())
 }
 
+pub(crate) fn publication_records(
+    stage: &MembershipStagingStore,
+    quorum: &VsrMembershipStagedQuorum,
+) -> RsfResult<Vec<VsrHistoryRecord>> {
+    let marker = Activation::from_stage(stage, quorum)?;
+    let mut records = stage.plan().records.clone();
+    records.push(VsrHistoryRecord {
+        kind: WalRecordKind::ViewInstallation,
+        epoch: stage.plan().input.proposal().election.previous_view,
+        payload: marker.encode()?,
+    });
+    Ok(records)
+}
+
+pub(crate) fn retains_stage(cell: &DurableVsrCell, stage: &MembershipStagingStore) -> bool {
+    let plan = stage.plan();
+    installation::preserves_committed(&cell.cell, &plan.recovered.0)
+        && cell.history.contains_authority(&plan.recovered.1)
+        && plan
+            .recovered
+            .0
+            .client_table
+            .iter()
+            .all(|(key, index)| cell.cell.client_table.get(key) == Some(index))
+}
+
+pub(crate) fn matches_promotion_plan(
+    payload: &[u8],
+    local: NodeId,
+    plan: [u8; 32],
+) -> RsfResult<bool> {
+    if !payload.starts_with(MAGIC) {
+        return Ok(false);
+    }
+    let marker = Activation::decode(payload)?;
+    // A later ordinary view can select another voter's generation. Its local
+    // materialization reporter may differ; the canonical plan and original
+    // addition of this node must survive. The root pointer binds node custody.
+    let proposal = marker.input.proposal();
+    Ok(marker.local.plan == plan
+        && !proposal.election.voters.contains(&local)
+        && proposal.new_voters.contains(&local))
+}
+
 impl DurableVsrCell {
     /// Publish a staged/materialized membership with authenticated new-quorum
     /// receipts. This kernel operation does not update native client admission.
@@ -226,7 +270,7 @@ impl DurableVsrCell {
         hook: &mut impl FnMut(Boundary) -> RsfResult<()>,
     ) -> RsfResult<()> {
         self.ensure_healthy()?;
-        let marker = Activation::from_stage(stage, quorum)?;
+        let records = publication_records(stage, quorum)?;
         let plan = stage.plan();
         let proposal = plan.input.proposal();
         if plan.records.first().map(|r| r.payload.as_slice())
@@ -265,12 +309,6 @@ impl DurableVsrCell {
             ));
         }
         stage.validate_anchor(self)?;
-        let mut records = plan.records.clone();
-        records.push(VsrHistoryRecord {
-            kind: WalRecordKind::ViewInstallation,
-            epoch: proposal.election.previous_view,
-            payload: marker.encode()?,
-        });
         let recovered = installation::recover_records(&records)?;
         self.publish_generation(plan.id, &records, recovered, hook)
     }

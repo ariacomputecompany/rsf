@@ -820,6 +820,11 @@ impl DurableVsrCell {
             })
             .collect::<Vec<_>>();
         let (cell, history, view_change, membership_fence) = replay::recover(cell, &replay)?;
+        learner::promotion::validate_history(
+            path,
+            pg,
+            records.iter().map(|r| (r.kind, r.payload.as_slice())),
+        )?;
         if active.plan.is_some() {
             // Finish the publication fence before a recovered writer can serve.
             // A crash before this fence could not acknowledge later operations.

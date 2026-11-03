@@ -81,6 +81,9 @@ pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
     let bytes = match fs::read(root.join(POINTER)) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if crate::learner::promotion::has_claim(root) {
+                return Err(corrupt("claimed promotion target has no active generation"));
+            }
             if root.join(PUBLISHED).exists() {
                 return Err(corrupt("published VSR generation lost its active pointer"));
             }
@@ -97,7 +100,17 @@ pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
         }
         Err(err) => return Err(io_error(err)),
     };
-    checked_file(&bytes, b"VSA1", 108)?;
+    let promoted = bytes.starts_with(b"VSA2");
+    checked_file(
+        &bytes,
+        if promoted { b"VSA2" } else { b"VSA1" },
+        if promoted { 140 } else { 108 },
+    )?;
+    match (promoted, crate::learner::promotion::owner_digest(root)?) {
+        (false, None) => {}
+        (true, Some(owner)) if bytes[76..108] == owner => {}
+        _ => return Err(corrupt("active pointer differs from promotion ownership")),
+    }
     if read_u64(&bytes, 4)? != pg.0 {
         return Err(corrupt(
             "active VSR generation belongs to another placement group",
@@ -159,6 +172,78 @@ pub(crate) fn validate_active(
         ));
     }
     Ok(())
+}
+
+pub(crate) fn publish(
+    root: &Path,
+    pg: PlacementGroupId,
+    options: rsf_storage::SegmentStoreOptions,
+    plan_id: [u8; 32],
+    records: &[VsrHistoryRecord],
+    hook: &mut impl FnMut(Boundary) -> RsfResult<()>,
+    publication_started: &mut bool,
+) -> RsfResult<SegmentStore> {
+    crate::learner::promotion::validate_history(
+        root,
+        pg,
+        records.iter().map(|r| (r.kind, r.payload.as_slice())),
+    )?;
+    let id = transfer::history_digest(records)?.bytes;
+    let parent = root.join(GENERATIONS);
+    fs::create_dir_all(&parent).map_err(io_error)?;
+    sync(root)?;
+    let name = id
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let path = parent.join(name);
+    fs::create_dir_all(&path).map_err(io_error)?;
+    sync(&parent)?;
+    let (mut store, previous) = SegmentStore::open_recovered(&path, options)?;
+    let existing = &previous.recovery.wal_records;
+    if existing.len() > records.len()
+        || existing.iter().zip(records).any(|(old, next)| {
+            old.pg != pg
+                || old.epoch != next.epoch
+                || old.kind != next.kind
+                || old.payload.as_slice() != next.payload.as_slice()
+        })
+    {
+        return Err(corrupt("staged VSR generation conflicts with installation"));
+    }
+    for record in records.iter().skip(existing.len()) {
+        store.append_next_wal(pg, record.epoch, record.kind, &record.payload)?;
+    }
+    let mut seal = b"VSS1".to_vec();
+    seal.extend_from_slice(&pg.0.to_le_bytes());
+    seal.extend_from_slice(&id);
+    seal.extend_from_slice(&plan_id);
+    seal.extend_from_slice(&(records.len() as u64).to_le_bytes());
+    checksum(&mut seal);
+    write_synced(&path.join(SEAL), &seal)?;
+    sync(&path)?;
+    hook(Boundary::Staged)?;
+    let owner = crate::learner::promotion::owner_digest(root)?;
+    let mut pointer = if owner.is_some() { b"VSA2" } else { b"VSA1" }.to_vec();
+    pointer.extend_from_slice(&pg.0.to_le_bytes());
+    pointer.extend_from_slice(&id);
+    pointer.extend_from_slice(&plan_id);
+    if let Some(owner) = owner {
+        pointer.extend_from_slice(&owner);
+    }
+    checksum(&mut pointer);
+    let temporary = root.join(".VSR_ACTIVE.tmp");
+    write_synced(&temporary, &pointer)?;
+    *publication_started = true;
+    fs::rename(temporary, root.join(POINTER)).map_err(io_error)?;
+    // Once rename may have occurred, any publication error fences this
+    // handle until reopen resolves the authoritative pointer.
+    let publication = hook(Boundary::Renamed)
+        .and_then(|()| sync(root))
+        .and_then(|()| mark_published(root, pg))
+        .and_then(|()| hook(Boundary::Published));
+    publication?;
+    Ok(store)
 }
 
 impl DurableVsrCell {
@@ -274,72 +359,28 @@ impl DurableVsrCell {
     ) -> RsfResult<()> {
         self.ensure_healthy()?;
         let next_revision = self.next_state_revision()?;
-        let pg = self.cell.pg;
-        let id = transfer::history_digest(records)?.bytes;
-        let parent = self.root.join(GENERATIONS);
-        fs::create_dir_all(&parent).map_err(io_error)?;
-        sync(&self.root)?;
-        let name = id
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = parent.join(name);
-        fs::create_dir_all(&path).map_err(io_error)?;
-        sync(&parent)?;
-        let (mut store, previous) = SegmentStore::open_recovered(&path, self.options)?;
-        let existing = &previous.recovery.wal_records;
-        if existing.len() > records.len()
-            || existing.iter().zip(records).any(|(old, next)| {
-                old.pg != pg
-                    || old.epoch != next.epoch
-                    || old.kind != next.kind
-                    || old.payload.as_slice() != next.payload.as_slice()
-            })
-        {
-            return Err(corrupt("staged VSR generation conflicts with installation"));
-        }
-        for record in records.iter().skip(existing.len()) {
-            store.append_next_wal(pg, record.epoch, record.kind, &record.payload)?;
-        }
-        let mut seal = b"VSS1".to_vec();
-        seal.extend_from_slice(&pg.0.to_le_bytes());
-        seal.extend_from_slice(&id);
-        seal.extend_from_slice(&plan_id);
-        seal.extend_from_slice(&(records.len() as u64).to_le_bytes());
-        checksum(&mut seal);
-        write_synced(&path.join(SEAL), &seal)?;
-        sync(&path)?;
-        hook(Boundary::Staged)?;
-        let mut pointer = b"VSA1".to_vec();
-        pointer.extend_from_slice(&pg.0.to_le_bytes());
-        pointer.extend_from_slice(&id);
-        pointer.extend_from_slice(&plan_id);
-        checksum(&mut pointer);
-        let temporary = self.root.join(".VSR_ACTIVE.tmp");
-        write_synced(&temporary, &pointer)?;
-        if let Err(err) = fs::rename(temporary, self.root.join(POINTER)) {
-            let err = io_error(err);
-            *self
-                .durability_failure
-                .lock()
-                .map_err(|_| corrupt("VSR durability fence is poisoned"))? =
-                Some(err.message.clone());
-            return Err(err);
-        }
-        // Once rename may have occurred, any publication error fences this
-        // handle until reopen resolves the authoritative pointer.
-        let publication = hook(Boundary::Renamed)
-            .and_then(|()| sync(&self.root))
-            .and_then(|()| mark_published(&self.root, pg))
-            .and_then(|()| hook(Boundary::Published));
-        if let Err(err) = publication {
-            *self
-                .durability_failure
-                .lock()
-                .map_err(|_| corrupt("VSR durability fence is poisoned"))? =
-                Some(err.message.clone());
-            return Err(err);
-        }
+        let mut publication_started = false;
+        let store = match publish(
+            &self.root,
+            self.cell.pg,
+            self.options,
+            plan_id,
+            records,
+            hook,
+            &mut publication_started,
+        ) {
+            Ok(store) => store,
+            Err(error) => {
+                if publication_started {
+                    *self
+                        .durability_failure
+                        .lock()
+                        .map_err(|_| corrupt("VSR durability fence is poisoned"))? =
+                        Some(error.message.clone());
+                }
+                return Err(error);
+            }
+        };
         self.state_revision = next_revision;
         self.store = store;
         self.cell = recovered.0;

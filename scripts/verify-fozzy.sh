@@ -404,8 +404,21 @@ membership_capacity_evidence = {
     for name in membership_capacity_names
 }
 membership_capacity_valid = all(membership_capacity_evidence.values())
+learner_promotion_names = [
+    "learner_promotion_publishes_owned_new_voter_and_cold_recovers_original_receipts",
+    "learner_promotion_retry_preserves_later_quorum_commit_and_ordinary_view_change",
+    "learner_promotion_rejects_unowned_overlapping_symlink_and_wrong_reporter_targets",
+    "learner_promotion_missing_or_changed_owner_and_pointer_fail_without_republication",
+    "killed_learner_promotion_resumes_owned_target_without_exposing_old_authority",
+    "learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership",
+]
+learner_promotion_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in learner_promotion_names
+}
+learner_promotion_valid = all(learner_promotion_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -425,6 +438,9 @@ summary = {
     "uncertain_sql_begin_workspace": uncertain_begin_workspace,
     "uncertain_sql_begin_profile_runs": uncertain_begin_profile_runs,
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
+    "learner_promotion_evidence_valid": learner_promotion_valid,
+    "learner_promotion_regressions": learner_promotion_evidence,
+    "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills; native peer publication quorum, role/restart custody and atomic control admission remain unfinished",
     "membership_capacity_evidence_valid": membership_capacity_valid,
     "membership_capacity_regressions": membership_capacity_evidence,
     "membership_capacity_scope": "bounded complete proofs rejected before new old-voter fences; historical fence decoding/retry preserved; native membership publication/promotion and control admission remain unfinished",
@@ -436,19 +452,19 @@ summary = {
     "idle_application_scope": "one owned application writer survives idle polls; protocol ownership is released and reopens against exact history, current authority, transport and per-request authorization",
     "membership_activation_evidence_valid": membership_activation_valid,
     "membership_activation_regressions": membership_activation_evidence,
-    "membership_activation_scope": "proof-bound active VSR generation publication and replay; learner promotion factory, native peer publication, atomic control admission and complete production qualification remain unfinished",
+    "membership_activation_scope": "proof-bound active VSR generation publication and replay; owned learner promotion factory implemented; native peer publication, role/restart custody, atomic control admission and complete production qualification remain unfinished",
     "membership_staging_evidence_valid": membership_staging_valid,
     "membership_staging_regressions": membership_staging_evidence,
-    "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts; active generation publication, promotion and control admission remain unfinished",
+    "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts; native active publication and atomic control admission remain unfinished",
     "membership_peer_evidence_valid": membership_peer_valid,
     "membership_peer_regressions": membership_peer_evidence,
-    "membership_peer_scope": "authenticated peer plan consensus with anchored authority; application publication, activation, promotion and control admission remain unfinished",
+    "membership_peer_scope": "authenticated peer plan consensus with anchored authority; native active publication, voting-role custody and atomic control admission remain unfinished",
     "membership_decision_evidence_valid": membership_decision_valid,
     "membership_decision_regressions": membership_decision_evidence,
-    "membership_decision_scope": "transition-only library plan consensus; peer RPC orchestration, active configuration publication, learner promotion and client admission remain unfinished",
+    "membership_decision_scope": "transition-only library plan consensus; peer and staged-kernel integration exist; native active publication and atomic control admission remain unfinished",
     "membership_approval_evidence_valid": membership_approval_valid,
     "membership_approval_regressions": membership_approval_evidence,
-    "membership_approval_scope": "old-quorum approval only; new-quorum activation, learner promotion and complete membership qualification remain unfinished",
+    "membership_approval_scope": "old-quorum approval evidence; native quorum publication, role handoff and complete membership qualification remain unfinished",
     "sql_index_evidence_valid": indexed_valid,
     "sql_index_regressions": indexed_evidence,
     "sql_stream_evidence_valid": streams_valid,

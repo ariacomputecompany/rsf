@@ -24,32 +24,32 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The frozen-source gate on
-`048893d` passes all 23 domains and the aggregate evidence checks. Workspace
-passes 1,203 tests with zero failures and 1 ignored stress test. Both native
-automatic takeover/SQL stream profiles and both abrupt-process stress profiles
-pass. Complete stdout and stderr remain separate before replay, preventing child
-diagnostics from corrupting test-result evidence. Strict doctor, orchestration,
-recorded host execution, trace verification, replay and CI pass for every domain.
-See `docs/membership-capacity-full-verification-2026-11-02.json`.
+Current release status: **not production qualified**. The owned learner promotion
+factory passes 381 affected-package tests with zero failures and one ignored
+stress test on unchanged source. Coverage includes four real parent-issued
+SIGKILL boundaries, public-open fencing during initialization, original receipt
+and accepted-tail preservation, cold recovery without old voter/learner roots,
+later quorum commits/views, stale retries after removal and hostile target/
+metadata cases. Strict trace verification, replay, CI and warnings-denied Clippy
+pass. See `docs/learner-promotion-verification-2026-11-02.json`.
 
-Membership initiation bounds full nested proofs before any durable fence while
-preserving historical fence recovery. Earlier failed gates remain preserved.
-Existing native deadlines, retry budgets and workloads retain their limits.
-Growing-history protocol reopening still needs performance work. These local
-results do not establish independent-host or regional fault/capacity readiness.
+The preceding frozen source passes all 23 domains and aggregate checks, with
+1,203 workspace tests, zero failures and one ignored stress test. That evidence
+is in `docs/membership-capacity-full-verification-2026-11-02.json`; a fresh full
+gate on the promotion source remains required. No native deadline, retry budget
+or workload size changed. Earlier failed runs remain preserved.
 
-Kernel activation is verified; native peer membership publication/promotion and
-atomic control admission remain unfinished. Growing-history memory, cold protocol
-recovery, retention/migration, independent-group routing, and independent-host/
-region workload/fault qualification also remain open.
+Native peer publication quorum, voting-role/restart custody and atomic control
+admission remain unfinished. Growing-history protocol reopening/replay, retention,
+legacy migration, independent-group routing and independent-host/region fault/
+numerical capacity qualification remain required. Kernel and local factory tests
+do not establish these deployment properties.
 
 ### Next implementation: native membership publication and promotion
 
-- Promote an already anchored learner through configured owned storage, with a
-  durable bootstrap/owner identity and resumable initialization. Integrate the
-  verified kernel publisher into authenticated peer orchestration with trusted
-  application materialization and new-quorum publication acknowledgements.
+- Integrate the verified kernel publisher and owned promotion factory into
+  authenticated peer orchestration with trusted application materialization,
+  new-quorum publication acknowledgements and durable role/restart custody.
 - Retain removed-voter fencing and support ordinary election on the new voter
   set after permanent loss of the original candidate through actual TLS peers.
   Qualify repeated membership lifecycles and partial-proposal conflict/abort.
