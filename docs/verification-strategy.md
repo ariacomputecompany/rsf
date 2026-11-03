@@ -476,13 +476,10 @@ Full qualification uses an explicit `FOZZY_BIN` and retains the complete
 source-frozen gate evidence for the selected engine. No hosted workflow or
 required check is enabled by these bootstrap scripts.
 
-`.github/workflows/qualification.yml` defines the hosted pilot on `main` pushes
-and pull requests, with Ubuntu 24.04 and macOS 15 runners. Each job checks out the
-event revision, builds the pinned engine in an isolated source directory, runs
-bookkeeping checks and strict Clippy, then records the complete 25-domain gate.
-Success and failure artifacts are retained for 14 days. Concurrency preserves
-the active run and keeps at most one pending run per event ref; always qualify
-the actual event SHA. Workflow configuration is not evidence of a successful
-hosted run, and no required branch check is established by this pilot. Manual
-dispatch discovery still depends on the workflow being present on the repository's
-default branch; the pilot does not change that branch or spending controls.
+Linux is the only production target. Run verification manually on the development
+host during implementation and on the actual Linux VM for platform qualification.
+Targeted mocks and fault injection exercise contracts but do not establish Linux
+kernel, filesystem or machine-failure behavior. No hosted CI/CD workflow or
+required branch check is configured; publish verified milestones by pushing to
+remote `main`. Fozzy's local `ci` command remains a recorded-trace verification
+step and does not launch a hosted workflow.

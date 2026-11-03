@@ -53,8 +53,8 @@ those operations.
 Growing-history reopening/replay, bounded retention, legacy migration,
 independent-group routing and independent-host/region fault and numerical capacity
 qualification remain required. These one-host tests do not establish machine
-power-loss durability or production capacity. Hosted Linux/macOS qualification
-also remains open. Strict workspace all-target Clippy and formatting pass at the
+power-loss durability or production capacity. Actual Linux VM qualification
+remains open. Strict workspace all-target Clippy and formatting pass at the
 scoped baseline checkpoint; subsequent implementation requires fresh checks.
 
 ### Next implementation: durable creation, autonomous choice and control admission
@@ -276,6 +276,14 @@ The goal is complete only when:
 - every production surface has deterministic tests, recovery tests, and observability.
 
 ## Qualification Scope
+
+Linux is the only production operating system. Implement and validate as much as
+possible on the development host, using targeted mocks and fault injection for
+platform-specific seams where useful. Development-host and simulated results do
+not qualify Linux kernel, filesystem, locking, crash recovery or performance
+behavior. Finish real Linux validation and any platform-specific fixes on the
+user-provided VM. No CI/CD is requested: run verification manually and publish
+verified milestones through ordinary pushes to remote `main`.
 
 The requested release target includes standalone, independent-host regional,
 and multi-region deployment profiles, with SQL, KV, object, and blob workloads.

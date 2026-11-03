@@ -83,8 +83,7 @@
     "raw_output_note": "The generic multi-command helper reuses one process-log filename. Complete per-command outputs are retained in immutable trace decisions and separately extracted files; counts above come from all trace decisions."
   },
   "remaining": [
-    "Actual Linux/macOS hosted pilots within the existing Actions budget; no spending cap change authorized.",
-    "Required-check integration only after actual hosted qualification.",
+    "Actual Linux VM verification of the implemented system, including kernel/filesystem/locking and crash-recovery behavior.",
     "Production scope and capacity/fault qualification remain in WORK.md."
   ],
   "source_build_command": "RUSTUP_TOOLCHAIN=1.92.0 python3 -B scripts/bootstrap-fozzy.py <fresh isolated pinned source> <new prefix>",
@@ -117,5 +116,6 @@
     "source_unchanged": true,
     "hosted_ci_qualified": false,
     "production_qualified": false
-  }
+  },
+  "release_workflow": "Manual verification and ordinary pushes to remote main; no CI/CD, per user instruction."
 }
