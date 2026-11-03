@@ -1,8 +1,8 @@
 {
   "date": "2026-11-03",
-  "status": "pinned-bootstrap-and-candidate-engine-scoped-qualification",
+  "status": "pinned-candidate-engine-complete-local-rsf-qualification",
   "production_qualified": false,
-  "full_rsf_gate_passed": false,
+  "full_rsf_gate_passed": true,
   "hosted_ci_enabled": false,
   "bootstrap_files_sha256": {
     "scripts/bootstrap-fozzy.py": "c34bcba3045c33896232df9765594bc537874c073a92c38481e55284fa4940fa",
@@ -16,7 +16,7 @@
   },
   "real_engine_build_and_own_tests": {
     "date": "2026-11-03",
-    "scope": "candidate engine source build and own tests; RSF and hosted qualification remain open",
+    "scope": "Source build and own-test evidence; subsequent complete RSF qualification is separately bound below.",
     "candidate_binary_sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
     "embedded_source_commit": "30ef888219e3f822301fc6e6fd30644b1177ba9e",
     "build_provenance_sha256": "e46fcf7bfa58eb6fbe034972af898cd737825e2c64f012c3fbbd6bd18cb54b60",
@@ -61,7 +61,7 @@
     ],
     "rsf_source_sha256": "6898f73101edabf70ef95d7f5a3595ba5295f4f551d1c5545ae25527959a913b",
     "rsf_source_unchanged": true,
-    "source_limit": "RSF currently includes temporary installation diagnostics and the unqualified selected-plan handoff; this is an engine smoke test, not final-source RSF qualification.",
+    "source_limit": "This earlier smoke run used temporary installation diagnostics and the then-unqualified selected-plan handoff; it was not final-source RSF qualification.",
     "phases": [
       "doctor-5",
       "strict",
@@ -83,9 +83,9 @@
     "raw_output_note": "The generic multi-command helper reuses one process-log filename. Complete per-command outputs are retained in immutable trace decisions and separately extracted files; counts above come from all trace decisions."
   },
   "remaining": [
-    "Full final-source RSF qualification with candidate engine.",
-    "Linux/macOS hosted pilots, capacity and billed-runner budget.",
-    "Required-check integration only after actual hosted qualification."
+    "Actual Linux/macOS hosted pilots within the existing Actions budget; no spending cap change authorized.",
+    "Required-check integration only after actual hosted qualification.",
+    "Production scope and capacity/fault qualification remain in WORK.md."
   ],
   "source_build_command": "RUSTUP_TOOLCHAIN=1.92.0 python3 -B scripts/bootstrap-fozzy.py <fresh isolated pinned source> <new prefix>",
   "evidence_sha256": {
@@ -99,5 +99,23 @@
     "artifact": "artifacts/ci-qualification-development/corrected-independent-review.md",
     "sha256": "3fbafe43ae808b95fe8f7fce4dab3119266879742112744c38fc60b1f6cd98f6",
     "execution": "Read-only artifact and source inspection; no new runtime execution."
+  },
+  "complete_local_rsf_gate": {
+    "report": "docs/baseline-full-v5-verification-2026-11-03.json",
+    "sha256": "2ae29a56f78cc75fbc0faec928ba615f4bf56dcc69bd8be4a8c74d9b72a64834",
+    "source_commit": "4cdb5bcb677dc08db8834c5e5aa6fbfb84f55034",
+    "source_sha256": "3af67666a29ae0e2ce71b906d07b3f188c55ed6022d08ef4cbb8398a8eae87c6",
+    "engine_sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "completed_domains": 25,
+    "workspace_tests": {
+      "passed": 1392,
+      "failed": 0,
+      "ignored": 1
+    },
+    "required_recovery_regressions": 99,
+    "native_membership_commands": 16,
+    "source_unchanged": true,
+    "hosted_ci_qualified": false,
+    "production_qualified": false
   }
 }

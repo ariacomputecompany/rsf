@@ -466,10 +466,12 @@ across different host images. An installed engine's unembedded version metadata
 can report the calling repository's commit; that is not engine provenance.
 
 The 28 Python tests use fake subprocesses and validate bootstrap rejection and
-bookkeeping only. A real pinned release build, 447 actual engine tests and an
-11-test RSF control/TLS smoke run are separately recorded in
-`docs/fozzy-engine-qualification-2026-11-03.json`. The smoke run is not a final
-RSF baseline, proof of equivalence to the installed binary, or hosted CI.
-Full qualification must use an explicit `FOZZY_BIN` and retain the complete
+bookkeeping only. A real pinned release build, 447 actual engine tests, the prior
+11-test RSF control/TLS smoke run and subsequent complete local qualification are
+recorded in `docs/fozzy-engine-qualification-2026-11-03.json`. The candidate passes
+all 25 source-frozen RSF domains with 1,392 workspace tests and both separate stress
+profiles; exact evidence is in `docs/baseline-full-v5-verification-2026-11-03.json`.
+This does not establish binary equivalence to the installed engine or hosted CI.
+Full qualification uses an explicit `FOZZY_BIN` and retains the complete
 source-frozen gate evidence for the selected engine. No hosted workflow or
 required check is enabled by these bootstrap scripts.

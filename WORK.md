@@ -25,72 +25,47 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified; full work resumed at the
-user's request on November 3, 2026**. The fourth complete gate finished with
-22 passing domains and three failed domains. Workspace recorded 1,375 passing
-tests, one failure and one opt-in stress test ignored; both separate stress
-profiles and all 16 native-membership commands passed. The failed attempts remain
-preserved in `docs/baseline-full-v4-attempt-2026-11-03.json`.
+user's request on November 3, 2026**. The complete local gate passes all 25
+domains on unchanged source with the pinned Fozzy candidate. Workspace records
+1,392 passing tests, zero failures and one opt-in stress test ignored; that stress
+case passes separately in debug and release. All 16 native-membership commands
+and all 99 required recovery regressions pass. Each domain includes strict
+orchestration checks, actual host execution, recorded trace verification,
+replay and local CI. Evidence:
+`docs/baseline-full-v5-verification-2026-11-03.json`.
 
-The baseline repairs pass scoped qualification, including 445 affected tests,
-the original automatic peer rejoin in debug and release, and 29 concurrent
-native tests (the separate opt-in stress case remains ignored in that suite).
-VSR generation publication now groups writes without relaxing Data/Full barriers
-and renews retained data after uncertain sync; the same-call selected plan avoids
-redundant replay. No peer deadline, retry, workload or concurrency was weakened.
-See `docs/grouped-installation-verification-2026-11-03.json` and
-`docs/peer-connection-regression-2026-11-03.json`.
+The baseline includes expired peer reply handling, grouped durable generation
+appends, retained-data barrier renewal and same-call selected-plan handoff. Peer
+deadlines, retries, workloads and concurrency remain unchanged. Prior failures
+remain preserved in `docs/baseline-full-v4-attempt-2026-11-03.json`; focused
+regression attribution and limits are in
+`docs/peer-connection-regression-2026-11-03.json` and
+`docs/grouped-installation-verification-2026-11-03.json`.
 
-A fresh passing complete gate is still required. Prior full-gate failures remain
-preserved; scoped results do not establish the full baseline, production capacity
-or independent-host/machine-failure durability. Temporary diagnostics are removed.
-The next full run must include all 99 integrated recovery regressions and both
-separate stress profiles on unchanged source.
+Managed inbound membership handlers, cached published learner BEGIN/FINISH
+replies and sealed staging owners still need the queued custody guards and their
+qualification. Cached success must not acknowledge lost durable history. The
+control-state projection is included in this local baseline, but managed writers,
+authenticated commit-delivery confirmation, new-voter retention and receiver/client
+admission remain unfinished. Local policy or a passing baseline cannot authorize
+those operations.
 
-Native chosen-transition
-recovery and replay-derived native admission guards are implemented. Incremental
-pre-choice kernel/peer operations, strict partial-input creation and the BEGIN
-publication sync barrier pass the unchanged-source 24-domain gate: 1,293 workspace
-tests, zero failures and one opt-in stress test ignored in workspace; both separate
-stress profiles, native membership/admission, takeover and streaming pass. All
-domains pass strict Fozzy doctor/test, host recording, trace verification/replay/CI.
-Scoped strict Clippy passes. Evidence:
-`docs/prechoice-prerequisites-full-verification-2026-11-02.json`.
-
-The control-state leaf and exact VSR membership-lineage accessors additionally
-pass 192 scoped tests, strict Fozzy scenarios and a verified/replayed host trace;
-see `docs/control-state-scoped-verification-2026-11-02.json`. The full gate above
-is the prior source checkpoint, not a full verification of this new layer. Managed
-writers, authenticated commit-delivery confirmation and receiver/client gates
-remain required before that projection can authorize operations.
-
-A subsequent durability audit led to integrated ancestor-directory publication
-barriers, native root/segment-file barriers, reduced repeated sync work and
-physical owned-storage custody checks. Final combined qualification remains
-incomplete. Managed inbound membership handlers and published learner BEGIN/
-FINISH retries still need custody guards; cached success must not acknowledge
-missing durable history. The passing historical suite does not cover these
-changes or machine-power-loss durability.
-
-Autonomous pre-choice recovery is integrated but not fully qualified; atomic
-replicated control admission remains unfinished. Growing-history reopening/replay, retention, legacy migration,
-independent-group routing and independent-host/region fault/numerical capacity
-qualification remain required. Current host tests do not establish those
-properties. Unrestricted workspace all-target Clippy now passes with warnings
-denied. Recovery assertion corrections pass focused real TLS/daemon checks,
-including debug/release restart; the fresh full gate remains required.
+Growing-history reopening/replay, bounded retention, legacy migration,
+independent-group routing and independent-host/region fault and numerical capacity
+qualification remain required. These one-host tests do not establish machine
+power-loss durability or production capacity. Hosted Linux/macOS qualification
+also remains open. Strict workspace all-target Clippy and formatting pass at the
+scoped baseline checkpoint; subsequent implementation requires fresh checks.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 
-- Qualify integrated directory publication and owned-storage custody changes at
-  the final source, including all caller failure-ordering tests. Resolve the
-  concurrent authenticated learner-transfer failure without weakening timing
-  or retry requirements. Guard cached published learner BEGIN/FINISH replies
-  and managed inbound membership mutations against lost physical custody.
-
-- Finish qualifying autonomous pre-choice recovery: rerun all five native cases
-  together in debug/release and the full 25-domain gate. Investigate responsive
-  corrupt accepted minorities with the five-driver diagnostic; qualify unfenced
-  old-voter enrollment without treating missing acknowledged input as repairable.
+- Integrate and qualify custody guards for cached published learner BEGIN/FINISH
+  replies, managed inbound membership mutations, decision journals and sealed
+  staging owners. Cover caller failure ordering without weakening timing or retry
+  requirements.
+- Investigate responsive corrupt accepted minorities with the five-driver
+  diagnostic; qualify unfenced old-voter enrollment without treating missing
+  acknowledged input as repairable.
 - Persist publication completion through replicated control/catalog authority.
   Qualify repeated membership lifecycles, removed/re-added roles and partial
   proposal conflict/abort; the current fixed transition paths are one-shot.
