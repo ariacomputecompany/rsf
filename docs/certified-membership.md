@@ -11,14 +11,15 @@ reachability probes do not install network membership; learner catch-up alone
 does not grant a vote. Installed histories reject local authority shortcuts;
 [historical authority](vsr-configuration-history.md) documents that fence.
 
-The incremental recovery prerequisites pass 464 affected-package tests, strict
-Fozzy/host trace checks and scoped strict Clippy. Their complete full gate is
-pending; see [current prerequisite verification](prechoice-prerequisites-verification-2026-11-02.json).
-The preceding native recovery source passed the unchanged-source 24-domain gate
-with 1,270 workspace tests and both debug/release native, takeover, streaming and
-stress profiles; [that full report](native-membership-full-verification-2026-11-02.json)
-identifies its source. Neither result closes the remaining feature/deployment
-gaps in [the work ledger](../WORK.md). Earlier counts are historical milestones.
+The incremental recovery prerequisites pass the unchanged-source 24-domain gate:
+1,293 workspace tests, zero failures and both debug/release native, takeover,
+streaming and stress profiles. One opt-in stress test runs separately from the
+workspace suite. See [current full verification](prechoice-prerequisites-full-verification-2026-11-02.json).
+A subsequent audit found missing ancestor-directory publication barriers on
+interrupted factory retries and native root creation; these still require a
+shared fix. The passing local checks do not qualify machine power loss or close
+the feature/deployment gaps in [the work ledger](../WORK.md). Earlier counts are
+historical milestones.
 
 ## Required authority contract
 

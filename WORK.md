@@ -25,19 +25,21 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified**. Native chosen-transition
-recovery and replay-derived native client admission guards are implemented.
-Incremental pre-choice kernel/peer operations and strict partial-input creation
-now pass 464 affected-package tests, zero failures and one separately qualified
-opt-in stress test ignored. The final source passes strict Fozzy doctor/test,
-recorded host execution, trace verification/replay/CI and scoped strict Clippy.
-Input BEGIN retries complete publication-directory sync before acknowledging
-custody. Evidence: `docs/prechoice-prerequisites-verification-2026-11-02.json`.
+recovery and replay-derived native admission guards are implemented. Incremental
+pre-choice kernel/peer operations, strict partial-input creation and the BEGIN
+publication sync barrier pass the unchanged-source 24-domain gate: 1,293 workspace
+tests, zero failures and one opt-in stress test ignored in workspace; both separate
+stress profiles, native membership/admission, takeover and streaming pass. All
+domains pass strict Fozzy doctor/test, host recording, trace verification/replay/CI.
+Scoped strict Clippy passes. Evidence:
+`docs/prechoice-prerequisites-full-verification-2026-11-02.json`.
 
-Run the expanded unchanged-source full gate on this new source. The preceding
-source `2d71738` passed all 24 domains, 1,270 workspace tests, both stress profiles,
-automatic takeover, native membership/admission and SQL streaming. Its evidence
-remains `docs/native-membership-full-verification-2026-11-02.json`; it does not
-qualify the later source or deployment.
+A subsequent durability audit identified an unclosed shared factory gap: retries
+of interrupted directory creation can skip ancestor-directory publication syncs;
+native state-root creation also lacks its parent barrier. Standalone SegmentLog
+needs post-file-create parent sync before Full-sync acknowledgement. Fix and
+qualify these paths before production; the passing local suite does not cover
+machine-power-loss durability or erase these findings.
 
 Autonomous pre-choice recovery and atomic replicated control admission remain
 unfinished. Growing-history reopening/replay, retention, legacy migration,
@@ -46,7 +48,11 @@ qualification remain required. Current host tests do not establish those
 properties. Unrestricted dependency Clippy still has tuple/manifest/prepared lint
 debt; the passing lint scope excludes dependency diagnostics.
 
-### Next implementation: autonomous choice and replicated control admission
+### Next implementation: durable creation, autonomous choice and control admission
+
+- Close directory ancestor publication on initial creation and existing-path
+  retries, including native roots and standalone segment-file publication.
+  Preserve contents/strict custody and qualify failure ordering and performance.
 
 - Recover choice when no chosen certificate survives: reconstruct accepted
   majorities and coordinate higher rounds through the verified incremental
