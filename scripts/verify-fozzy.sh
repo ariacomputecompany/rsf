@@ -417,8 +417,21 @@ learner_promotion_evidence = {
     for name in learner_promotion_names
 }
 learner_promotion_valid = all(learner_promotion_evidence.values())
+native_role_names = [
+    "native_peer_recovers_certified_promotion_and_rejects_foreign_owner_or_group",
+    "native_peer_keeps_an_unpublished_owned_promotion_nonvoting_then_recovers_after_publication",
+    "native_peer_rejects_a_valid_promoted_store_under_another_node_identity",
+    "native_peer_rejects_corrupt_publication_without_downgrading_or_recreating_authority",
+    "native_peer_requires_explicit_promoted_voter_configuration_for_mixed_group_elections",
+    "native_peer_validates_election_budget_against_recovered_membership",
+]
+native_role_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in native_role_names
+}
+native_role_valid = all(native_role_evidence.values())
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -440,7 +453,10 @@ summary = {
     "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
     "learner_promotion_evidence_valid": learner_promotion_valid,
     "learner_promotion_regressions": learner_promotion_evidence,
-    "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills; native peer publication quorum, role/restart custody and atomic control admission remain unfinished",
+    "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills; native peer publication quorum, live role handoff and atomic control admission remain unfinished",
+    "native_role_evidence_valid": native_role_valid,
+    "native_role_regressions": native_role_evidence,
+    "native_role_scope": "real native TLS peer restart from certified local promotion, non-voting partial claims, fail-closed provenance and actual recovered election budgets; no native publication quorum, live role handoff or atomic client/control admission",
     "membership_capacity_evidence_valid": membership_capacity_valid,
     "membership_capacity_regressions": membership_capacity_evidence,
     "membership_capacity_scope": "bounded complete proofs rejected before new old-voter fences; historical fence decoding/retry preserved; native membership publication/promotion and control admission remain unfinished",

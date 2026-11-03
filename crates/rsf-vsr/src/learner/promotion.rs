@@ -16,6 +16,39 @@ pub(crate) enum Boundary {
 }
 
 impl LearnerHistoryStore {
+    /// Inspect an owned, unpublished target while retaining read-only learner
+    /// custody. False never grants voting authority: complete targets still
+    /// require authoritative open and configured-owner validation.
+    pub fn promotion_pending(&self, target: impl AsRef<Path>) -> RsfResult<bool> {
+        self.healthy()?;
+        let target = target.as_ref();
+        let Some(owner) = Identity::read(target)? else {
+            return Ok(false);
+        };
+        let anchor = self.published.as_ref().ok_or_else(|| {
+            invalid_input("pending promotion requires a published learner anchor")
+        })?;
+        if owner.pg != self.pg
+            || owner.local != self.local
+            || owner.bootstrap != Digest::blake3_bytes(&anchor.cell.initial_bootstrap).bytes
+        {
+            return Err(corrupt(
+                "pending promotion differs from configured learner authority",
+            ));
+        }
+        match fs::symlink_metadata(target.join("VSR_ACTIVE")) {
+            Ok(_) => Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                match fs::symlink_metadata(target.join("VSR_PUBLISHED")) {
+                    Ok(_) => Err(corrupt("published promotion lost its active pointer")),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+                    Err(e) => Err(io_error(e)),
+                }
+            }
+            Err(e) => Err(io_error(e)),
+        }
+    }
+
     /// Promote this configured new voter using its boot-materialized chosen
     /// stage and authenticated new-quorum staging proof. Callers must retain
     /// role custody and obtain publication quorum before admitting clients.

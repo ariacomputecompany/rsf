@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 mod client;
 mod materializer;
+mod role;
 use materializer::ApplicationMaterializer;
 
 #[derive(Deserialize)]
@@ -264,19 +265,7 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
             .filter(|cell| cell.learner_source.is_none())
         {
             let timing = elections.timing();
-            timing.validate(timeout, cell.voters.len())?;
-            if config.client.is_some() {
-                let minimum = timeout
-                    .saturating_mul((cell.voters.len().saturating_sub(1) as u32).saturating_mul(2))
-                    .saturating_add(timing.heartbeat.saturating_mul(3))
-                    .saturating_add(crate::data::DATA_CONNECTION_TIMEOUT);
-                if timing.timeout < minimum {
-                    return Err(
-                        "client election timeout must also cover the cumulative data I/O deadline"
-                            .into(),
-                    );
-                }
-            }
+            validate_cell_timing(timing, timeout, cell.voters.len(), config.client.is_some())?;
         }
     }
     if config.client.is_some()
@@ -300,6 +289,27 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
         identity,
         peers,
     })
+}
+
+fn validate_cell_timing(
+    timing: PeerElectionTiming,
+    timeout: Duration,
+    voters: usize,
+    client: bool,
+) -> Result<(), String> {
+    timing.validate(timeout, voters)?;
+    if client {
+        let minimum = timeout
+            .saturating_mul((voters.saturating_sub(1) as u32).saturating_mul(2))
+            .saturating_add(timing.heartbeat.saturating_mul(3))
+            .saturating_add(crate::data::DATA_CONNECTION_TIMEOUT);
+        if timing.timeout < minimum {
+            return Err(
+                "client election timeout must also cover the cumulative data I/O deadline".into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 impl PeerService {
@@ -328,36 +338,33 @@ impl PeerService {
         let local = NodeId(config.node);
         for config in config.cells {
             let pg = PlacementGroupId(config.pg);
-            if let Some(source) = config.learner_source {
-                if state.join(format!("pg-{}", config.pg)).exists() {
-                    return Err("learner cannot replace an existing voting store".into());
+            let configured_learner = config.learner_source.is_some();
+            match role::open(&state, local, config)? {
+                role::HostedRole::Voter(cell) => {
+                    if configured_learner && elections.is_some() {
+                        return Err(
+                            "promoted voter elections require an explicit voting configuration"
+                                .into(),
+                        );
+                    }
+                    cells.insert(pg, *cell);
                 }
-                learners.insert(
-                    pg,
-                    rsf_vsr::LearnerHistoryStore::open(
-                        state.join(format!("learner-{}", config.pg)),
-                        pg,
-                        local,
-                        NodeId(source),
-                    )
-                    .map_err(|err| err.message)?,
-                );
-                continue;
+                role::HostedRole::Learner(learner) => {
+                    learners.insert(pg, *learner);
+                }
             }
-            if state.join(format!("learner-{}", config.pg)).exists() {
-                return Err("learner promotion requires certified membership installation".into());
+        }
+        // Recovered membership can be larger than the bootstrap configuration.
+        // Validate its actual network and client I/O budgets before listening.
+        if let Some(timing) = elections {
+            for cell in cells.values() {
+                validate_cell_timing(
+                    timing,
+                    timeout,
+                    cell.replica_count(),
+                    config.client.is_some(),
+                )?;
             }
-            cells.insert(
-                pg,
-                DurableVsrCell::open(
-                    state.join(format!("pg-{}", config.pg)),
-                    pg,
-                    Epoch(config.view),
-                    NodeId(config.primary),
-                    config.voters.into_iter().map(NodeId),
-                )
-                .map_err(|err| err.message)?,
-            );
         }
         let client = config
             .client

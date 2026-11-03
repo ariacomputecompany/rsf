@@ -23,6 +23,8 @@ mod automatic;
 mod client_retry;
 #[path = "peer_process/client_takeover.rs"]
 mod client_takeover;
+#[path = "peer_process/native_role.rs"]
+mod native_role;
 #[path = "peer_process/sql_stream.rs"]
 mod sql_stream;
 #[path = "peer_process/stress.rs"]

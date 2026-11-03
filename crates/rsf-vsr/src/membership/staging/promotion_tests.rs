@@ -403,6 +403,10 @@ fn killed_learner_promotion_resumes_owned_target_without_exposing_old_authority(
             NodeId(0),
         )
         .unwrap();
+        assert_eq!(
+            learner.promotion_pending(path.join("voter-3")).unwrap(),
+            matches!(boundary, "owned" | "staged")
+        );
         let mut stage = MembershipStagingStore::open_existing(
             path.join("promotion-stage-3"),
             PlacementGroupId(1),

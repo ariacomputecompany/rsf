@@ -24,30 +24,33 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The owned learner promotion
-source on `e2dc20e` passes all 23 domains and aggregate evidence checks with an
-unchanged source fingerprint. Workspace passes 1,210 tests, zero failures and
-1 ignored stress test. Both debug/release takeover, SQL streaming and process
-stress profiles pass. Every domain includes five-run strict doctor, deterministic
-orchestration, real host execution, strict trace verification, replay and CI.
-See `docs/learner-promotion-full-verification-2026-11-02.json`.
+Current release status: **not production qualified**. Native promotion restart
+recovery passes all 387 affected package tests, with zero failures and one opt-in
+stress test ignored. Six real CLI/TLS regressions cover certified recovery after
+learner-directory loss, non-voting partial claims, foreign node/group rejection,
+corrupt metadata without authority recreation, explicit voter configuration for
+mixed-group elections, and timing budgets for actual recovered membership. Strict
+Fozzy doctor/orchestration, recorded host execution, trace verification, replay,
+CI and affected-package all-target Clippy pass. See
+`docs/native-role-verification-2026-11-02.json`. A fresh full gate is required on
+this source; the preceding `e2dc20e` source passed all 23 domains and 1,210 workspace
+tests (`docs/learner-promotion-full-verification-2026-11-02.json`).
 
-The factory's scoped tests cover real parent SIGKILL boundaries, source-directory
-loss, original receipts/accepted tails, later commits/views, removal and target/
-provenance corruption. No native deadline, retry budget or workload size changed.
-Earlier failed reports remain preserved.
-
-Native peer publication quorum, voting-role/restart custody and atomic control
+Native peer publication quorum, live voting-role handoff and atomic control
 admission remain unfinished. Growing-history protocol reopening/replay, retention,
 legacy migration, independent-group routing and independent-host/region fault/
-numerical capacity qualification remain required. Kernel and local factory tests
-do not establish these deployment properties.
+numerical capacity qualification remain required. Scoped recovery and local
+factory tests do not establish these deployment properties. An unrestricted
+Clippy attempt also exposes existing lint debt in tuple/manifest/prepared; the
+passing lint scope above excludes dependency diagnostics.
 
 ### Next implementation: native membership publication and promotion
 
 - Integrate the verified kernel publisher and owned promotion factory into
   authenticated peer orchestration with trusted application materialization,
-  new-quorum publication acknowledgements and durable role/restart custody.
+  new-quorum publication acknowledgements and durable live-role custody.
+  Restart now recognizes owned local publication; transition completion still
+  needs replay-proven recovery after newer views and original-candidate loss.
 - Retain removed-voter fencing and support ordinary election on the new voter
   set after permanent loss of the original candidate through actual TLS peers.
   Qualify repeated membership lifecycles and partial-proposal conflict/abort.

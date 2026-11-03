@@ -307,6 +307,18 @@ impl PeerReplicaServer {
                 "peer server requires mapped local membership and endpoints for every voter".into(),
             );
         }
+        for (pg, cell) in &cells {
+            if cell.replica_status().map_err(|e| e.message)?.normal.pg != *pg {
+                return Err("peer hosted group differs from the cell's durable group".into());
+            }
+            if cell
+                .promoted_replica()
+                .map_err(|e| e.message)?
+                .is_some_and(|owner| owner != local)
+            {
+                return Err("peer promotion owner differs from authenticated local node".into());
+            }
+        }
         if learners.iter().any(|(pg, learner)| {
             cells.contains_key(pg)
                 || learner.placement_group() != *pg
