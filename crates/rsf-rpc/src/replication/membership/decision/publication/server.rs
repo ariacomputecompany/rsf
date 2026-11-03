@@ -47,6 +47,7 @@ impl PeerReplicaServer {
             check_published(&report, self.local, quorum)?;
             return self.query_membership_publication(pg, quorum.plan_id(), apply);
         }
+        self.validate_managed_membership_anchor(pg)?;
         if quorum
             .proposal()
             .new_voters
@@ -99,6 +100,7 @@ impl PeerReplicaServer {
         self.membership_snapshots.remove(&pg);
         self.membership_stage_voter_tokens.remove(&pg);
         self.membership_stage_learner_tokens.remove(&pg);
+        self.membership_recovery_learner_anchors.remove(&pg);
         self.learner_materialized.remove(&pg);
         self.installation_pending.insert(pg);
         self.query_membership_publication(pg, quorum.plan_id(), apply)
@@ -113,6 +115,8 @@ impl PeerReplicaServer {
         plan: [u8; 32],
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
     ) -> Result<VsrMembershipPublishedReport, String> {
+        // Active-cell ancestry and current materialization prove this historical
+        // ACK independently of an auxiliary transition decision journal.
         let expected = self
             .historical_publication(pg, plan)?
             .ok_or_else(|| "membership plan is not published locally".to_string())?;

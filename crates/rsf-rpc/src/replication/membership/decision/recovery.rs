@@ -2,7 +2,7 @@
 //! durable authority and application materialization stay on the server thread.
 use super::*;
 use rsf_vsr::{
-    VsrHistoryBatch, VsrLearnerStateToken, VsrMembershipDecisionState, VsrMembershipImportReply,
+    VsrHistoryBatch, VsrMembershipDecisionState, VsrMembershipImportReply,
     VsrMembershipInputProgress, VsrMembershipPromiseReply, VsrMembershipPublishedQuorum,
     VsrMembershipPublishedReport, VsrMembershipStagedQuorum, VsrMembershipStagedReport,
 };
@@ -108,7 +108,6 @@ struct Group {
     choice: choice::Choice,
     started: Instant,
     grace: Duration,
-    learner_token: Option<VsrLearnerStateToken>,
 }
 
 impl Group {
@@ -129,7 +128,6 @@ impl Group {
             choice: choice::Choice::default(),
             started: now,
             grace: Duration::ZERO,
-            learner_token: None,
         }
     }
 
@@ -213,7 +211,6 @@ impl PeerReplicaServer {
         let grace = choice::grace(self.control_transport.timeout, &timing, max_peers)?;
         let now = Instant::now();
         let mut groups = BTreeMap::new();
-        let mut bindings = BTreeMap::new();
         for (pg, timing) in timing {
             timing.validate()?;
             let store = self.membership_decisions.get(&pg).ok_or_else(|| {
@@ -238,18 +235,14 @@ impl PeerReplicaServer {
             {
                 return Err("managed learner requires a configured promotion target".into());
             }
-            bindings.insert(pg, proposal);
+            // Seed while this operation still owns its freshly replayed A.
+            // A distinct chosen B must still be read and validated separately.
+            self.membership_recovery_bindings.insert(pg, proposal);
+            self.validate_managed_membership_anchor_with_authority(pg, Some(&authority))?;
             let mut group = Group::new(timing, now);
             group.grace = grace;
-            group.learner_token = self
-                .learners
-                .get(&pg)
-                .map(|learner| learner.published_state_token())
-                .transpose()
-                .map_err(|e| e.message)?;
             groups.insert(pg, group);
         }
-        self.membership_recovery_bindings = bindings;
         self.membership_recovery = Some(Recovery {
             groups,
             last: None,

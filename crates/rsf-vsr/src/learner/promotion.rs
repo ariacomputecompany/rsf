@@ -97,6 +97,7 @@ impl LearnerHistoryStore {
         let writer_lock = path::lock(&root)?;
         identity.claim(&root)?;
         hook(Boundary::Owned)?;
+        stage.validate_custody()?;
         let needs_publication = match fs::symlink_metadata(root.join("VSR_ACTIVE")) {
             Ok(_) => false,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -120,7 +121,8 @@ impl LearnerHistoryStore {
                         publication::Boundary::Staged => Boundary::Staged,
                         publication::Boundary::Renamed => Boundary::Renamed,
                         publication::Boundary::Published => Boundary::Published,
-                    })
+                    })?;
+                    stage.validate_custody()
                 },
                 &mut started,
             )?;
@@ -139,6 +141,7 @@ impl LearnerHistoryStore {
             SegmentStoreOptions::default(),
             writer_lock,
         )?;
+        stage.validate_custody()?;
         if !cell.contains_replica(self.local) || !activation::retains_stage(&cell, stage) {
             return Err(corrupt(
                 "promoted target no longer retains this voter and staged prefix",

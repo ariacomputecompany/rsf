@@ -752,3 +752,7 @@ mod adversarial;
 
 #[path = "membership_publication/startup_validation.rs"]
 mod startup_validation;
+
+#[cfg(unix)]
+#[path = "membership_publication/stage_custody.rs"]
+mod stage_custody;

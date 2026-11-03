@@ -8,6 +8,7 @@ use rsf_core::Digest;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug)]
 struct Stage {
@@ -36,7 +37,7 @@ pub struct LearnerHistoryStore {
     source: NodeId,
     stage: Option<Stage>,
     published: Option<Published>,
-    failed: bool,
+    failed: AtomicBool,
     _lock: rsf_storage::ExclusiveFileLock,
 }
 
@@ -90,7 +91,7 @@ impl LearnerHistoryStore {
             source,
             stage: None,
             published: None,
-            failed: false,
+            failed: AtomicBool::new(false),
             _lock: lock,
         };
         match fs::read(learner.root.join("ACTIVE")) {
@@ -286,7 +287,7 @@ impl LearnerHistoryStore {
                 Ok(stage.count)
             }
             Err(err) => {
-                self.failed = true;
+                self.failed.store(true, Ordering::Relaxed);
                 Err(err)
             }
         }
@@ -340,7 +341,7 @@ impl LearnerHistoryStore {
             }
         }
         if let Err(err) = atomic_write(&self.root, "ACTIVE", &id) {
-            self.failed = true;
+            self.failed.store(true, Ordering::Relaxed);
             return Err(err);
         }
         let tail = candidate.cell.committed_tail();
@@ -403,7 +404,14 @@ impl LearnerHistoryStore {
         Ok(())
     }
     fn healthy(&self) -> RsfResult<()> {
-        if self.failed {
+        self.check_failure()?;
+        if self.published.is_some() {
+            self.published_state_token()?;
+        }
+        Ok(())
+    }
+    fn check_failure(&self) -> RsfResult<()> {
+        if self.failed.load(Ordering::Relaxed) {
             return Err(corrupt(
                 "learner durability failed; reopen before further operations",
             ));

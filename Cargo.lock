@@ -1121,6 +1121,7 @@ dependencies = [
 name = "rsf-vsr"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rsf-core",
  "rsf-storage",
 ]

@@ -14,11 +14,22 @@ impl LearnerHistoryStore {
     /// A legitimate `finish` of newer history changes this opaque token; callers
     /// must revalidate their transition authority before updating its cache.
     pub fn published_state_token(&self) -> RsfResult<VsrLearnerStateToken> {
-        self.healthy()?;
+        self.check_failure()?;
         let published = self
             .published
             .as_ref()
             .ok_or_else(|| invalid_input("learner has no published recovery anchor"))?;
+        let result = self.validate_published_custody(published);
+        if result.is_err() {
+            // Losing the named outer anchor must fence the entire live learner,
+            // just like losing the inner cell's stamped custody. Restoring a
+            // file cannot turn this failed owner into a new authority proof.
+            self.failed.store(true, Ordering::Relaxed);
+        }
+        result
+    }
+
+    fn validate_published_custody(&self, published: &Published) -> RsfResult<VsrLearnerStateToken> {
         // Normalize only harmless current-directory components. ParentDir
         // would require trusting a different lexical ownership route.
         let mut root = PathBuf::new();

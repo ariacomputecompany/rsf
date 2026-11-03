@@ -264,3 +264,6 @@ fn published_default_history_latches_missing_or_changed_physical_store_custody()
         }
     }
 }
+
+#[path = "ack_tests.rs"]
+mod acknowledgements;

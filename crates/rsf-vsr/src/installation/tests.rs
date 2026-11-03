@@ -1518,3 +1518,6 @@ fn published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker()
 }
 
 mod group_publication;
+
+#[path = "publication_metadata_tests.rs"]
+mod bounded_publication_metadata;

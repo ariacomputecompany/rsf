@@ -1,0 +1,81 @@
+{
+  "source": "3226115b196709921c824bdcebaf27864483d55f8b53c33eecbb0f752c39a9df",
+  "source_unchanged": true,
+  "engine": {
+    "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+    "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "version": "fozzy 0.1.0"
+  },
+  "codes": {
+    "doctor": 0,
+    "strict": 0,
+    "host": 1,
+    "verify": 0,
+    "replay": 1,
+    "ci": 0
+  },
+  "actual_tests": {
+    "passed": 148,
+    "failed": 3,
+    "ignored": 0
+  },
+  "packages": {
+    "rsf-protocol": {
+      "passed": 57,
+      "failed": 0
+    },
+    "rsf-rpc": {
+      "passed": 91,
+      "failed": 3
+    },
+    "rsf-storage": "not reached after Cargo failure",
+    "rsf-vsr": "not reached after Cargo failure"
+  },
+  "all_15_new_rpc_custody_cases_passed": true,
+  "phase_failure": "three original membership publication tests exceeded existing bounded transport behavior under normal libtest concurrency",
+  "limits": "No root-correlated server substep timings yet; unrelated service timing lines are not attributed to the failed calls. Local Darwin development run, not Linux qualification.",
+  "fixture_manifest": "artifacts/custody-affected-20261103/failed-fixtures/manifest.json",
+  "date": "2026-11-03",
+  "all_pass": false,
+  "production_qualified": false,
+  "failed_tests": [
+    {
+      "name": "real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner",
+      "stage": "fixture STAGE node 3",
+      "elapsed_seconds": 1.604143208,
+      "fixture_suffix": "1965-1793742115095579000-0"
+    },
+    {
+      "name": "real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views",
+      "stage": "fixture STAGE node 2",
+      "elapsed_seconds": 1.604101083,
+      "fixture_suffix": "1965-1793742117295271000-0"
+    },
+    {
+      "name": "real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live",
+      "stage": "bounded PUBLISH retry node 3",
+      "fixture_suffix": "1965-1793742110621789000-0"
+    }
+  ],
+  "evidence_hashes": {
+    "affected.cargo.stdout": "8089f4bfb593ca079636133d728acb4ec084fac93044ec0083a2b5bc0677802e",
+    "affected.cargo.stderr": "faf4d35d56203994e554e1f2f6beae8b4d75ad93de3700a3ebb609a903c3ebe8",
+    "affected.trace.fozzy": "66d6b280e1712576b53f2d0b1b8149da3e9fc977862faa6c776f053c62116229",
+    "affected.execution.json": "354577b4b09689ea641d509463616909c5cf4743d729cf7b75ccf7df826c2e4d",
+    "failed-fixtures/manifest.json": "b6b601d6347b79ad5623d6ad3b19a50230a5ec3031c179298e584c28bae02536"
+  },
+  "later_diagnostic": {
+    "path": "artifacts/custody-timing-20261103",
+    "result": "94/94 pass with instrumentation; original failure not reproduced",
+    "analysis_sha256": "f4c7fbaafd99a21069a22a1dca23d11e9a3469a4909cd59b0301e64ec195bdb4",
+    "independent_review_sha256": "8c7ee80f53e10276cec9d9ad272a877c2226e8687104dcbf49b3d688cd6a8619",
+    "qualification": false
+  },
+  "later_warm_proof_check": {
+    "path": "artifacts/custody-rpc-warm-proof-20261103",
+    "result": "95/95 pass without instrumentation",
+    "source": "fc5aa5b1f6915f04ab04248efc64d3b9d8f42913dd6a88c8faecda4d19d4d152",
+    "trace_sha256": "37f6571f667c12b58d4f451153a02e4228fe9c5bef5fae96ce85693f8960a798",
+    "limit": "Narrow warm-proof reuse leaves cold publication and initial STAGE unchanged; this pass does not establish original timeout causes."
+  }
+}

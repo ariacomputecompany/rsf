@@ -693,5 +693,8 @@ mod input_publication;
 #[path = "custody_publication_tests.rs"]
 mod custody_publication;
 
+#[path = "journal_custody_tests.rs"]
+mod journal_custody;
+
 #[path = "startup_validation_tests.rs"]
 mod startup_validation;

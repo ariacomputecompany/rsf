@@ -1,6 +1,6 @@
 use super::*;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 const POINTER: &str = "VSR_ACTIVE";
@@ -29,6 +29,19 @@ fn sync(path: &Path) -> RsfResult<()> {
         .and_then(|file| file.sync_all())
         .map_err(io_error)
 }
+/// Read at most the fixed codec limit plus one trailing-byte sentinel. Keep
+/// I/O errors intact so callers retain their exact missing-file semantics.
+/// This bounds allocation without changing each caller's owned-path policy.
+pub(crate) fn read_fixed_file(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
+    read_fixed(File::open(path)?, maximum)
+}
+
+fn read_fixed(reader: impl Read, maximum: usize) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(maximum + 1);
+    reader.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 fn checked_file(bytes: &[u8], magic: &[u8; 4], length: usize) -> RsfResult<()> {
     if bytes.len() != length
         || !bytes.starts_with(magic)
@@ -57,7 +70,7 @@ pub(crate) fn publication_marked(root: &Path) -> bool {
 }
 
 pub(crate) fn mark_published(root: &Path, pg: PlacementGroupId) -> RsfResult<()> {
-    match fs::read(root.join(PUBLISHED)) {
+    match read_fixed_file(&root.join(PUBLISHED), 44) {
         Ok(bytes) => {
             checked_file(&bytes, b"VSP1", 44)?;
             if read_u64(&bytes, 4)? != pg.0 {
@@ -78,7 +91,7 @@ pub(crate) fn mark_published(root: &Path, pg: PlacementGroupId) -> RsfResult<()>
 }
 
 pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
-    let bytes = match fs::read(root.join(POINTER)) {
+    let bytes = match read_fixed_file(&root.join(POINTER), 140) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             if crate::learner::promotion::has_claim(root) {
@@ -128,7 +141,7 @@ pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
             "active VSR generation must be an existing directory",
         ));
     }
-    let seal = fs::read(path.join(SEAL)).map_err(io_error)?;
+    let seal = read_fixed_file(&path.join(SEAL), 116).map_err(io_error)?;
     checked_file(&seal, b"VSS1", 116)?;
     if read_u64(&seal, 4)? != pg.0 || seal[12..44] != id || seal[44..76] != plan {
         return Err(corrupt("active VSR generation seal differs from pointer"));
@@ -444,3 +457,7 @@ impl DurableVsrCell {
         Ok(removed)
     }
 }
+
+#[cfg(test)]
+#[path = "publication_read_tests.rs"]
+mod read_tests;

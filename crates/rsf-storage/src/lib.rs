@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod durable_directory;
-pub use durable_directory::create_dir_all_synced;
+pub use durable_directory::{create_dir_all_synced, sync_existing_directory};
 
 mod exclusive_lock;
 pub use exclusive_lock::ExclusiveFileLock;
@@ -24,9 +24,10 @@ use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
-    CompactionReport, QuarantineReport, SegmentDescriptor, SegmentScan, SegmentScanFilter,
-    SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody, SegmentStoreOptions,
-    SegmentStoreRecovery, SegmentStoreRevision, TruncateReport, WalGroupRecord,
+    CompactionReport, QuarantineReport, SegmentDescriptor, SegmentReadCustody, SegmentScan,
+    SegmentScanFilter, SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody,
+    SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision, TruncateReport, WalGroupEntry,
+    WalGroupRecord,
 };
 
 fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {
@@ -318,13 +319,24 @@ impl SegmentLog {
         create: bool,
         repair_tail: bool,
     ) -> RsfResult<Recovery> {
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .create(create)
             .read(true)
             .write(true)
             .truncate(false)
             .open(path)
             .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        Self::recover_opened(file, initial_pg_tails, repair_tail)
+    }
+
+    // The immutable store reader supplies its already identity-checked,
+    // read-only descriptor and forbids repair. Existing callers retain their
+    // original open/create/repair behavior through recover_file above.
+    pub(crate) fn recover_opened(
+        mut file: File,
+        initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
+        repair_tail: bool,
+    ) -> RsfResult<Recovery> {
         let file_len = file
             .metadata()
             .map_err(|err| storage_error(StorageIoOperation::Recover, err))?

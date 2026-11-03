@@ -1,5 +1,9 @@
+mod copy;
 mod initialization;
 use super::*;
+pub(in crate::membership) use copy::append_history_suffix;
+#[cfg(test)]
+pub(in crate::membership) use copy::observation;
 pub(in crate::membership) use initialization::{
     initialization_pending, resume_input_initialization,
 };
@@ -165,14 +169,15 @@ pub(in crate::membership) fn append_records(
 }
 /// Retain a complete, already validated source using one writer. The caller
 /// owns the transition/stage lock and checks acknowledged-input obligations
-/// before invoking this copy path. Each appended record keeps Full sync.
+/// before invoking this copy path. Full-sync groups complete before success.
 pub(in crate::membership) fn retain_records(
     root: &Path,
     failed: &mut bool,
     input: &VsrMembershipInput,
     records: &[VsrHistoryRecord],
 ) -> RsfResult<()> {
-    retain_records_with_store(root, failed, input, records, None)
+    let id = validate_copy_source(*failed, input, records)?;
+    retain_records_with_store(root, failed, id, input, records, None)
 }
 
 /// Create/resume an unsealed stage input and retain its complete source using
@@ -184,59 +189,79 @@ pub(in crate::membership) fn create_and_retain_records(
     input: &VsrMembershipInput,
     records: &[VsrHistoryRecord],
 ) -> RsfResult<()> {
+    let id = validate_copy_source(*failed, input, records)?;
+    let store = copy_with_failure(failed, || create_input_store(root, input))?;
+    retain_records_with_store(root, failed, id, input, records, Some(store))
+}
+
+fn copy_healthy(failed: bool) -> RsfResult<()> {
+    if failed {
+        return Err(corrupt(
+            "membership copy durability failed; reopen before further use",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_copy_source(
+    failed: bool,
+    input: &VsrMembershipInput,
+    records: &[VsrHistoryRecord],
+) -> RsfResult<[u8; 32]> {
+    copy_healthy(failed)?;
     if records.len() as u64 != input.records()? {
         return Err(invalid_input("membership copy source is not complete"));
     }
-    let store = create_input_store(root, input)?;
-    retain_records_with_store(root, failed, input, records, Some(store))
+    input.id()
+}
+
+// Each physical scope arms before factory, recovery, renewal or append. Only
+// its complete success clears the flag; errors and unwinding stay fenced.
+// A pure caller mismatch between successful scopes does not poison custody.
+fn copy_with_failure<T>(failed: &mut bool, copy: impl FnOnce() -> RsfResult<T>) -> RsfResult<T> {
+    copy_healthy(*failed)?;
+    *failed = true;
+    let result = copy();
+    if result.is_ok() {
+        *failed = false;
+    }
+    result
 }
 
 fn retain_records_with_store(
     root: &Path,
     failed: &mut bool,
+    id: [u8; 32],
     input: &VsrMembershipInput,
     records: &[VsrHistoryRecord],
     store: Option<SegmentStore>,
 ) -> RsfResult<()> {
-    if records.len() as u64 != input.records()? {
-        return Err(invalid_input("membership copy source is not complete"));
-    }
-    let id = input.id()?;
-    let (stored, prefix) = read_records(root, id)?;
+    // Existing recovery can repair an unsealed tail or create lock sidecars;
+    // it is a physical operation even when the caller will reject its input.
+    let (stored, prefix) = copy_with_failure(failed, || read_records(root, id))?;
     if stored != *input || records.get(..prefix.len()) != Some(prefix.as_slice()) {
         return Err(corrupt(
             "membership copy changes the retained descriptor or prefix",
         ));
     }
-    let mut ordinal = prefix.len();
-    if ordinal == records.len() {
-        return Ok(());
-    }
     // read_records checked owned components and the complete existing prefix.
     // Hold one SegmentStore so its validated WAL cursor survives all suffix
     // appends; reopening for every bounded batch replays the growing prefix.
-    let mut options = SegmentStoreOptions::default();
-    options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
-    let mut store = match store {
-        Some(store) => store,
-        None => SegmentStore::open_with_options(directory(root, id).join("records"), options)?,
-    };
-    while ordinal < records.len() {
-        let batch = VsrHistoryBatch::pack(ordinal as u64, &records[ordinal..])?;
-        let next = ordinal + batch.records.len();
-        let bytes = batch.encode()?;
-        if let Err(error) = store.append_next_wal(
+    copy_with_failure(failed, || {
+        let mut options = SegmentStoreOptions::default();
+        options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
+        let mut store = match store {
+            Some(store) => store,
+            None => SegmentStore::open_with_options(directory(root, id).join("records"), options)?,
+        };
+        append_history_suffix(
+            &mut store,
             input.proposal().election.pg,
             input.proposal().election.target_view,
-            WalRecordKind::ViewInstallation,
-            &bytes,
-        ) {
-            *failed = true;
-            return Err(error);
-        }
-        ordinal = next;
-    }
-    Ok(())
+            records,
+            prefix.len(),
+        )
+    })
 }
 
 fn io_error(error: std::io::Error) -> RsfError {

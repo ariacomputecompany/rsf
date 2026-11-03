@@ -752,3 +752,5 @@ fn input_iterator_unwind_cannot_expose_an_unflushed_live_cursor() {
     assert_prefix(&path, 1, b"prefix");
     fs::remove_dir_all(path).unwrap();
 }
+
+mod owned;

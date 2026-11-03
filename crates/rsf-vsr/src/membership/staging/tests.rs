@@ -554,3 +554,10 @@ mod promotion_tests;
 
 #[path = "publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(unix)]
+#[path = "custody_tests.rs"]
+mod custody_tests;
+
+#[path = "group_copy_tests.rs"]
+mod group_copy_tests;

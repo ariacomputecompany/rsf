@@ -9,6 +9,9 @@ rust-version.workspace = true
 rsf-core = { path = "../rsf-core" }
 rsf-storage = { path = "../rsf-storage" }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [lib]
 path = "src/lib.rs"
 

@@ -519,3 +519,13 @@ mod active_read;
 
 #[path = "prechoice/custody.rs"]
 mod custody;
+
+#[path = "prechoice/journal_custody.rs"]
+mod journal_custody;
+
+#[path = "prechoice/inbound_custody.rs"]
+mod inbound_custody;
+
+#[cfg(unix)]
+#[path = "prechoice/startup_anchor.rs"]
+mod startup_anchor;

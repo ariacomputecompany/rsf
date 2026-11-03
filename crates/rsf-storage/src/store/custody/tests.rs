@@ -11,14 +11,27 @@ impl Drop for Fixture {
     }
 }
 fn fixture() -> Fixture {
-    let parent = std::env::temp_dir().join(format!(
-        "rsf-owned-custody-{}-{}",
-        std::process::id(),
+    fixture_at(
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
-    ));
+            .as_nanos(),
+    )
+}
+fn fixture_at(timestamp: u128) -> Fixture {
+    static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let parent = loop {
+        let sequence = NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let parent = std::env::temp_dir().join(format!(
+            "rsf-owned-custody-{}-{timestamp}-{sequence}",
+            std::process::id(),
+        ));
+        match fs::create_dir(&parent) {
+            Ok(()) => break parent,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("cannot reserve custody fixture: {error}"),
+        }
+    };
     let store = SegmentStore::open_with_options(
         parent.join("store"),
         SegmentStoreOptions {
@@ -33,6 +46,29 @@ fn fixture() -> Fixture {
         parent,
         store: Some(store),
     }
+}
+
+#[test]
+fn same_clock_fixture_drop_preserves_another_owned_store() {
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = fixture_at(timestamp);
+    let mut second = fixture_at(timestamp);
+    let store = second.store.as_mut().unwrap();
+    append(store, b"second fixture retained bytes");
+    let custody = store.capture_owned_custody().unwrap();
+    drop(first);
+    assert!(
+        second.parent.is_dir(),
+        "dropping one fixture removed another fixture with the same clock value"
+    );
+    store.validate_owned_custody(&custody).unwrap();
+    assert_eq!(
+        store.wal_tail(PlacementGroupId(1)).unwrap().unwrap().index,
+        LogIndex(1)
+    );
 }
 fn append(store: &mut SegmentStore, payload: &[u8]) {
     store

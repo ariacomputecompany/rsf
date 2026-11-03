@@ -4,6 +4,8 @@
 use super::*;
 use std::io::Read;
 use std::sync::Arc;
+mod immutable;
+pub use immutable::SegmentReadCustody;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Identity {

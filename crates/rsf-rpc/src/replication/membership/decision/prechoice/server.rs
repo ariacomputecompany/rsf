@@ -14,6 +14,8 @@ impl PeerReplicaServer {
         let proposal = id_at(payload, 15)?;
         let bootstrap = id_at(payload, 47)?;
         let body = &payload[PREFIX..];
+        self.validate_managed_membership_anchor(pg)
+            .map_err(invalid)?;
         let store = self
             .membership_decisions
             .get_mut(&pg)

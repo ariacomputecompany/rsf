@@ -38,15 +38,18 @@ impl MembershipStagingStore {
             if needs_write {
                 atomic(&self.root, NAME, &bytes)?;
             }
+            let retained = self.custody.pending_publication(&bytes)?;
             input_synced();
-            atomic(&self.root, "META", &metadata)
+            self.custody.validate_pending(&retained)?;
+            atomic(&self.root, "META", &metadata)?;
+            self.custody.bind_publication(&metadata, retained)
         })();
         if let Err(error) = result {
-            self.failed = true;
+            self.failed.store(true, Ordering::Relaxed);
             return Err(error);
         }
         self.publication = Some(digest);
-        Ok(())
+        self.healthy()
     }
 
     /// Read replay-validated publication input, including after a cold open.
@@ -58,32 +61,19 @@ impl MembershipStagingStore {
     }
 
     fn read_publication(&self) -> RsfResult<Option<(Vec<u8>, VsrMembershipStagedQuorum)>> {
-        let metadata = fs::read(self.root.join("META")).map_err(io_error)?;
-        if metadata != encode_meta(self.local, &self.plan, self.stage, self.publication)? {
+        if self.custody.meta_bytes()
+            != encode_meta(self.local, &self.plan, self.stage, self.publication)?
+        {
             return Err(corrupt(
                 "membership stage metadata changed during publication custody",
             ));
         }
-        let path = self.root.join(NAME);
-        let bytes = match fs::symlink_metadata(&path) {
-            Ok(meta) => {
-                if !meta.is_file()
-                    || meta.file_type().is_symlink()
-                    || meta.len() > MAX_HISTORY_RECORD_BYTES as u64
-                {
-                    return Err(corrupt(
-                        "membership publication input is not a bounded regular file",
-                    ));
-                }
-                fs::read(&path).map_err(io_error)?
+        let bytes = match self.custody.publication_bytes() {
+            Some(bytes) => bytes.to_vec(),
+            None if self.publication.is_some() => {
+                return Err(corrupt("sealed membership publication input is missing"));
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                if self.publication.is_some() {
-                    return Err(corrupt("sealed membership publication input is missing"));
-                }
-                return Ok(None);
-            }
-            Err(error) => return Err(io_error(error)),
+            None => return Ok(None),
         };
         let (local, quorum) = decode(&bytes)?;
         let expected = self.expected_report()?;
@@ -106,8 +96,11 @@ impl MembershipStagingStore {
     }
 
     fn validate_publication_receipt(&self) -> RsfResult<()> {
-        let bytes = fs::read(self.root.join("INSTALLED")).map_err(io_error)?;
-        if VsrMembershipStagedReport::decode(&bytes)? != self.expected_report()? {
+        let bytes = self
+            .custody
+            .installed_bytes()
+            .ok_or_else(|| corrupt("membership publication lost its original staging receipt"))?;
+        if VsrMembershipStagedReport::decode(bytes)? != self.expected_report()? {
             return Err(corrupt(
                 "membership publication lost its original staging receipt",
             ));

@@ -187,7 +187,7 @@ impl PeerReplicaServer {
     // and chosen B against one immutable proposal/bootstrap. State replay also
     // requires accepted B to match chosen B. Therefore ancestry of this exact
     // retained B validates the SAME journal; A need not have been published.
-    fn published_decision_anchor(
+    pub(super) fn published_decision_anchor(
         &self,
         pg: PlacementGroupId,
         store: &MembershipDecisionStore,
@@ -251,7 +251,10 @@ impl PeerReplicaServer {
                 .map_err(|e| e.message)
         }
     }
-    fn validate_decision_nodes(&self, proposal: &VsrMembershipProposal) -> Result<(), String> {
+    pub(super) fn validate_decision_nodes(
+        &self,
+        proposal: &VsrMembershipProposal,
+    ) -> Result<(), String> {
         if !proposal.new_voters.contains(&self.local)
             || proposal
                 .election
@@ -279,6 +282,8 @@ impl PeerReplicaServer {
         if kind == MEMBERSHIP_AUTH_BEGIN {
             let input = VsrMembershipInput::decode(payload).map_err(rsf)?;
             let pg = input.proposal().election.pg;
+            self.validate_managed_membership_anchor(pg)
+                .map_err(invalid)?;
             self.validate_decision_nodes(input.proposal())
                 .map_err(invalid)?;
             if let Some(existing) = self.membership_decisions.get(&pg)
@@ -299,6 +304,8 @@ impl PeerReplicaServer {
         }
         if matches!(kind, MEMBERSHIP_AUTH_BATCH | MEMBERSHIP_AUTH_FINISH) {
             let pg = PlacementGroupId(u64_at(payload, 0)?);
+            self.validate_managed_membership_anchor(pg)
+                .map_err(invalid)?;
             let id = id_at(payload, 8)?;
             let inbox = self
                 .membership_inputs
@@ -327,6 +334,8 @@ impl PeerReplicaServer {
         if kind == MEMBERSHIP_ACCEPT {
             let (decision, nomination) = decode_acceptance(payload)?;
             let pg = decision.input().proposal().election.pg;
+            self.validate_managed_membership_anchor(pg)
+                .map_err(invalid)?;
             let store = self
                 .membership_decisions
                 .get_mut(&pg)
@@ -339,6 +348,8 @@ impl PeerReplicaServer {
         if kind == MEMBERSHIP_CHOSEN {
             let chosen = VsrMembershipChosen::decode(payload).map_err(rsf)?;
             let pg = chosen.proposal().election.pg;
+            self.validate_managed_membership_anchor(pg)
+                .map_err(invalid)?;
             let store = self
                 .membership_decisions
                 .get_mut(&pg)
@@ -354,6 +365,8 @@ impl PeerReplicaServer {
         }
         if matches!(kind, MEMBERSHIP_INPUT_DESCRIPTOR | MEMBERSHIP_INPUT_READ) {
             let pg = PlacementGroupId(u64_at(payload, 0)?);
+            self.validate_managed_membership_anchor(pg)
+                .map_err(invalid)?;
             let id = id_at(payload, 8)?;
             let store = self
                 .membership_decisions
@@ -385,6 +398,8 @@ impl PeerReplicaServer {
             .map_err(rsf);
         }
         let (pg, round, proposal_id) = read_context(payload)?;
+        self.validate_managed_membership_anchor(pg)
+            .map_err(invalid)?;
         let store = self
             .membership_decisions
             .get_mut(&pg)

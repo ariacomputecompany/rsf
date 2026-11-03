@@ -16,6 +16,20 @@ pub fn create_dir_all_synced(path: impl AsRef<Path>) -> io::Result<()> {
     create_dir_all_synced_with(path.as_ref(), &mut sync_directory)
 }
 
+/// Renew publication of an already existing directory route without creating
+/// or repairing any entry. The same trusted alias topology as the factory applies.
+pub fn sync_existing_directory(path: impl AsRef<Path>) -> io::Result<()> {
+    let absolute = absolute(path.as_ref())?;
+    if !fs::metadata(&absolute)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "publication path is not a directory",
+        ));
+    }
+    let resolved = fs::canonicalize(&absolute)?;
+    sync_routes(&resolved, &absolute, &mut sync_directory)
+}
+
 fn create_dir_all_synced_with(
     path: &Path,
     sync: &mut impl FnMut(&Path) -> io::Result<()>,

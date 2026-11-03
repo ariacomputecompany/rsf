@@ -383,7 +383,7 @@ impl DurableVsrCell {
                 return Err(corrupt("membership retry conflicts with installed state"));
             }
             self.reclaim_inactive_views()?;
-            return Ok(());
+            return stage.validate_custody();
         }
         if self.membership_fence.as_ref() != Some(proposal)
             || self.view_change.as_ref() != Some(&proposal.election)
@@ -394,6 +394,8 @@ impl DurableVsrCell {
         }
         stage.validate_anchor(self)?;
         let recovered = installation::recover_records(&records)?;
-        self.publish_generation(plan.id, &records, recovered, hook)
+        stage.validate_custody()?;
+        self.publish_generation(plan.id, &records, recovered, hook)?;
+        stage.validate_custody()
     }
 }

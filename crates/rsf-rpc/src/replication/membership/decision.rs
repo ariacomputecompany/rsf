@@ -5,6 +5,7 @@ use rsf_vsr::{
     MembershipAuthorityInbox, MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipChosen,
     VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipRound,
 };
+pub(super) mod anchor;
 mod client;
 mod exchange;
 mod prechoice;

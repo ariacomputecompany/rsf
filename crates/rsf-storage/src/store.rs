@@ -6,12 +6,12 @@ use std::time::{Instant, SystemTime};
 
 mod coordination;
 mod custody;
-pub use custody::SegmentStoreCustody;
+pub use custody::{SegmentReadCustody, SegmentStoreCustody};
 mod group;
 mod initialization;
 mod wal;
 use coordination::{StoreGate, lock_gate, store_gate};
-pub use group::WalGroupRecord;
+pub use group::{WalGroupEntry, WalGroupRecord};
 
 use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};

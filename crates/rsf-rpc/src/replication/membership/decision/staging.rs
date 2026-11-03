@@ -5,10 +5,12 @@ use rsf_vsr::{
 };
 impl PeerReplicaServer {
     fn staged_receipt_retry(
-        &self,
+        &mut self,
         chosen: &VsrMembershipChosen,
     ) -> Result<Option<VsrMembershipStagedReport>, String> {
         let pg = chosen.proposal().election.pg;
+        // A warm receipt is independently bound to this stage and live hosted
+        // token. Fresh staging below still requires the managed decision owner.
         let Some(stage) = self.membership_staging.get(&pg) else {
             return Ok(None);
         };
@@ -25,9 +27,9 @@ impl PeerReplicaServer {
             self.learners
                 .get(&pg)
                 .ok_or_else(|| "membership staging has no hosted anchor".to_string())?
-                .published_history_id()
+                .published_state_token()
+                .map(|token| self.membership_stage_learner_tokens.get(&pg) == Some(&token))
                 .map_err(|e| e.message)?
-                .is_some_and(|id| self.membership_stage_learner_tokens.get(&pg) == Some(&id))
         };
         if unchanged && let Ok(report) = stage.report() {
             return Ok(Some(report));
@@ -64,6 +66,7 @@ impl PeerReplicaServer {
     ) -> Result<VsrMembershipStagedReport, String> {
         quorum.encode().map_err(|e| e.message)?;
         let pg = quorum.proposal().election.pg;
+        self.validate_managed_membership_anchor(pg)?;
         let decision = self
             .membership_decisions
             .get(&pg)
@@ -75,9 +78,21 @@ impl PeerReplicaServer {
         if chosen.proposal() != quorum.proposal() || chosen.input_id() != quorum.input_id() {
             return Err("membership publication quorum differs from retained choice".into());
         }
-        let approval = decision
-            .approval(chosen.input_id())
-            .map_err(|e| e.message)?;
+        let approval = match self.membership_staging.get(&pg) {
+            Some(stage)
+                if stage.plan().input().proposal() == chosen.proposal()
+                    && stage.plan().chosen().input_id() == chosen.input_id()
+                    && stage.report().is_ok() =>
+            {
+                // This boot-materialized stage already owns the replay proof.
+                // load_chosen_membership still checks the journal and compares
+                // every retained chosen-input byte before publication proceeds.
+                stage.plan().approval().clone()
+            }
+            _ => decision
+                .approval(chosen.input_id())
+                .map_err(|e| e.message)?,
+        };
         self.load_chosen_membership(chosen.clone(), approval)?;
         let stage = &self.membership_staging[&pg];
         check_report(
@@ -115,6 +130,7 @@ impl PeerReplicaServer {
         approval: VsrMembershipApproval,
     ) -> Result<(), String> {
         let pg = chosen.proposal().election.pg;
+        self.validate_managed_membership_anchor(pg)?;
         self.initialize_membership_decision(&approval)?;
         self.membership_decisions
             .get_mut(&pg)
@@ -215,9 +231,8 @@ impl PeerReplicaServer {
                 .validate_membership_stage(stage)
                 .map_err(|e| e.message)?;
             let report = stage.materialize(&mut apply_entry).map_err(|e| e.message)?;
-            if let Some(id) = learner.published_history_id().map_err(|e| e.message)? {
-                self.membership_stage_learner_tokens.insert(pg, id);
-            }
+            self.membership_stage_learner_tokens
+                .insert(pg, learner.published_state_token().map_err(|e| e.message)?);
             Ok(report)
         }
     }

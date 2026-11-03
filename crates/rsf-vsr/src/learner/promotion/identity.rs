@@ -32,7 +32,7 @@ impl Identity {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(io_error(e)),
         }
-        let bytes = fs::read(path).map_err(io_error)?;
+        let bytes = publication::read_fixed_file(&path, 118).map_err(io_error)?;
         if bytes.len() != 118
             || !bytes.starts_with(MAGIC)
             || bytes[86..] != Digest::blake3_bytes(&bytes[..86]).bytes

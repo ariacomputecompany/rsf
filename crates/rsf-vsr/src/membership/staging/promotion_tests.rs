@@ -608,3 +608,6 @@ fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership
     drop(r);
     fs::remove_dir_all(path).unwrap();
 }
+
+#[path = "promotion_metadata_tests.rs"]
+mod bounded_promotion_metadata;

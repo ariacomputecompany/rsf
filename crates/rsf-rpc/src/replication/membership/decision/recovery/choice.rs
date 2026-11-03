@@ -194,32 +194,14 @@ impl Choice {
 impl Group {
     pub(super) fn validate_prechoice_anchor(
         &mut self,
-        server: &PeerReplicaServer,
+        server: &mut PeerReplicaServer,
         pg: PlacementGroupId,
     ) -> Result<(), String> {
-        if let Some(cell) = server.cells.get(&pg) {
-            cell.recovery_state_token().map_err(|e| e.message)?;
-            if cell.membership_fence() != server.membership_recovery_bindings.get(&pg) {
-                return Err("unchosen managed voter lost its exact membership fence".into());
-            }
-        } else {
-            let learner = server
-                .learners
-                .get(&pg)
-                .ok_or_else(|| "managed membership lost hosted anchor".to_string())?;
-            let token = learner.published_state_token().map_err(|e| e.message)?;
-            if self.learner_token.as_ref() != Some(&token) {
-                let authority = server
-                    .membership_decisions
-                    .get(&pg)
-                    .ok_or("managed membership lost decision custody")?
-                    .authority()
-                    .map_err(|e| e.message)?;
-                learner
-                    .validate_membership_authority(&authority)
-                    .map_err(|e| e.message)?;
-                self.learner_token = Some(token);
-            }
+        server.validate_managed_membership_anchor(pg)?;
+        if let Some(cell) = server.cells.get(&pg)
+            && cell.membership_fence() != server.membership_recovery_bindings.get(&pg)
+        {
+            return Err("unchosen managed voter lost its exact membership fence".into());
         }
         Ok(())
     }
@@ -261,7 +243,7 @@ impl Group {
     }
     pub(super) fn matches_binding(
         &mut self,
-        server: &PeerReplicaServer,
+        server: &mut PeerReplicaServer,
         pg: PlacementGroupId,
         binding: Binding,
     ) -> Result<bool, String> {

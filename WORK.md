@@ -24,45 +24,39 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified; full work resumed at the
-user's request on November 3, 2026**. The complete local gate passes all 25
-domains on unchanged source with the pinned Fozzy candidate. Workspace records
-1,392 passing tests, zero failures and one opt-in stress test ignored; that stress
-case passes separately in debug and release. All 16 native-membership commands
-and all 99 required recovery regressions pass. Each domain includes strict
-orchestration checks, actual host execution, recorded trace verification,
-replay and local CI. Evidence:
-`docs/baseline-full-v5-verification-2026-11-03.json`.
+Current release status: **not production qualified**. Linux is the only production
+target. Verification is local and releases use ordinary pushes to remote `main`;
+no CI/CD is authorized.
 
-The baseline includes expired peer reply handling, grouped durable generation
-appends, retained-data barrier renewal and same-call selected-plan handoff. Peer
-deadlines, retries, workloads and concurrency remain unchanged. Prior failures
-remain preserved in `docs/baseline-full-v4-attempt-2026-11-03.json`; focused
-regression attribution and limits are in
-`docs/peer-connection-regression-2026-11-03.json` and
-`docs/grouped-installation-verification-2026-11-03.json`.
+The current local baseline passes all 25 domains: 1,443 workspace tests, zero
+failures, all 150 required regressions and all 16 native-membership commands.
+The single workspace-ignored stress test passes separately in debug and release.
+Strict workspace all-target Clippy and formatting also pass. Deadlines, retries,
+workloads and concurrency remain unchanged. The source-bound report is
+`docs/custody-group-full-verification-2026-11-03.json`.
 
-Managed inbound membership handlers, cached published learner BEGIN/FINISH
-replies and sealed staging owners still need the queued custody guards and their
-qualification. Cached success must not acknowledge lost durable history. The
-control-state projection is included in this local baseline, but managed writers,
-authenticated commit-delivery confirmation, new-voter retention and receiver/client
-admission remain unfinished. Local policy or a passing baseline cannot authorize
-those operations.
+Earlier failed attempts remain preserved in the custody and membership-group
+verification reports. This changed-source pass does not establish the exact
+substep causes of their transport deadline failures. Timing headroom and
+independent-host capacity still require qualification.
+
+Managed control initiation, authenticated commit-delivery confirmation, new-voter
+retention and receiver/client admission remain unfinished. Reviewed artifact
+drafts are not integrated or runtime-qualified production features. Local policy
+or a passing baseline cannot authorize those operations.
 
 Growing-history reopening/replay, bounded retention, legacy migration,
 independent-group routing and independent-host/region fault and numerical capacity
 qualification remain required. These one-host tests do not establish machine
 power-loss durability or production capacity. Actual Linux VM qualification
-remains open. Strict workspace all-target Clippy and formatting pass at the
-scoped baseline checkpoint; subsequent implementation requires fresh checks.
+remains open. Subsequent implementation requires fresh verification.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 
-- Integrate and qualify custody guards for cached published learner BEGIN/FINISH
-  replies, managed inbound membership mutations, decision journals and sealed
-  staging owners. Cover caller failure ordering without weakening timing or retry
-  requirements.
+- Integrate and qualify bounded historical replay, original-custody append and
+  control bootstrap/initial-learner paths. Complete bounded namespace disposal
+  and its provisional-retention contract; finite WAL reads alone do not bound
+  the complete transfer lifecycle.
 - Investigate responsive corrupt accepted minorities with the five-driver
   diagnostic; qualify unfenced old-voter enrollment without treating missing
   acknowledged input as repairable.

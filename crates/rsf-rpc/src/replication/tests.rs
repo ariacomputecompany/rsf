@@ -1872,3 +1872,6 @@ mod control_recovery;
 
 #[path = "tests/membership_publication.rs"]
 mod membership_publication;
+
+#[path = "tests/learner_custody.rs"]
+mod learner_custody;

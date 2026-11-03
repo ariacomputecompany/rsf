@@ -4,6 +4,7 @@ use super::state::{DecodedState, State, decode_state, encode_state, validate_tra
 use super::*;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A separate transition acceptor. No method exposes a writable application
 /// cell, a primary probe, a commit acknowledgement or a promoted learner.
@@ -15,6 +16,8 @@ pub struct MembershipDecisionStore {
     authority: [u8; 32],
     bootstrap: [u8; 32],
     journal: SegmentStore,
+    journal_custody: rsf_storage::SegmentStoreCustody,
+    custody_failed: AtomicBool,
     state: State,
     failed: bool,
     import: Option<recovery::Import>,
@@ -92,6 +95,9 @@ impl MembershipDecisionStore {
                 ));
             }
             let bootstrap = bootstrap_id(approval)?;
+            // The empty validated journal is private until the first authority
+            // state is appended and its renewed custody is captured.
+            let journal_custody = journal.capture_owned_custody()?;
             let mut store = Self {
                 root: root.to_path_buf(),
                 local,
@@ -99,6 +105,8 @@ impl MembershipDecisionStore {
                 authority: input.id()?,
                 bootstrap,
                 journal,
+                journal_custody,
+                custody_failed: AtomicBool::new(false),
                 state: State::default(),
                 failed: false,
                 import: None,
@@ -155,6 +163,7 @@ impl MembershipDecisionStore {
                 "membership decision store authority differs from supplied proof",
             ));
         }
+        let journal_custody = journal.capture_owned_custody()?;
         let store = Self {
             root: root.to_path_buf(),
             local,
@@ -162,6 +171,8 @@ impl MembershipDecisionStore {
             authority,
             bootstrap,
             journal,
+            journal_custody,
+            custody_failed: AtomicBool::new(false),
             state: previous.unwrap(),
             failed: false,
             import: None,
@@ -191,9 +202,12 @@ impl MembershipDecisionStore {
     pub fn proposal(&self) -> &VsrMembershipProposal {
         &self.proposal
     }
+    /// Observational cached fact; use decision_state for live durable evidence.
     pub fn accepted(&self) -> Option<(VsrMembershipRound, [u8; 32])> {
         self.state.accepted
     }
+    /// Observational cached fact; successful custody-bearing methods revalidate
+    /// the journal before acknowledging or acting on this retained certificate.
     pub fn chosen(&self) -> Option<&VsrMembershipChosen> {
         self.state.chosen.as_ref()
     }
@@ -587,14 +601,30 @@ impl MembershipDecisionStore {
         Ok(())
     }
     fn healthy(&self) -> RsfResult<()> {
-        if self.failed {
+        if self.failed || self.custody_failed.load(Ordering::Relaxed) {
             return Err(corrupt(
                 "membership decision durability failed; reopen before further use",
             ));
         }
-        Ok(())
+        let result = self.journal.validate_owned_custody(&self.journal_custody);
+        if result.is_err() {
+            // Read-only metadata calls must also fence the owner. Restoring a
+            // pathname cannot silently revive an already failed acceptor.
+            self.custody_failed.store(true, Ordering::Relaxed);
+        }
+        result
     }
     fn write_state(&mut self, next: State, after_synced: impl FnOnce()) -> RsfResult<()> {
+        self.write_state_with_capture(next, after_synced, SegmentStore::capture_owned_custody)
+    }
+
+    fn write_state_with_capture(
+        &mut self,
+        next: State,
+        after_synced: impl FnOnce(),
+        capture: impl FnOnce(&SegmentStore) -> RsfResult<rsf_storage::SegmentStoreCustody>,
+    ) -> RsfResult<()> {
+        self.healthy()?;
         validate_transition(Some(&self.state), &next, &self.proposal)?;
         let payload = encode_state(
             self.local,
@@ -603,13 +633,20 @@ impl MembershipDecisionStore {
             self.bootstrap,
             &next,
         )?;
-        match self.journal.append_next_wal(
-            self.proposal.election.pg,
-            self.proposal.election.target_view,
-            WalRecordKind::Membership,
-            &payload,
-        ) {
-            Ok(_) => {
+        match self
+            .journal
+            .append_next_wal(
+                self.proposal.election.pg,
+                self.proposal.election.target_view,
+                WalRecordKind::Membership,
+                &payload,
+            )
+            .and_then(|_| capture(&self.journal))
+        {
+            Ok(custody) => {
+                // Refresh only following this owner's successful durable write,
+                // before publishing logical state or a caller-visible ACK.
+                self.journal_custody = custody;
                 self.state = next;
                 after_synced();
                 Ok(())

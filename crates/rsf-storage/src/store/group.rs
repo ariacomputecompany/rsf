@@ -10,6 +10,15 @@ pub struct WalGroupRecord<'a> {
     pub payload: &'a [u8],
 }
 
+/// One incremental group item whose payload may be borrowed or owned. The
+/// group borrows it only for the current WAL frame and never retains it.
+#[derive(Clone, Copy, Debug)]
+pub struct WalGroupEntry<P> {
+    pub epoch: rsf_core::Epoch,
+    pub kind: WalRecordKind,
+    pub payload: P,
+}
+
 impl SegmentStore {
     /// Append a group with one required Data/Full flush per dirty segment.
     /// Rotation flushes the old segment before publishing the next manifest;
@@ -26,6 +35,28 @@ impl SegmentStore {
         &mut self,
         pg: PlacementGroupId,
         records: impl IntoIterator<Item = WalGroupRecord<'a>>,
+    ) -> RsfResult<()> {
+        self.try_append_next_wal_group(
+            pg,
+            records.into_iter().map(|record| {
+                Ok(WalGroupEntry {
+                    epoch: record.epoch,
+                    kind: record.kind,
+                    payload: record.payload,
+                })
+            }),
+        )
+    }
+
+    /// Stream fallible borrowed or owned payloads through the same durable
+    /// group. A producer error is not exhaustion: it returns no group success
+    /// and fences this handle if mutation has begun. No later item is requested.
+    /// Payload memory is released before the next item is requested. Rotation,
+    /// empty-suffix renewal and Data/Full rules match `append_next_wal_group`.
+    pub fn try_append_next_wal_group<P: AsRef<[u8]>>(
+        &mut self,
+        pg: PlacementGroupId,
+        records: impl IntoIterator<Item = RsfResult<WalGroupEntry<P>>>,
     ) -> RsfResult<()> {
         self.ensure_writable()?;
         if self.options.log_options.sync_policy == crate::SyncPolicy::None {
@@ -47,6 +78,7 @@ impl SegmentStore {
             .len()
             != 0;
         for record in records {
+            let record = record?;
             let index = tail
                 .map_or(Some(1), |tail| tail.index.0.checked_add(1))
                 .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, "WAL index exhausted"))?;
@@ -56,7 +88,7 @@ impl SegmentStore {
                 index: LogIndex(index),
                 kind: record.kind,
                 previous_hash: tail.map_or([0; 32], |tail| tail.record_hash),
-                payload: record.payload,
+                payload: record.payload.as_ref(),
             };
             let frame = wal::encode_at_tail(input, tail)?;
             let length = record_disk_len(frame.encoded.len())?;
