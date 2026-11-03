@@ -11,11 +11,14 @@ reachability probes do not install network membership; learner catch-up alone
 does not grant a vote. Installed histories reject local authority shortcuts;
 [historical authority](vsr-configuration-history.md) documents that fence.
 
-The optimized native recovery source passes all 441 affected-package tests after
-resolving a reproduced staging timeout through bounded copy/proof reuse. The full
-expanded gate remains required. See [current verification](native-membership-optimized-verification-2026-11-02.json)
-and [the work ledger](../WORK.md). Verification counts in earlier sections describe
-historical milestones, not current release approval.
+The optimized native recovery source passes the complete unchanged-source
+24-domain gate: 1,270 workspace tests, zero failures, and both debug/release native
+membership, automatic takeover, SQL streaming and stress profiles. One opt-in
+stress test is ignored in the workspace run and executed in separate gate domains.
+See [current full verification](native-membership-full-verification-2026-11-02.json)
+and [the work ledger](../WORK.md). These local checks do not qualify deployment or
+close the remaining feature gaps. Counts in earlier sections describe historical
+milestones.
 
 ## Required authority contract
 
