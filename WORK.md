@@ -24,16 +24,16 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. Historical publication
-ancestry, durable staged-quorum input retention and publication receipt codecs
-pass 400 affected-package tests, zero failures and one separately gated stress
-test ignored. Two additional integration assertions then pass the final-source
-63-test membership suite. Strict Fozzy doctor/orchestration, recorded host runs,
-trace verification, replay, CI and affected-package all-target Clippy pass. See
-`docs/publication-recovery-verification-2026-11-02.json`. A full gate is required
-on this source. The preceding native-role source `bbd27d1` passed all 23 domains,
-1,216 workspace tests, both debug/release takeover, SQL streaming and process
-stress profiles (`docs/native-role-full-verification-2026-11-02.json`).
+Current release status: **not production qualified**. Publication recovery source
+`ef24d94` passes all 23 domains and aggregate evidence checks with an unchanged
+source fingerprint. Workspace passes 1,229 tests, zero failures and one opt-in
+stress test ignored; both debug/release takeover, SQL streaming and process stress
+profiles pass. All twelve publication recovery regressions appear in recorded
+workspace output. Every domain includes strict five-run doctor, deterministic
+orchestration, real host execution, strict trace verification, replay and CI.
+See `docs/publication-recovery-full-verification-2026-11-02.json` and the scoped
+implementation report `docs/publication-recovery-verification-2026-11-02.json`.
+Affected-package all-target Clippy passes with dependency diagnostics excluded.
 
 Native peer publication quorum, live voting-role handoff and atomic control
 admission remain unfinished. Growing-history protocol reopening/replay, retention,
