@@ -4,8 +4,10 @@ mod membership;
 pub use installation::{VsrInstallationInput, VsrViewInstallation};
 pub use membership::{
     MembershipAuthorityInbox, MembershipDecisionStore, MembershipStagingStore,
-    VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen, VsrMembershipDecision,
-    VsrMembershipInput, VsrMembershipPromise, VsrMembershipProposal, VsrMembershipPublication,
+    VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen, VsrMembershipChosenInput,
+    VsrMembershipDecision, VsrMembershipDecisionState, VsrMembershipImportReply,
+    VsrMembershipInput, VsrMembershipInputProgress, VsrMembershipPromise,
+    VsrMembershipPromiseReply, VsrMembershipProposal, VsrMembershipPublication,
     VsrMembershipPublishedQuorum, VsrMembershipPublishedReport, VsrMembershipReport,
     VsrMembershipRound, VsrMembershipSnapshot, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
     VsrMembershipStagedReport,

@@ -11,14 +11,14 @@ reachability probes do not install network membership; learner catch-up alone
 does not grant a vote. Installed histories reject local authority shortcuts;
 [historical authority](vsr-configuration-history.md) documents that fence.
 
-The optimized native recovery source passes the complete unchanged-source
-24-domain gate: 1,270 workspace tests, zero failures, and both debug/release native
-membership, automatic takeover, SQL streaming and stress profiles. One opt-in
-stress test is ignored in the workspace run and executed in separate gate domains.
-See [current full verification](native-membership-full-verification-2026-11-02.json)
-and [the work ledger](../WORK.md). These local checks do not qualify deployment or
-close the remaining feature gaps. Counts in earlier sections describe historical
-milestones.
+The incremental recovery prerequisites pass 464 affected-package tests, strict
+Fozzy/host trace checks and scoped strict Clippy. Their complete full gate is
+pending; see [current prerequisite verification](prechoice-prerequisites-verification-2026-11-02.json).
+The preceding native recovery source passed the unchanged-source 24-domain gate
+with 1,270 workspace tests and both debug/release native, takeover, streaming and
+stress profiles; [that full report](native-membership-full-verification-2026-11-02.json)
+identifies its source. Neither result closes the remaining feature/deployment
+gaps in [the work ledger](../WORK.md). Earlier counts are historical milestones.
 
 ## Required authority contract
 
@@ -592,9 +592,61 @@ that requires a separately trusted control binding.
 
 This scheduler currently needs a surviving chosen certificate. If every chosen
 certificate is lost, accepted-only higher-round recovery remains to be integrated.
-Valid partial decision-input continuation, repeated transition lifecycles,
-removed/re-added roles and conflict/abort handling also remain required. A
+The incremental protocol below supplies valid partial decision-input continuation;
+its autonomous scheduler integration, repeated transition lifecycles, removed/re-added
+roles and conflict/abort handling remain required. A
 collected publication quorum is historical evidence, not a durable cluster-wide
 admission record. Replicated control/catalog admission, bounded history and
 retention, independent-group routing, independent-host/region capacity and machine
 power-loss qualification remain open. No operator membership command is enabled.
+
+## Incremental recovery protocol and input creation
+
+Existing decision journals expose bounded authenticated state and structured
+promise replies, distinguishing a durable higher-round promise from transport or
+custody errors. A proposed voter can read one retained history batch, upload one
+batch, nominate/accept, and learn a choice through separate bounded exchanges.
+The coordinator must freeze a real promise majority and preserve its highest
+accepted input. Same-round accepted-majority metadata can reconstruct a choice;
+metadata alone never proves that complete input is available. Initial authority
+IDs may differ across valid old-quorum subsets; proposal and bootstrap context
+must match. Checked lexicographic round allocation rejects counter exhaustion.
+
+The `RSFMD1` peer operation requires an existing journal, exact proposal/bootstrap
+and authenticated proposed-voter identity. It creates no authority, application
+receipt, promotion or client admission. Each exchange retains at most the existing
+one lost-reply retry. Replies bind their operation, authenticated reporter, input
+and cursor range. Bulk orchestration shares the same checks.
+
+Typed input progress distinguishes genuinely missing unbound input, unpublished
+initialization, valid partial input and fully replayed input. Authority, accepted
+and chosen references require complete custody; even a structurally valid shorter
+WAL is data loss. A staged-only upload may resume its exact prefix. Certified
+chosen-input copying uses one boot-scoped permission, not a durable success flag;
+after restart BATCH/FINISH require BEGIN again. FINISH replays the complete input
+before learning, preserves higher promises and cannot replace another choice.
+
+Storage's explicit empty-initialization API accepts only the actual unpublished
+factory layout: owned directories, the initial zero-byte segment and an optional
+canonical manifest temporary prefix. It appends a missing manifest suffix without
+truncating records. A final manifest always follows strict existing recovery;
+nonempty segments, aliases, hardlinks, foreign entries or malformed temporaries
+reject. Generic missing-manifest recovery is unchanged. Membership separately
+proves the input is unbound and validates descriptor identity before using this
+API. A bounded ordinary descriptor temporary may be replaced only before any
+descriptor or records publication. These paths require exclusive parent custody;
+non-Unix empty-factory continuation explicitly rejects pending equivalent support.
+
+Before either BEGIN acknowledges input, the validated storage routes are synced
+bottom-up through segments, records, input directory, inputs directory and decision
+root. A readable final manifest after restart does not prove its rename's sync
+completed. Retry must finish that publication barrier before journal binding or a
+copy permission; a sync failure returns an error without either. The shared input
+factory also establishes this barrier for inbox, staging and bulk-copy callers.
+
+Qualification includes typed progress/codec boundaries, accepted-only higher-round
+TLS recovery, partial-copy restart, lost promise/finish replies, missing and
+shortened acknowledged custody, eight actual empty-factory process-kill boundaries,
+and injected failure at every BEGIN publication-directory sync. These are local
+process and ordering checks, not a machine power-loss qualification. Full local
+history replay and retention remain proportional to retained data.

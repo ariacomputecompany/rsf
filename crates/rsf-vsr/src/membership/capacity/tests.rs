@@ -113,6 +113,14 @@ fn membership_capacity_matches_complete_encoded_input_and_recovery_decision() {
     assert_eq!(bounds.input, input.encode().unwrap().len());
     assert_eq!(bounds.decision, decision.encode().unwrap().len());
     assert_eq!(bounds.chosen, chosen.encode().unwrap().len());
+    assert_eq!(
+        bounds.chosen_input,
+        VsrMembershipChosenInput::new(chosen.clone(), input.clone())
+            .unwrap()
+            .encode()
+            .unwrap()
+            .len()
+    );
     assert_eq!(bounds.quorum, quorum.encode().unwrap().len());
     let published_reports = p
         .new_voters

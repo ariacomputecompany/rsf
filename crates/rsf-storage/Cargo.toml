@@ -10,6 +10,9 @@ blake3 = "1.5"
 rsf-core = { path = "../rsf-core" }
 rsf-manifest = { path = "../rsf-manifest" }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [lib]
 path = "src/lib.rs"
 

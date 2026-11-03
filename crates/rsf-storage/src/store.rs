@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 mod coordination;
+mod initialization;
 use coordination::{StoreGate, lock_gate, store_gate};
 
 use rsf_core::storage::{WalRecord, WalRecordKind};

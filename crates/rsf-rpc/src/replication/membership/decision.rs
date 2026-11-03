@@ -6,6 +6,8 @@ use rsf_vsr::{
     VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipRound,
 };
 mod client;
+mod exchange;
+mod prechoice;
 mod publication;
 pub(super) mod recovery;
 mod server;

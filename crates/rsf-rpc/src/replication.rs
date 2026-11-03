@@ -464,6 +464,8 @@ impl PeerReplicaServer {
             } else {
                 self.dispatch_membership_publication(sender, kind, payload, apply)
             }
+        } else if kind == MEMBERSHIP_RECOVERY {
+            self.dispatch_membership_recovery(sender, payload)
         } else if (MEMBERSHIP_AUTH_BEGIN..=MEMBERSHIP_INPUT_READ).contains(&kind) {
             self.dispatch_membership_decision(sender, kind, payload)
         } else if matches!(

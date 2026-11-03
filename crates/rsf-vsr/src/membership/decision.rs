@@ -7,6 +7,12 @@ mod inbox;
 pub use inbox::MembershipAuthorityInbox;
 mod input;
 pub use input::VsrMembershipInput;
+mod metadata;
+pub use metadata::{VsrMembershipDecisionState, VsrMembershipPromiseReply};
+mod progress;
+pub use progress::{
+    VsrMembershipChosenInput, VsrMembershipImportReply, VsrMembershipInputProgress,
+};
 mod state;
 mod store;
 pub use store::MembershipDecisionStore;
@@ -303,7 +309,10 @@ pub(super) struct Reader<'a> {
 }
 impl<'a> Reader<'a> {
     pub(super) fn new(bytes: &'a [u8], magic: &[u8]) -> RsfResult<Self> {
-        if bytes.len() > MAX_HISTORY_RECORD_BYTES || !bytes.starts_with(magic) {
+        Self::bounded(bytes, magic, MAX_HISTORY_RECORD_BYTES)
+    }
+    pub(super) fn bounded(bytes: &'a [u8], magic: &[u8], limit: usize) -> RsfResult<Self> {
+        if bytes.len() > limit || !bytes.starts_with(magic) {
             return Err(corrupt("invalid membership decision encoding"));
         }
         Ok(Self {

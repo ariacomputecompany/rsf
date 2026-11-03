@@ -15,6 +15,7 @@ impl VsrMembershipProposal {
             ("input", bounds.input),
             ("decision", bounds.decision),
             ("chosen", bounds.chosen),
+            ("chosen input", bounds.chosen_input),
             ("staged quorum", bounds.quorum),
             ("activation", bounds.activation),
             ("staged metadata", bounds.metadata),
@@ -36,6 +37,7 @@ struct Bounds {
     input: usize,
     decision: usize,
     chosen: usize,
+    chosen_input: usize,
     quorum: usize,
     activation: usize,
     metadata: usize,
@@ -99,6 +101,7 @@ fn proof_bounds(proposal: &VsrMembershipProposal) -> RsfResult<Bounds> {
     };
     let input = list_bytes(b"VSRMDI1", old, report.encode()?.len())?;
     let chosen = list_bytes(b"VSRMDC1", new, accepted.encode()?.len())?;
+    let chosen_input = sum(&[b"VSRMCI1".len(), 8, chosen, 8, input])?;
     let quorum = list_bytes(b"VSRMSQ1", new, staged.encode()?.len())?;
     let decision = sum(&[
         b"VSRMDD1".len(),
@@ -149,6 +152,7 @@ fn proof_bounds(proposal: &VsrMembershipProposal) -> RsfResult<Bounds> {
         input,
         decision,
         chosen,
+        chosen_input,
         quorum,
         activation,
         metadata,

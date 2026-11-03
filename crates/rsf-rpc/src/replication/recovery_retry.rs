@@ -33,6 +33,7 @@ pub(super) fn exchange<T>(kind: u8, mut attempt: impl FnMut() -> io::Result<T>) 
             | MEMBERSHIP_STAGE
             | MEMBERSHIP_PUBLISH
             | MEMBERSHIP_PUBLICATION
+            | MEMBERSHIP_RECOVERY
     );
     match result {
         Err(error)
@@ -86,6 +87,7 @@ mod tests {
             MEMBERSHIP_STAGE,
             MEMBERSHIP_PUBLISH,
             MEMBERSHIP_PUBLICATION,
+            MEMBERSHIP_RECOVERY,
         ] {
             let mut calls = 0;
             let value = exchange(kind, || {

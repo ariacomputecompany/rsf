@@ -24,7 +24,10 @@ initialization provides one durable copy. Some admin/policy paths still use loca
 transport. Certified peer membership publication and learner promotion have
 local TLS recovery coverage. Native peers recover existing chosen transitions
 with bounded background work and keep clients closed pending replicated control
-admission. Pre-choice recovery and complete membership lifecycles remain unfinished. Independent-group routing, legacy migration,
+admission. Authenticated incremental higher-round recovery and safe partial input
+continuation are implemented in the kernel/peer protocol; autonomous native
+pre-choice scheduling and complete membership lifecycles remain unfinished.
+Independent-group routing, legacy migration,
 bounded storage lifecycle, and independent-host performance/fault qualification
 also remain open in [WORK.md](./WORK.md).
 

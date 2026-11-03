@@ -1,3 +1,4 @@
+mod recovery;
 use super::disk;
 use super::state::{DecodedState, State, decode_state, encode_state, validate_transition};
 use super::*;
@@ -16,6 +17,7 @@ pub struct MembershipDecisionStore {
     journal: SegmentStore,
     state: State,
     failed: bool,
+    import: Option<recovery::Import>,
     _lock: rsf_storage::ExclusiveFileLock,
 }
 impl MembershipDecisionStore {
@@ -84,6 +86,7 @@ impl MembershipDecisionStore {
                 journal,
                 state: State::default(),
                 failed: false,
+                import: None,
                 _lock: lock,
             };
             store.create_input(&input)?;
@@ -145,6 +148,7 @@ impl MembershipDecisionStore {
             journal,
             state: previous.unwrap(),
             failed: false,
+            import: None,
             _lock: lock,
         };
         store.read_approval(authority)?;
@@ -236,6 +240,16 @@ impl MembershipDecisionStore {
         round: VsrMembershipRound,
         input: VsrMembershipInput,
     ) -> RsfResult<u64> {
+        self.begin_input_with_sync(sender, round, input, disk::sync_input_publication)
+    }
+
+    fn begin_input_with_sync(
+        &mut self,
+        sender: NodeId,
+        round: VsrMembershipRound,
+        input: VsrMembershipInput,
+        sync_publication: impl FnOnce(&Path, [u8; 32]) -> RsfResult<()>,
+    ) -> RsfResult<u64> {
         self.healthy()?;
         self.require_round(sender, round)?;
         if input.proposal() != &self.proposal {
@@ -243,15 +257,13 @@ impl MembershipDecisionStore {
         }
         let id = input.id()?;
         self.check_value(round, id)?;
-        self.validate_retained_input(id)?;
-        self.create_input(&input)?;
-        let (_, records) = self.read_records(id)?;
+        let count = self.ensure_input(&input, sync_publication)?;
         let mut next = self.state.clone();
         next.staged = Some((round, id));
         if next != self.state {
             self.write_state(next, || {})?;
         }
-        Ok(records.len() as u64)
+        Ok(count)
     }
     pub fn append_input(
         &mut self,
@@ -267,8 +279,15 @@ impl MembershipDecisionStore {
                 "membership upload is not the selected round input",
             ));
         }
-        self.validate_retained_input(id)?;
-        let (input, _) = self.read_records(id)?;
+        let input = match self.input_progress(id)? {
+            VsrMembershipInputProgress::Partial { input, .. }
+            | VsrMembershipInputProgress::Complete { input } => input,
+            VsrMembershipInputProgress::Missing | VsrMembershipInputProgress::Initializing => {
+                return Err(corrupt(
+                    "selected membership upload lost its retained prefix",
+                ));
+            }
+        };
         self.append_records(&input, batch)
     }
     /// Bind the coordinator's own plan durably before relaying it. This prevents
@@ -466,23 +485,6 @@ impl MembershipDecisionStore {
         self.write_state(next, || {})
     }
 
-    /// Authority, acceptance and choice acknowledge complete replayable input.
-    /// A valid shorter WAL is data loss, not an upload cursor to repair.
-    fn validate_retained_input(&self, id: [u8; 32]) -> RsfResult<()> {
-        if id == self.authority
-            || self.state.accepted.is_some_and(|(_, stored)| stored == id)
-            || self
-                .state
-                .chosen
-                .as_ref()
-                .is_some_and(|chosen| chosen.input_id() == id)
-        {
-            self.read_approval(id)?;
-        } else if self.state.staged.is_some_and(|(_, stored)| stored == id) {
-            self.read_records(id)?;
-        }
-        Ok(())
-    }
     fn authorize(&self, sender: NodeId, round: VsrMembershipRound) -> RsfResult<()> {
         round.validate(&self.proposal)?;
         if sender != round.coordinator {

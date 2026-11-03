@@ -42,6 +42,7 @@ pub(super) const MEMBERSHIP_INPUT_READ: u8 = 31;
 pub(super) const MEMBERSHIP_STAGE: u8 = 32;
 pub(super) const MEMBERSHIP_PUBLISH: u8 = 33;
 pub(super) const MEMBERSHIP_PUBLICATION: u8 = 34;
+pub(super) const MEMBERSHIP_RECOVERY: u8 = 35;
 
 pub(super) fn cluster_digest(cluster: &ClusterId) -> [u8; 32] {
     Sha256::digest(cluster.as_str().as_bytes()).into()

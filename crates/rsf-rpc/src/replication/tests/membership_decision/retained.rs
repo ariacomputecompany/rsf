@@ -323,3 +323,6 @@ fn real_tls_stage_rejects_corrupt_accepted_custody_without_inbox_fallback_or_rep
 
 #[path = "inbox_race.rs"]
 mod inbox_race;
+
+#[path = "prechoice.rs"]
+mod prechoice;

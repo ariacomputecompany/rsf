@@ -116,12 +116,11 @@ impl NetworkVsrTransport {
             candidate
         };
         let input = VsrMembershipInput::from_approval(selected).map_err(|e| fail(e.message))?;
-        let decision = VsrMembershipDecision::from_promises(promises, input.clone())
-            .map_err(|e| fail(e.message))?;
+        let decision =
+            VsrMembershipDecision::from_promises(promises, input).map_err(|e| fail(e.message))?;
         self.stage_membership_plan(local, round, selected)?;
         let nomination = local.nominate(&decision).map_err(|e| fail(e.message))?;
-        let payload = acceptance_request(&decision, &nomination).map_err(|e| fail(e.message))?;
-        let mut accepted = vec![nomination];
+        let mut accepted = vec![nomination.clone()];
         let participants = decision
             .promises()
             .iter()
@@ -129,11 +128,9 @@ impl NetworkVsrTransport {
             .filter(|n| *n != self.local)
             .collect::<Vec<_>>();
         for replica in participants {
-            let result=self.send_membership_plan(replica,round,selected).and_then(|()|{
-                let bytes=self.exchange_io(replica,MEMBERSHIP_ACCEPT,&payload).map_err(|e|VsrTransportError{replica,reason:e.to_string()})?;
-                let report=VsrMembershipAccepted::decode(&bytes).map_err(|e|VsrTransportError{replica,reason:e.message})?;
-                if report.replica!=replica || report.proposal!=*proposal || report.round!=round || report.input!=input.id().map_err(|e|VsrTransportError{replica,reason:e.message})? {return Err(VsrTransportError{replica,reason:"membership acceptance differs from authenticated reporter or decision".into()});}Ok(report)
-            });
+            let result = self
+                .send_membership_plan(replica, round, selected)
+                .and_then(|()| self.accept_membership(replica, &decision, &nomination));
             match result {
                 Ok(report) => accepted.push(report),
                 Err(e) => failures.push(format!("{}: {}", replica.0, e.reason)),
@@ -144,7 +141,6 @@ impl NetworkVsrTransport {
         local
             .learn_chosen(chosen.clone())
             .map_err(|e| fail(e.message))?;
-        let bytes = chosen.encode().map_err(|e| fail(e.message))?;
         // The accepted new quorum is already durable. Losing dissemination replies
         // cannot erase its choice; survivors reconstruct it in a higher round.
         for replica in proposal
@@ -153,7 +149,7 @@ impl NetworkVsrTransport {
             .copied()
             .filter(|n| *n != self.local)
         {
-            let _ = self.exchange_io(replica, MEMBERSHIP_CHOSEN, &bytes);
+            let _ = self.learn_membership_chosen(replica, &chosen);
         }
         Ok(chosen)
     }
@@ -228,29 +224,18 @@ impl NetworkVsrTransport {
     ) -> Result<(), VsrTransportError> {
         let fail = |reason: String| VsrTransportError { replica, reason };
         let input = VsrMembershipInput::from_approval(approval).map_err(|e| fail(e.message))?;
-        let prefix = context(
-            input.proposal().election.pg,
-            round,
-            input.proposal().id().map_err(|e| fail(e.message))?,
-        );
-        let mut payload = prefix.clone();
-        payload.extend_from_slice(&input.encode().map_err(|e| fail(e.message))?);
-        let mut count = self
-            .request_io(replica, MEMBERSHIP_INPUT_BEGIN, &payload)
-            .map_err(|e| fail(e.to_string()))?;
-        let mut prefix = prefix;
-        prefix.extend_from_slice(&input.id().map_err(|e| fail(e.message))?);
         let records = input
             .flattened_records(approval)
             .map_err(|e| fail(e.message))?;
-        self.upload_membership_records(
-            replica,
-            MEMBERSHIP_INPUT_BATCH,
-            &prefix,
-            &records,
-            &mut count,
-        )
+        let mut count = self.begin_membership_input(replica, round, &input)?;
+        while count < records.len() as u64 {
+            let batch = rsf_vsr::VsrHistoryBatch::pack(count, &records[count as usize..])
+                .map_err(|e| fail(e.message))?;
+            count = self.append_membership_input(replica, round, &input, batch)?;
+        }
+        Ok(())
     }
+
     fn upload_membership_records(
         &self,
         replica: NodeId,

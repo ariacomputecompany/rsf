@@ -14,7 +14,9 @@ mod decision;
 use crate::transfer::MAX_HISTORY_RECORD_BYTES;
 pub use decision::{
     MembershipAuthorityInbox, MembershipDecisionStore, VsrMembershipAccepted, VsrMembershipChosen,
-    VsrMembershipDecision, VsrMembershipInput, VsrMembershipPromise, VsrMembershipRound,
+    VsrMembershipChosenInput, VsrMembershipDecision, VsrMembershipDecisionState,
+    VsrMembershipImportReply, VsrMembershipInput, VsrMembershipInputProgress, VsrMembershipPromise,
+    VsrMembershipPromiseReply, VsrMembershipRound,
 };
 pub(super) const MAGIC: &[u8] = b"VSRMP1";
 

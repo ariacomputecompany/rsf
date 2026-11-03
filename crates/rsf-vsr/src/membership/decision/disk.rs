@@ -1,4 +1,8 @@
+mod initialization;
 use super::*;
+pub(in crate::membership) use initialization::{
+    initialization_pending, resume_input_initialization,
+};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -43,7 +47,35 @@ pub(in crate::membership) fn create_input(
         dir.join("records"),
         options,
     )?);
-    sync(&dir)
+    sync_input_publication(root, id)
+}
+/// Complete directory publication before input custody can be acknowledged.
+/// Seeing a final descriptor or manifest after restart does not prove that its
+/// rename's directory sync completed. The caller has validated the retained
+/// descriptor/history and holds the input parent's exclusive namespace custody.
+pub(in crate::membership) fn sync_input_publication(root: &Path, id: [u8; 32]) -> RsfResult<()> {
+    sync_input_publication_with(root, id, sync)
+}
+pub(super) fn sync_input_publication_with(
+    root: &Path,
+    id: [u8; 32],
+    mut sync_directory: impl FnMut(&Path) -> RsfResult<()>,
+) -> RsfResult<()> {
+    let dir = input_directory(root, id, false)?;
+    regular_file(&dir.join("DESCRIPTOR"), false)?;
+    records_route(&dir.join("records"), false)?;
+    // Flush children before the directory entries that retain them. This also
+    // covers a retry after publishing the descriptor or input directory itself.
+    for path in [
+        dir.join("records/segments"),
+        dir.join("records"),
+        dir,
+        root.join("inputs"),
+        root.to_path_buf(),
+    ] {
+        sync_directory(&path)?;
+    }
+    Ok(())
 }
 pub(in crate::membership) fn read_records(
     root: &Path,

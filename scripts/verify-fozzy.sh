@@ -461,6 +461,35 @@ peer_publication_evidence = {
     for name in peer_publication_names
 }
 peer_publication_valid = all(peer_publication_evidence.values())
+prechoice_prerequisite_names = [
+    'resumed_membership_begin_requires_publication_sync_before_ack_or_journal_binding',
+    'exact_factory_prefixes_are_read_only_until_explicit_resume',
+    'manifestless_empty_segment_stays_invalid_to_generic_recovery',
+    'final_manifest_presence_never_enters_initialization_and_options_are_not_inferred',
+    'nonempty_foreign_and_noncanonical_factory_states_are_never_repaired',
+    'symlink_and_hardlink_factory_files_cannot_redirect_reads_or_writes',
+    'every_factory_interruption_resumes_or_is_already_published_without_data_reset',
+    'empty_factory_requires_existing_parent_and_excludes_an_active_manifest_owner',
+    'killed_factory_owner_releases_custody_and_preserves_resumable_physical_state',
+    'membership_recovery_metadata_reconstructs_accepted_majority_without_chosen_survivor',
+    'membership_recovery_round_floor_uses_lexicographic_order_and_rejects_exhaustion',
+    'membership_chosen_import_resumes_exact_unbound_prefix_across_restart_without_lowering_promise',
+    'membership_recovery_never_repairs_missing_or_corrupt_acknowledged_input',
+    'membership_recovery_rejects_valid_but_incomplete_acknowledged_prefix_even_on_old_append_path',
+    'membership_recovery_rejects_malformed_unbound_custody_and_failed_handle_metadata',
+    'membership_recovery_codecs_bound_variants_and_reject_impossible_facts',
+    'membership_input_factory_prefixes_resume_only_while_unbound_and_never_grant_a_vote',
+    'membership_input_factory_rejects_oversized_temp_foreign_descriptor_and_nonempty_unpublished_wal',
+    'real_tls_prechoice_recovers_highest_accepted_input_in_bounded_exchanges_after_coordinator_loss',
+    'real_tls_chosen_import_resumes_partial_unbound_input_after_receiver_restart',
+    'real_tls_prechoice_rejects_foreign_context_and_missing_acknowledged_custody_without_mutation',
+    'real_tls_prechoice_lost_promise_and_chosen_finish_replies_are_idempotent_and_metadata_binds_reporter',
+]
+prechoice_prerequisite_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in prechoice_prerequisite_names
+}
+prechoice_prerequisites_valid = all(prechoice_prerequisite_evidence.values())
 native_membership_names = [
     'chosen_input_exact_proof_reuse_preserves_higher_promise_and_first_certificate_cold',
     'chosen_input_proof_reuse_rejects_damaged_acknowledged_input_before_copy_boundary',
@@ -521,7 +550,7 @@ native_membership_valid = all(native_membership_evidence.values()) and all(
     all(results.values()) for results in native_membership_profiles.values()
 )
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid and native_membership_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid and native_membership_valid and prechoice_prerequisites_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -529,6 +558,9 @@ summary = {
     "passed_domains": passed.split(),
     "failed_domains": failed.split(),
     "trace_directory": root,
+    "prechoice_prerequisites_evidence_valid": prechoice_prerequisites_valid,
+    "prechoice_prerequisites_regressions": prechoice_prerequisite_evidence,
+    "prechoice_prerequisites_scope": "strict unpublished empty factory continuation, typed decision and input progress, authenticated bounded higher-round operations and certified input import; native autonomous coordinator scheduling remains unfinished",
     "native_membership_evidence_valid": native_membership_valid,
     "native_membership_regressions": native_membership_evidence,
     "native_membership_profiles": native_membership_profiles,

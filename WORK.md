@@ -25,16 +25,19 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified**. Native chosen-transition
-recovery and replay-derived native client admission guards are implemented. The
-optimized source passes the complete unchanged-source 24-domain gate: 1,270
-workspace tests pass, zero fail and one opt-in stress test is ignored by the
-workspace run. Both separate stress profiles, native membership/admission,
-automatic takeover and SQL streaming profiles pass. Each domain passes five-run
-Fozzy doctor, strict scripted testing, real host recording, strict trace
-verification, replay and CI. Scoped strict Clippy also passes. Evidence:
-`docs/native-membership-full-verification-2026-11-02.json`. The reproduced staging
-failure and affected-suite optimization evidence remain in the preceding native
-membership reports. These local results are not deployment qualification.
+recovery and replay-derived native client admission guards are implemented.
+Incremental pre-choice kernel/peer operations and strict partial-input creation
+now pass 464 affected-package tests, zero failures and one separately qualified
+opt-in stress test ignored. The final source passes strict Fozzy doctor/test,
+recorded host execution, trace verification/replay/CI and scoped strict Clippy.
+Input BEGIN retries complete publication-directory sync before acknowledging
+custody. Evidence: `docs/prechoice-prerequisites-verification-2026-11-02.json`.
+
+Run the expanded unchanged-source full gate on this new source. The preceding
+source `2d71738` passed all 24 domains, 1,270 workspace tests, both stress profiles,
+automatic takeover, native membership/admission and SQL streaming. Its evidence
+remains `docs/native-membership-full-verification-2026-11-02.json`; it does not
+qualify the later source or deployment.
 
 Autonomous pre-choice recovery and atomic replicated control admission remain
 unfinished. Growing-history reopening/replay, retention, legacy migration,
@@ -46,9 +49,9 @@ debt; the passing lint scope excludes dependency diagnostics.
 ### Next implementation: autonomous choice and replicated control admission
 
 - Recover choice when no chosen certificate survives: reconstruct accepted
-  majorities, continue valid partial input, and coordinate higher rounds without
-  treating missing or corrupt acknowledged input as repairable. The native
-  scheduler currently starts from an existing chosen transition.
+  majorities and coordinate higher rounds through the verified incremental
+  protocol without treating missing or corrupt acknowledged input as repairable.
+  The native scheduler currently starts from an existing chosen transition.
 - Persist publication completion through replicated control/catalog authority.
   Qualify repeated membership lifecycles, removed/re-added roles and partial
   proposal conflict/abort; the current fixed transition paths are one-shot.

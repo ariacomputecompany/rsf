@@ -1041,6 +1041,7 @@ name = "rsf-storage"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "libc",
  "rsf-core",
  "rsf-manifest",
 ]

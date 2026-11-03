@@ -683,3 +683,9 @@ mod bound_input;
 
 #[path = "bulk_input_tests.rs"]
 mod bulk_input;
+
+#[path = "recovery_tests.rs"]
+mod recovery;
+
+#[path = "input_publication_tests.rs"]
+mod input_publication;
