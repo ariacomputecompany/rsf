@@ -25,16 +25,15 @@ The standard is strict:
 ## Current State Audit
 
 Current release status: **not production qualified**. Native promotion restart
-recovery passes all 387 affected package tests, with zero failures and one opt-in
-stress test ignored. Six real CLI/TLS regressions cover certified recovery after
-learner-directory loss, non-voting partial claims, foreign node/group rejection,
-corrupt metadata without authority recreation, explicit voter configuration for
-mixed-group elections, and timing budgets for actual recovered membership. Strict
-Fozzy doctor/orchestration, recorded host execution, trace verification, replay,
-CI and affected-package all-target Clippy pass. See
-`docs/native-role-verification-2026-11-02.json`. A fresh full gate is required on
-this source; the preceding `e2dc20e` source passed all 23 domains and 1,210 workspace
-tests (`docs/learner-promotion-full-verification-2026-11-02.json`).
+recovery on `bbd27d1` passes all 23 domains and aggregate evidence checks with an
+unchanged source fingerprint. Workspace passes 1,216 tests, zero failures and one
+opt-in stress test ignored; both debug/release takeover, SQL streaming and process
+stress profiles pass. All six native role regressions are present in workspace
+evidence. Every domain includes strict five-run doctor, deterministic orchestration,
+real host execution, strict trace verification, replay and CI. See
+`docs/native-role-full-verification-2026-11-02.json` and the scoped implementation
+report `docs/native-role-verification-2026-11-02.json`. Affected-package all-target
+Clippy passes with dependency diagnostics excluded.
 
 Native peer publication quorum, live voting-role handoff and atomic control
 admission remain unfinished. Growing-history protocol reopening/replay, retention,
