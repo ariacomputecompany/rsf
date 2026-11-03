@@ -1,6 +1,11 @@
 use super::*;
 use std::path::PathBuf;
 
+#[path = "lineage_tests.rs"]
+mod lineage;
+#[path = "lineage_certified_tests.rs"]
+mod lineage_certified;
+
 fn path(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "rsf-history-{name}-{}-{}",

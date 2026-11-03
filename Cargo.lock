@@ -487,6 +487,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsf-control-state"
+version = "0.1.0"
+dependencies = [
+ "rsf-core",
+ "rsf-vsr",
+]
+
+[[package]]
 name = "rsf-core"
 version = "0.1.0"
 dependencies = [

@@ -4,6 +4,7 @@ use super::*;
 fn membership_publication_ancestry_survives_proof_variants_new_views_and_promises() {
     let path = root("publication-ancestry");
     let mut f = fixture(&path);
+    let original_lineage = f.cells[0].membership_lineage().unwrap();
     fence_primary(&mut f);
     let (stages, quorum) = staged(&path, &f);
     let id = stages[0].plan().id();
@@ -53,6 +54,18 @@ fn membership_publication_ancestry_survives_proof_variants_new_views_and_promise
         .install_membership(&alternate, &other_quorum)
         .unwrap();
     f.cells[2].install_membership(&stages[2], &quorum).unwrap();
+    let published_lineage = f.cells[1].membership_lineage().unwrap();
+    assert_eq!(published_lineage.pg, PlacementGroupId(1));
+    assert_eq!(published_lineage.bootstrap, original_lineage.bootstrap);
+    assert_eq!(published_lineage.plan, Some(id));
+    assert_eq!(published_lineage.voters, proposal().new_voters);
+    for cell in &f.cells {
+        assert_eq!(cell.membership_lineage().unwrap(), published_lineage);
+        assert_eq!(
+            cell.membership_lineage_at(Epoch(1)).unwrap(),
+            Some(original_lineage.clone())
+        );
+    }
     assert!(
         f.cells
             .iter()
@@ -94,6 +107,11 @@ fn membership_publication_ancestry_survives_proof_variants_new_views_and_promise
     let next = crate::VsrViewInstallation::select(&snapshots).unwrap();
     f.cells[1].install_view(&next).unwrap();
     assert_eq!(f.cells[1].view(), Epoch(3));
+    assert_eq!(f.cells[1].membership_lineage().unwrap(), published_lineage);
+    assert_eq!(
+        f.cells[1].membership_lineage_at(Epoch(3)).unwrap(),
+        Some(published_lineage.clone())
+    );
     assert!(f.cells[1].has_membership_publication().unwrap());
     let proof = f.cells[1].membership_publication(id).unwrap().unwrap();
     assert_eq!(proof.staged_quorum(), &quorum);
@@ -122,6 +140,8 @@ fn membership_publication_ancestry_survives_proof_variants_new_views_and_promise
         .unwrap();
     let unchanged = f.cells[1].recovery_state_token().unwrap();
     for _ in 0..3 {
+        assert_eq!(f.cells[1].membership_lineage().unwrap(), published_lineage);
+        assert_eq!(f.cells[1].membership_lineage_at(Epoch(4)).unwrap(), None);
         assert!(f.cells[1].has_membership_publication().unwrap());
         assert!(f.cells[1].membership_publication(id).unwrap().is_some());
         alternate.validate_published_anchor(&f.cells[1]).unwrap();
@@ -142,6 +162,11 @@ fn membership_publication_ancestry_survives_proof_variants_new_views_and_promise
     )
     .unwrap();
     assert_eq!(recovered.view(), Epoch(3));
+    assert_eq!(recovered.membership_lineage().unwrap(), published_lineage);
+    assert_eq!(
+        recovered.membership_lineage_at(Epoch(1)).unwrap(),
+        Some(original_lineage)
+    );
     assert!(recovered.has_membership_publication().unwrap());
     assert_eq!(recovered.view_change_promise(), Some(&promise));
     assert_eq!(
@@ -172,6 +197,7 @@ fn membership_publication_ancestry_survives_proof_variants_new_views_and_promise
 fn membership_publication_ancestry_ignores_inactive_generations_and_matching_voters() {
     let path = root("publication-inactive");
     let mut f = fixture(&path);
+    let original_lineage = f.cells[1].membership_lineage().unwrap();
     fence_primary(&mut f);
     let (stages, quorum) = staged(&path, &f);
     let id = stages[1].plan().id();
@@ -185,6 +211,8 @@ fn membership_publication_ancestry_ignores_inactive_generations_and_matching_vot
     assert!(result.is_err());
     assert!(path.join("old/1/vsr-views").is_dir());
     assert!(!path.join("old/1/VSR_ACTIVE").exists());
+    assert_eq!(f.cells[1].membership_lineage().unwrap(), original_lineage);
+    assert_eq!(f.cells[1].membership_lineage_at(Epoch(2)).unwrap(), None);
     assert!(!f.cells[1].has_membership_publication().unwrap());
     assert!(f.cells[1].membership_publication(id).unwrap().is_none());
     assert!(stages[1].validate_published_anchor(&f.cells[1]).is_err());
@@ -198,6 +226,11 @@ fn membership_publication_ancestry_ignores_inactive_generations_and_matching_vot
     )
     .unwrap();
     assert_eq!(lookalike.replicas(), proposal().new_voters);
+    assert_eq!(lookalike.membership_lineage().unwrap().plan, None);
+    assert_ne!(
+        lookalike.membership_lineage().unwrap().bootstrap,
+        original_lineage.bootstrap
+    );
     assert!(!lookalike.has_membership_publication().unwrap());
     assert!(lookalike.membership_publication(id).unwrap().is_none());
     assert!(stages[1].validate_published_anchor(&lookalike).is_err());
@@ -206,10 +239,12 @@ fn membership_publication_ancestry_ignores_inactive_generations_and_matching_vot
 
     let mut recovered = reopen(&path, 1);
     assert_eq!(recovered.view(), Epoch(1));
+    assert_eq!(recovered.membership_lineage().unwrap(), original_lineage);
     assert!(!recovered.has_membership_publication().unwrap());
     assert!(recovered.primary_probe().is_err());
     assert!(recovered.membership_publication(id).unwrap().is_none());
     recovered.install_membership(&stages[1], &quorum).unwrap();
+    assert_eq!(recovered.membership_lineage().unwrap().plan, Some(id));
     assert!(recovered.has_membership_publication().unwrap());
     assert!(recovered.membership_publication(id).unwrap().is_some());
     drop(recovered);
@@ -227,6 +262,9 @@ fn membership_publication_ancestry_requires_healthy_active_custody() {
     assert!(f.cells[1].membership_publication(id).unwrap().is_some());
     assert!(f.cells[1].has_membership_publication().unwrap());
     fs::remove_file(path.join("old/1/VSR_ACTIVE")).unwrap();
+    assert!(f.cells[1].membership_lineage().is_err());
+    assert!(f.cells[1].membership_lineage_at(Epoch(1)).is_err());
+    assert!(f.cells[1].membership_lineage_at(Epoch(99)).is_err());
     assert!(f.cells[1].has_membership_publication().is_err());
     assert!(f.cells[1].membership_publication(id).is_err());
     assert!(stages[1].validate_published_anchor(&f.cells[1]).is_err());

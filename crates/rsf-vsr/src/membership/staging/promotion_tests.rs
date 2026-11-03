@@ -453,11 +453,19 @@ fn killed_learner_promotion_resumes_owned_target_without_exposing_old_authority(
 fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership() {
     let path = root("promotion-later-removal");
     let mut r = ready(&path);
+    let original_lineage = r.f.cells[0].membership_lineage().unwrap();
     let target = path.join("voter-3");
     let mut promoted =
         r.f.learner
             .promote_membership(&target, &r.stages[2], &r.quorum)
             .unwrap();
+    let added_lineage = promoted.membership_lineage().unwrap();
+    assert_eq!(added_lineage.plan, Some(r.stages[2].plan().id()));
+    assert_eq!(added_lineage.bootstrap, original_lineage.bootstrap);
+    assert_eq!(
+        promoted.membership_lineage_at(Epoch(1)).unwrap(),
+        Some(original_lineage.clone())
+    );
     r.f.cells[0]
         .begin_membership(NodeId(0), NodeId(0), proposal())
         .unwrap();
@@ -552,6 +560,16 @@ fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership
     ])
     .unwrap();
     promoted.install_membership(&stage, &quorum).unwrap();
+    let returned_lineage = promoted.membership_lineage().unwrap();
+    assert_eq!(returned_lineage.plan, Some(stage.plan().id()));
+    assert_eq!(returned_lineage.bootstrap, original_lineage.bootstrap);
+    assert_eq!(returned_lineage.voters, original_lineage.voters);
+    assert_ne!(returned_lineage, original_lineage);
+    assert_ne!(returned_lineage, added_lineage);
+    assert_eq!(
+        promoted.membership_lineage_at(Epoch(2)).unwrap(),
+        Some(added_lineage.clone())
+    );
     assert!(!promoted.contains_replica(NodeId(3)));
     let expected = promoted.committed_prefix().unwrap();
     drop(promoted);
@@ -563,6 +581,15 @@ fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership
     let recovered = DurableVsrCell::open_existing(&target, PlacementGroupId(1)).unwrap();
     assert!(!recovered.contains_replica(NodeId(3)));
     assert_eq!(recovered.view(), Epoch(3));
+    assert_eq!(recovered.membership_lineage().unwrap(), returned_lineage);
+    assert_eq!(
+        recovered.membership_lineage_at(Epoch(1)).unwrap(),
+        Some(original_lineage)
+    );
+    assert_eq!(
+        recovered.membership_lineage_at(Epoch(2)).unwrap(),
+        Some(added_lineage)
+    );
     assert_eq!(recovered.committed_prefix().unwrap(), expected);
     assert!(
         recovered

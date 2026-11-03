@@ -229,7 +229,7 @@ pub(super) fn recover(mut cell: VsrCell, records: &[Record<'_>]) -> RsfResult<Re
                     cell.view = change.view;
                     cell.primary = change.primary;
                     cell.replicas = change.new_replicas;
-                    history.record(&cell);
+                    history.record_legacy_membership(&cell);
                     continue;
                 }
                 if !is_vsr_view_change_payload(record.payload) {

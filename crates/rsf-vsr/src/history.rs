@@ -2,15 +2,37 @@
 //! A later configuration seals the preceding view at its committed boundary.
 use super::*;
 
+/// Replay-proven membership identity, independent of ordinary view/primary
+/// changes. `bootstrap` hashes the canonical original bootstrap payload;
+/// `plan` names the latest certified membership activation, if any. This fact
+/// grants no control admission, current voting role, or application ACK.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VsrMembershipLineage {
+    pub pg: PlacementGroupId,
+    pub bootstrap: [u8; 32],
+    pub plan: Option<[u8; 32]>,
+    pub voters: Vec<NodeId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Lineage {
+    Bootstrap,
+    Published([u8; 32]),
+    Uncertified,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Configuration {
     primary: NodeId,
     voters: BTreeSet<NodeId>,
     preceding_tail: LogIndex,
+    lineage: Lineage,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct ConfigurationHistory {
+    pg: PlacementGroupId,
+    bootstrap: [u8; 32],
     configurations: BTreeMap<Epoch, Configuration>,
     learned_commits: BTreeMap<(Epoch, LogIndex), [u8; 32]>,
     // Replay-derived evidence, not part of configuration-equivalence checks.
@@ -21,6 +43,8 @@ pub(super) struct ConfigurationHistory {
 impl ConfigurationHistory {
     pub(super) fn new(cell: &VsrCell) -> Self {
         let mut history = Self {
+            pg: cell.pg,
+            bootstrap: rsf_core::Digest::blake3_bytes(&encode_bootstrap(cell)).bytes,
             configurations: BTreeMap::new(),
             learned_commits: BTreeMap::new(),
             publications: BTreeMap::new(),
@@ -31,11 +55,14 @@ impl ConfigurationHistory {
 
     pub(super) fn record_membership_publication(
         &mut self,
+        cell: &VsrCell,
         publication: VsrMembershipPublication,
     ) -> RsfResult<()> {
-        match self.publications.entry(publication.plan_id()) {
+        let plan = publication.plan_id();
+        match self.publications.entry(plan) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(std::sync::Arc::new(publication));
+                self.record_lineage(cell, Lineage::Published(plan));
                 Ok(())
             }
             std::collections::btree_map::Entry::Occupied(_) => {
@@ -53,6 +80,30 @@ impl ConfigurationHistory {
 
     pub(super) fn has_membership_publication(&self) -> bool {
         !self.publications.is_empty()
+    }
+
+    pub(super) fn membership_lineage_at(
+        &self,
+        view: Epoch,
+    ) -> RsfResult<Option<VsrMembershipLineage>> {
+        let Some(configuration) = self.configurations.get(&view) else {
+            return Ok(None);
+        };
+        let plan = match configuration.lineage {
+            Lineage::Bootstrap => None,
+            Lineage::Published(plan) => Some(plan),
+            Lineage::Uncertified => {
+                return Err(invalid_input(
+                    "membership lineage contains an uncertified legacy membership change",
+                ));
+            }
+        };
+        Ok(Some(VsrMembershipLineage {
+            pg: self.pg,
+            bootstrap: self.bootstrap,
+            plan,
+            voters: configuration.voters.iter().copied().collect(),
+        }))
     }
 
     // Replicas can have installed different empty views or learned different
@@ -120,12 +171,29 @@ impl ConfigurationHistory {
 
     // Called only for initial bootstrap or an accepted, strictly newer view.
     pub(super) fn record(&mut self, cell: &VsrCell) {
+        let lineage = self
+            .configurations
+            .last_key_value()
+            .map_or(Lineage::Bootstrap, |(_, configuration)| {
+                configuration.lineage
+            });
+        self.record_lineage(cell, lineage);
+    }
+
+    // Legacy unilateral reconfiguration has no certified plan identity. Do not
+    // let a later return to the bootstrap voter vector alias genesis authority.
+    pub(super) fn record_legacy_membership(&mut self, cell: &VsrCell) {
+        self.record_lineage(cell, Lineage::Uncertified);
+    }
+
+    fn record_lineage(&mut self, cell: &VsrCell, lineage: Lineage) {
         self.configurations.insert(
             cell.view,
             Configuration {
                 primary: cell.primary,
                 voters: cell.replicas.clone(),
                 preceding_tail: cell.committed_tail(),
+                lineage,
             },
         );
     }

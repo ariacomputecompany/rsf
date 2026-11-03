@@ -232,15 +232,17 @@ pub(crate) fn replay_activation(
     for pending in cell.pending.values_mut().filter(|p| !p.committed) {
         pending.acknowledgements.clear();
     }
-    history.record(cell);
     // Record ancestry only after validating the complete activation context,
     // canonical prefix, local suffix and resulting committed/accepted bounds.
-    history.record_membership_publication(VsrMembershipPublication {
-        input: marker.input,
-        chosen: marker.chosen,
-        quorum: marker.quorum,
-        plan: marker.local.plan,
-    })?;
+    history.record_membership_publication(
+        cell,
+        VsrMembershipPublication {
+            input: marker.input,
+            chosen: marker.chosen,
+            quorum: marker.quorum,
+            plan: marker.local.plan,
+        },
+    )?;
     *promise = None;
     *fence = None;
     *delta_start = None;
@@ -292,6 +294,28 @@ pub(crate) fn matches_promotion_plan(
 }
 
 impl DurableVsrCell {
+    /// Current authoritative membership lineage. Ordinary view changes and
+    /// pending promises preserve it. Publication ancestry alone is not control
+    /// admission; callers must compare this fact with independent control state.
+    pub fn membership_lineage(&self) -> RsfResult<VsrMembershipLineage> {
+        self.membership_lineage_at(self.cell.view)?
+            .ok_or_else(|| corrupt("current VSR view has no historical configuration"))
+    }
+
+    /// Exact replayed configuration for an installed view. An unknown view is
+    /// None; it is never inferred from a neighboring epoch or current voters.
+    /// Existing epochs after an uncertified legacy membership change return an
+    /// error, even if a later certified activation establishes a new lineage.
+    pub fn membership_lineage_at(&self, view: Epoch) -> RsfResult<Option<VsrMembershipLineage>> {
+        self.ensure_healthy()?;
+        if !self.bootstrap_persisted {
+            return Err(invalid_input(
+                "membership lineage requires persisted original bootstrap authority",
+            ));
+        }
+        self.history.membership_lineage_at(view)
+    }
+
     /// Whether healthy authoritative history contains a membership activation.
     /// This includes ancestry inherited through ordinary view installation and
     /// grants no client admission or this-boot materialization acknowledgement.

@@ -34,6 +34,13 @@ domains pass strict Fozzy doctor/test, host recording, trace verification/replay
 Scoped strict Clippy passes. Evidence:
 `docs/prechoice-prerequisites-full-verification-2026-11-02.json`.
 
+The control-state leaf and exact VSR membership-lineage accessors additionally
+pass 192 scoped tests, strict Fozzy scenarios and a verified/replayed host trace;
+see `docs/control-state-scoped-verification-2026-11-02.json`. The full gate above
+is the prior source checkpoint, not a full verification of this new layer. Managed
+writers, authenticated commit-delivery confirmation and receiver/client gates
+remain required before that projection can authorize operations.
+
 A subsequent durability audit identified an unclosed shared factory gap: retries
 of interrupted directory creation can skip ancestor-directory publication syncs;
 native state-root creation also lacks its parent barrier. Standalone SegmentLog

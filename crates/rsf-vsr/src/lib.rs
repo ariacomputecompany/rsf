@@ -15,6 +15,7 @@ pub use membership::{
 mod replay;
 pub use election::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
 mod history;
+pub use history::VsrMembershipLineage;
 mod learner;
 mod transfer;
 pub use learner::LearnerHistoryStore;
@@ -1028,7 +1029,7 @@ impl DurableVsrCell {
             };
         }
         let decision = self.cell.reconfigure(view, primary, replicas);
-        self.history.record(&self.cell);
+        self.history.record_legacy_membership(&self.cell);
         decision
     }
 
