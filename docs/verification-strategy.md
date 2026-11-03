@@ -445,3 +445,31 @@ an incorrect empty read, then passed with per-writer cold replay. Election-disab
 seed processes bind port zero atomically and advertise their actual addresses;
 automatic-election phases retain their configured fixed endpoints. This removes
 the seed fixture's reserve/exec gap without relaxing RPC deadlines or crash checks.
+
+## Pinned Fozzy builds
+
+`scripts/fozzy-engine.json` pins the public engine source commit, tree, lockfile
+and Rust 1.92.0. With that named toolchain installed and Python 3.11 or newer,
+build from a fresh checkout outside any ancestor Cargo workspace:
+
+```sh
+RUSTUP_TOOLCHAIN=1.92.0 python3 -B scripts/bootstrap-fozzy.py /absolute/clean-engine-checkout /absolute/new-engine-prefix
+python3 -B scripts/test_bootstrap_fozzy.py
+```
+
+The bootstrap checks every tracked source file and executable mode, rejects
+additional or aliased files and compiler redirection, builds locked dependencies,
+embeds the actual engine commit, and writes provenance beside the new binary.
+It requires a new prefix and does not replace the installed engine. Source,
+compiler and configuration identities do not imply bit-for-bit reproducibility
+across different host images. An installed engine's unembedded version metadata
+can report the calling repository's commit; that is not engine provenance.
+
+The 28 Python tests use fake subprocesses and validate bootstrap rejection and
+bookkeeping only. A real pinned release build, 447 actual engine tests and an
+11-test RSF control/TLS smoke run are separately recorded in
+`docs/fozzy-engine-qualification-2026-11-03.json`. The smoke run is not a final
+RSF baseline, proof of equivalence to the installed binary, or hosted CI.
+Full qualification must use an explicit `FOZZY_BIN` and retain the complete
+source-frozen gate evidence for the selected engine. No hosted workflow or
+required check is enabled by these bootstrap scripts.
