@@ -24,7 +24,13 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. Native chosen-transition
+Current release status: **not production qualified; work paused at the user's
+request on November 3, 2026**. The current source is a development checkpoint,
+with one failing learner-transfer regression and incomplete full qualification.
+See `docs/production-pause-2026-11-03.md` and
+`docs/prechoice-checkpoint-2026-11-03.json` for the exact resume boundary.
+
+Native chosen-transition
 recovery and replay-derived native admission guards are implemented. Incremental
 pre-choice kernel/peer operations, strict partial-input creation and the BEGIN
 publication sync barrier pass the unchanged-source 24-domain gate: 1,293 workspace
@@ -41,15 +47,16 @@ is the prior source checkpoint, not a full verification of this new layer. Manag
 writers, authenticated commit-delivery confirmation and receiver/client gates
 remain required before that projection can authorize operations.
 
-A subsequent durability audit identified an unclosed shared factory gap: retries
-of interrupted directory creation can skip ancestor-directory publication syncs;
-native state-root creation also lacks its parent barrier. Standalone SegmentLog
-needs post-file-create parent sync before Full-sync acknowledgement. Fix and
-qualify these paths before production; the passing local suite does not cover
-machine-power-loss durability or erase these findings.
+A subsequent durability audit led to integrated ancestor-directory publication
+barriers, native root/segment-file barriers, reduced repeated sync work and
+physical owned-storage custody checks. Final combined qualification remains
+incomplete. Managed inbound membership handlers and published learner BEGIN/
+FINISH retries still need custody guards; cached success must not acknowledge
+missing durable history. The passing historical suite does not cover these
+changes or machine-power-loss durability.
 
-Autonomous pre-choice recovery and atomic replicated control admission remain
-unfinished. Growing-history reopening/replay, retention, legacy migration,
+Autonomous pre-choice recovery is integrated but not fully qualified; atomic
+replicated control admission remains unfinished. Growing-history reopening/replay, retention, legacy migration,
 independent-group routing and independent-host/region fault/numerical capacity
 qualification remain required. Current host tests do not establish those
 properties. Unrestricted dependency Clippy still has tuple/manifest/prepared lint
@@ -57,14 +64,16 @@ debt; the passing lint scope excludes dependency diagnostics.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 
-- Close directory ancestor publication on initial creation and existing-path
-  retries, including native roots and standalone segment-file publication.
-  Preserve contents/strict custody and qualify failure ordering and performance.
+- Qualify integrated directory publication and owned-storage custody changes at
+  the final source, including all caller failure-ordering tests. Resolve the
+  concurrent authenticated learner-transfer failure without weakening timing
+  or retry requirements. Guard cached published learner BEGIN/FINISH replies
+  and managed inbound membership mutations against lost physical custody.
 
-- Recover choice when no chosen certificate survives: reconstruct accepted
-  majorities and coordinate higher rounds through the verified incremental
-  protocol without treating missing or corrupt acknowledged input as repairable.
-  The native scheduler currently starts from an existing chosen transition.
+- Finish qualifying autonomous pre-choice recovery: rerun all five native cases
+  together in debug/release and the full 25-domain gate. Investigate responsive
+  corrupt accepted minorities with the five-driver diagnostic; qualify unfenced
+  old-voter enrollment without treating missing acknowledged input as repairable.
 - Persist publication completion through replicated control/catalog authority.
   Qualify repeated membership lifecycles, removed/re-added roles and partial
   proposal conflict/abort; the current fixed transition paths are one-shot.

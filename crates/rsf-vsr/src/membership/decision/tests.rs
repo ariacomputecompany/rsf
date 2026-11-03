@@ -689,3 +689,6 @@ mod recovery;
 
 #[path = "input_publication_tests.rs"]
 mod input_publication;
+
+#[path = "custody_publication_tests.rs"]
+mod custody_publication;

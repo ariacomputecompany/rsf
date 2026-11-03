@@ -126,6 +126,8 @@ impl MembershipAuthorityInbox {
             if retained != *input {
                 return Err(corrupt("membership inbox selected descriptor changed"));
             }
+            // Reopen transfers selected custody to this owner before append ACKs.
+            disk::sync_input_publication(&inbox.root, input.id()?)?;
         }
         Ok(inbox)
     }
@@ -181,12 +183,16 @@ impl MembershipAuthorityInbox {
         if retained != *input {
             return Err(corrupt("membership authority descriptor changed"));
         }
-        input.validate_records(&records)
+        let approval = input.validate_records(&records)?;
+        // Finished nonselected input is retained too: renew it at the usable
+        // proof boundary, not on every metadata/record read or by scanning IDs.
+        disk::sync_input_publication(&self.root, id)?;
+        Ok(approval)
     }
     /// Read a complete retained input independently of the current upload
     /// selection. A different proposed voter may continue a chosen transition
     /// after another upload selected A over already-finished B. This only
-    /// validates proof bytes; the caller must still anchor the approval to its
+    /// validates and renews retained proof bytes; the caller must still anchor the approval to its
     /// hosted history and import the matching chosen certificate.
     pub fn retained_approval(
         &self,
@@ -197,7 +203,11 @@ impl MembershipAuthorityInbox {
         let (input, records) = disk::read_records(&self.root, id)?;
         validate(&input, self.pg, self.local)?;
         authorize(sender, &input)?;
-        input.validate_records(&records)
+        let approval = input.validate_records(&records)?;
+        // Finished nonselected input is retained too: renew it at the usable
+        // proof boundary, not on every metadata/record read or by scanning IDs.
+        disk::sync_input_publication(&self.root, id)?;
+        Ok(approval)
     }
     fn persist(&mut self, selected: Option<VsrMembershipInput>) -> RsfResult<()> {
         let mut bytes = b"VSRMBX1".to_vec();

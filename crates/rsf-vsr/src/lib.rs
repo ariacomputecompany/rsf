@@ -18,7 +18,7 @@ mod history;
 pub use history::VsrMembershipLineage;
 mod learner;
 mod transfer;
-pub use learner::LearnerHistoryStore;
+pub use learner::{LearnerHistoryStore, VsrLearnerStateToken};
 pub use transfer::{
     HISTORY_BATCH_TARGET_BYTES, MAX_HISTORY_BATCH_RECORDS, VsrHistoryBatch, VsrHistoryDescriptor,
     VsrHistoryRecord, VsrHistorySnapshot,
@@ -370,6 +370,7 @@ pub struct DurableVsrCell {
     bootstrap_persisted: bool,
     initial_bootstrap: Vec<u8>,
     store: SegmentStore,
+    store_custody: rsf_storage::SegmentStoreCustody,
     durability_failure: std::sync::Mutex<Option<String>>,
     view_change: Option<VsrViewChangeRequest>,
     membership_fence: Option<VsrMembershipProposal>,
@@ -839,6 +840,7 @@ impl DurableVsrCell {
                 && installation::is_activation_marker(&record.payload)
         });
 
+        let store_custody = store.capture_owned_custody()?;
         let mut durable = Self {
             state_identity: std::sync::Arc::new(()),
             state_revision: 0,
@@ -852,6 +854,7 @@ impl DurableVsrCell {
             bootstrap_persisted,
             initial_bootstrap,
             store,
+            store_custody,
             durability_failure: std::sync::Mutex::new(None),
             view_change,
             membership_fence,
@@ -1251,7 +1254,7 @@ impl DurableVsrCell {
                         "active VSR generation changed while this writer owned the store",
                     ))
                 } else {
-                    Ok(())
+                    self.store.validate_owned_custody(&self.store_custody)
                 }
             });
         if let Err(err) = &result {
@@ -1275,6 +1278,9 @@ impl DurableVsrCell {
             let revision = self.next_state_revision()?;
             self.store
                 .append_next_wal(self.cell.pg, self.cell.view, kind, payload)?;
+            // Only this owner's successful append may advance physical custody.
+            // Failure here fences the handle before any acknowledgement escapes.
+            self.store_custody = self.store.capture_owned_custody()?;
             self.state_revision = revision;
             Ok(())
         })();

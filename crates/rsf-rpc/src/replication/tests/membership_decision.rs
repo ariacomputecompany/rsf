@@ -321,7 +321,12 @@ struct DecisionReplyLossPeer {
 impl Drop for DecisionReplyLossPeer {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        self.worker.take().unwrap().join().unwrap();
+        let joined = self.worker.take().unwrap().join();
+        // Preserve the original test failure while still joining the worker.
+        // A second panic here would abort unrelated concurrently running cases.
+        if !std::thread::panicking() {
+            joined.unwrap();
+        }
     }
 }
 #[test]

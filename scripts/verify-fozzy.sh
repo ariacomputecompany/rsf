@@ -95,6 +95,7 @@ run_domain() {
 
 run_domain storage tests/storage-host.pass.fozzy.json
 run_domain vsr tests/vsr-host.pass.fozzy.json
+run_domain control-state tests/control-state-host.pass.fozzy.json
 run_domain membership tests/membership-host.pass.fozzy.json
 run_domain membership-decision tests/membership-decision-host.pass.fozzy.json
 run_domain membership-peer tests/membership-peer-host.pass.fozzy.json
@@ -490,6 +491,85 @@ prechoice_prerequisite_evidence = {
     for name in prechoice_prerequisite_names
 }
 prechoice_prerequisites_valid = all(prechoice_prerequisite_evidence.values())
+integrated_recovery_names = [
+    'interrupted_mkdir_retries_every_existing_ancestor_and_sync_failure',
+    'partial_ancestor_creation_and_existing_bytes_are_preserved',
+    'file_obstructions_are_errors_without_replacement_or_sync_success',
+    'relative_empty_and_parent_components_keep_filesystem_resolution',
+    'provisioned_aliases_sync_physical_and_lexical_routes_without_replacement',
+    'final_file_alias_publication_covers_both_parents_and_every_failure',
+    'process_kill_after_mkdir_requires_barriers_on_visible_retry',
+    'newly_created_segment_is_present_before_publication_and_failure_returns_no_writer',
+    'existing_segment_failure_preserves_wal_and_releases_lock_before_retry',
+    'direct_open_locked_creation_also_executes_publication_before_returning',
+    'generic_manifestless_segment_rejection_still_preserves_residue',
+    'published_learner_token_rejects_warm_missing_or_corrupt_outer_custody_without_repair',
+    'published_learner_token_rejects_changed_inner_generation_and_outer_aliases',
+    'newer_legitimate_learner_publication_changes_opaque_token_without_voting_authority',
+    'published_learner_token_rejects_missing_inner_directory_and_trailing_dot_root_alias',
+    'accepted_majority_reconstruction_never_mixes_rounds_or_inputs',
+    'relayed_or_unchanged_promises_do_not_keep_dead_coordinator_preferred',
+    'recovery_grace_covers_global_fair_cycles_and_checks_arithmetic',
+    'durable_driver_preserves_minority_b_across_partial_copy_restart',
+    'delayed_older_state_never_downgrades_or_renews_newer_direct_activity',
+    'another_survivor_restarts_phase_one_after_unaccepted_selected_source_dies',
+    'additional_copy_source_is_promised_without_replacing_frozen_phase_one_proof',
+    'lost_accept_reply_then_metadata_majority_rebinds_complete_copy_as_chosen',
+    'real_tls_round_bound_copy_activity_rejects_stale_reads_and_keeps_observers_inert',
+    'managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody',
+    'real_tls_two_group_recovery_serves_inbound_and_rotates_past_a_blackhole',
+    'managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise',
+    'managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss',
+    'managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers',
+    'native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed',
+    'native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt',
+    'native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input',
+    'native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries',
+    'native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair',
+    'canonical_commands_reject_every_truncated_prefix_trailing_data_and_unknown_variants',
+    'malformed_counts_duplicates_and_oversize_plans_cannot_acquire_an_intent',
+    'valid_stale_commands_are_rejected_but_malformed_committed_authority_is_corruption',
+    'all_pg_finalization_is_atomic_and_requires_new_control_authority',
+    'request_id_reuse_and_identity_rebinding_cannot_mutate_an_existing_plan',
+    'a_b_a_membership_keeps_distinct_admission_roots',
+    'public_projection_comes_from_committed_live_history_and_survives_cold_replay',
+    'uncertain_begin_commit_keeps_its_result_after_survivor_reprepare_and_cold_replay',
+    'finalized_catalog_and_admission_survive_an_ordinary_control_election_and_retry',
+    'old_control_commit_majority_prevents_begin_reprepare_across_membership',
+    'membership_lineage_is_stable_across_ordinary_views_and_exact_across_cold_history',
+    'legacy_membership_round_trip_never_aliases_bootstrap_lineage',
+    'unpersisted_legacy_bootstrap_does_not_supply_lineage_before_explicit_migration',
+    'certified_lineage_does_not_retroactively_certify_legacy_membership_epochs',
+    'peer_open_ancestor_barrier_failure_precedes_identity_lock_or_listener',
+    'decision_factory_ancestor_barrier_failure_returns_no_owner_or_authority',
+    'public_begin_ancestor_barrier_failure_preserves_journal_and_retries_factory',
+    'resumed_membership_begin_requires_publication_sync_before_ack_or_journal_binding',
+    'strict_existing_replay_does_not_publish_directory_ancestry',
+    'create_capable_store_recovery_publishes_fresh_and_existing_routes',
+    'public_segment_recovery_publishes_created_file_and_existing_retry',
+    'owned_segment_recovery_never_recreates_a_missing_acknowledged_file',
+    'ephemeral_segment_lock_does_not_grant_durable_directory_publication',
+    'strict_existing_recovery_keeps_missing_store_and_segment_fail_closed',
+    'owned_stamp_rejects_missing_truncated_aliased_and_replaced_files_without_repair',
+    'own_wal_append_rotation_and_cold_open_establish_new_stamps_without_generic_refresh',
+    'generic_second_writer_remains_supported_but_exclusive_stamp_refuses_to_adopt_it',
+    'trusted_ancestor_alias_parent_route_is_preserved_but_final_owned_alias_is_rejected',
+    'first_unbound_accept_or_choice_requires_publication_before_journal_binding',
+    'published_default_history_latches_missing_or_changed_physical_store_custody',
+    'managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise',
+]
+integrated_recovery_evidence = {
+    name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
+    for name in integrated_recovery_names
+}
+integrated_recovery_valid = all(integrated_recovery_evidence.values())
+native_prechoice_names = [
+    'native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed',
+    'native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt',
+    'native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input',
+    'native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries',
+    'native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair',
+]
 native_membership_names = [
     'chosen_input_exact_proof_reuse_preserves_higher_promise_and_first_certificate_cold',
     'chosen_input_proof_reuse_rejects_damaged_acknowledged_input_before_copy_boundary',
@@ -533,7 +613,7 @@ native_membership_evidence = {
     for name in native_membership_names
 }
 native_membership_profiles = {
-    profile: {name: False for name in native_membership_names[-3:]}
+    profile: {name: False for name in native_membership_names[-3:] + native_prechoice_names}
     for profile in ("debug", "release")
 }
 native_membership_trace = Path(root, "native-membership.trace.fozzy")
@@ -550,7 +630,7 @@ native_membership_valid = all(native_membership_evidence.values()) and all(
     all(results.values()) for results in native_membership_profiles.values()
 )
 summary = {
-    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid and native_membership_valid and prechoice_prerequisites_valid,
+    "all_pass": not failed.strip() and before == after and workloads_valid and automatic_valid and sessions_valid and kv_batches_valid and streams_valid and indexed_valid and membership_approval_valid and membership_decision_valid and membership_peer_valid and membership_staging_valid and uncertain_begin_valid and client_transport_valid and membership_activation_valid and idle_application_valid and primary_recovery_valid and membership_capacity_valid and learner_promotion_valid and native_role_valid and publication_recovery_valid and peer_publication_valid and native_membership_valid and prechoice_prerequisites_valid and integrated_recovery_valid,
     "source_unchanged": before == after,
     "source_sha256_before": before,
     "source_sha256_after": after,
@@ -558,13 +638,16 @@ summary = {
     "passed_domains": passed.split(),
     "failed_domains": failed.split(),
     "trace_directory": root,
+    "integrated_recovery_evidence_valid": integrated_recovery_valid,
+    "integrated_recovery_regressions": integrated_recovery_evidence,
+    "integrated_recovery_scope": "automatic pre-choice scheduling, learner custody, retry-safe directory publication and replay-derived control state; managed control initiation/admission and deployment qualification remain unfinished",
     "prechoice_prerequisites_evidence_valid": prechoice_prerequisites_valid,
     "prechoice_prerequisites_regressions": prechoice_prerequisite_evidence,
-    "prechoice_prerequisites_scope": "strict unpublished empty factory continuation, typed decision and input progress, authenticated bounded higher-round operations and certified input import; native autonomous coordinator scheduling remains unfinished",
+    "prechoice_prerequisites_scope": "strict unpublished empty factory continuation, typed decision and input progress, authenticated bounded higher-round operations and certified input import; native coordinator coverage is checked separately",
     "native_membership_evidence_valid": native_membership_valid,
     "native_membership_regressions": native_membership_evidence,
     "native_membership_profiles": native_membership_profiles,
-    "native_membership_scope": "existing chosen-transition recovery through native peers, retained accepted/input custody, bounded transport scheduling, managed role restart, durable client-admission denial and replay-derived startup/runtime ancestry admission; autonomous pre-choice rounds, repeated transitions and replicated control admission remain unfinished",
+    "native_membership_scope": "existing chosen-transition recovery through native peers, retained accepted/input custody, bounded transport scheduling, managed role restart, durable client-admission denial and replay-derived startup/runtime ancestry admission; pre-choice native profiles are required separately; repeated transitions and integrated replicated control admission remain unfinished",
     "workload_evidence_valid": workloads_valid,
     "workload_metrics": metrics,
     "automatic_client_metrics": automatic_client_metrics,

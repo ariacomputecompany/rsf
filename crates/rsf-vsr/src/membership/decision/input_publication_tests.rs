@@ -16,6 +16,163 @@ fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     result
 }
 
+// These are explicit host permission-fault qualifications. A privileged host
+// that bypasses directory read permission must fail the precondition, not report
+// successful fault coverage. No fsync-EIO or power-loss claim follows from them.
+#[cfg(unix)]
+mod owner_directory_boundaries {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct NoDirectoryRead {
+        path: PathBuf,
+        previous: fs::Permissions,
+    }
+    impl NoDirectoryRead {
+        fn enter(path: &Path) -> Self {
+            let previous = fs::metadata(path).unwrap().permissions();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o111)).unwrap();
+            Self {
+                path: path.to_path_buf(),
+                previous,
+            }
+        }
+        fn require_enforced(&self) {
+            let error = File::open(&self.path).expect_err(
+                "host qualification requires an unprivileged Unix user whose directory read permissions are enforced",
+            );
+            assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        }
+    }
+    impl Drop for NoDirectoryRead {
+        fn drop(&mut self) {
+            if let Err(error) = fs::set_permissions(&self.path, self.previous.clone()) {
+                eprintln!(
+                    "cannot restore directory permissions {}: {error}",
+                    self.path.display()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decision_factory_ancestor_barrier_failure_returns_no_owner_or_authority() {
+        let path = root("decision-owner-directory-failure");
+        let (a, _) = approvals(&path);
+        let ancestor = path.join("outer");
+        let target = ancestor.join("decision");
+        fs::create_dir_all(&target).unwrap();
+        {
+            let fault = NoDirectoryRead::enter(&ancestor);
+            fault.require_enforced();
+            // Traversal and existing mkdir succeed; opening the ancestor for a
+            // directory barrier fails. This is not a mkdir obstruction test.
+            fs::create_dir_all(&target).unwrap();
+            assert!(MembershipDecisionStore::open(&target, NodeId(3), &a).is_err());
+            assert!(fs::read_dir(&target).unwrap().next().is_none());
+        }
+        let mut store = MembershipDecisionStore::open(&target, NodeId(3), &a).unwrap();
+        let own_round = round(9, 3);
+        store.promise(NodeId(3), own_round).unwrap();
+        drop(store);
+        let store = MembershipDecisionStore::open_existing(&target, PlacementGroupId(1), NodeId(3))
+            .unwrap();
+        assert_eq!(store.decision_state().unwrap().promised, Some(own_round));
+        assert_eq!(store.authority().unwrap().proposal(), a.proposal());
+        drop(store);
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn public_begin_ancestor_barrier_failure_preserves_journal_and_retries_factory() {
+        for preexisting_input in [false, true] {
+            let path = root("decision-begin-owner-directory-failure");
+            let (a, b) = approvals(&path);
+            let ancestor = path.join("outer");
+            let target = ancestor.join("decision");
+            let mut store = MembershipDecisionStore::open(&target, NodeId(3), &a).unwrap();
+            let own_round = round(9, 3);
+            store.promise(NodeId(3), own_round).unwrap();
+            let input = VsrMembershipInput::from_approval(&b).unwrap();
+            let id = input.id().unwrap();
+            assert_ne!(
+                id,
+                VsrMembershipInput::from_approval(&a).unwrap().id().unwrap()
+            );
+            if preexisting_input {
+                disk::create_input(&store.root, &input).unwrap();
+            }
+            let before = files(&target);
+            let state = store.state.clone();
+            {
+                // A live owner already published its outer route. Existing
+                // input must still complete the input-tree publication barrier;
+                // its records directory remains traversable but cannot be
+                // opened for sync. Missing input opens a new writable store and
+                // therefore still requires the full outer route barrier.
+                let fault_directory = if preexisting_input {
+                    store.directory(id).join("records")
+                } else {
+                    ancestor.clone()
+                };
+                let fault = NoDirectoryRead::enter(&fault_directory);
+                fault.require_enforced();
+                assert!(
+                    store
+                        .begin_input(NodeId(3), own_round, input.clone())
+                        .is_err(),
+                    "public BEGIN acknowledged despite a failing owner-ancestor barrier"
+                );
+                assert_eq!(store.state, state);
+                assert!(store.import.is_none());
+            }
+            // Missing-input failure may leave an unacknowledged factory prefix.
+            // Every previously retained file, including authority and journal,
+            // must remain exact; no deletion or accepted-input repair is allowed.
+            for (file, bytes) in before {
+                assert_eq!(
+                    fs::read(&file).unwrap(),
+                    bytes,
+                    "changed {}",
+                    file.display()
+                );
+            }
+            drop(store);
+            let mut store =
+                MembershipDecisionStore::open_existing(&target, PlacementGroupId(1), NodeId(3))
+                    .unwrap();
+            assert_eq!(store.state, state);
+            assert_eq!(
+                store
+                    .begin_input(NodeId(3), own_round, input.clone())
+                    .unwrap(),
+                0
+            );
+            assert_eq!(store.state.staged, Some((own_round, id)));
+            let records = input.flattened_records(&b).unwrap();
+            let mut at = 0;
+            while at < records.len() {
+                let batch = VsrHistoryBatch::pack(at as u64, &records[at..]).unwrap();
+                at += batch.records.len();
+                assert_eq!(
+                    store.append_input(NodeId(3), own_round, id, batch).unwrap(),
+                    at as u64
+                );
+            }
+            drop(store);
+            let store =
+                MembershipDecisionStore::open_existing(&target, PlacementGroupId(1), NodeId(3))
+                    .unwrap();
+            assert_eq!(store.state.staged, Some((own_round, id)));
+            assert_eq!(store.decision_state().unwrap().promised, Some(own_round));
+            let recovered = store.approval(id).unwrap();
+            assert_eq!(input.flattened_records(&recovered).unwrap(), records);
+            drop(store);
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}
+
 fn sync(path: &Path) -> RsfResult<()> {
     File::open(path)
         .and_then(|file| file.sync_all())

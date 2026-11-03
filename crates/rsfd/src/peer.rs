@@ -365,7 +365,7 @@ impl PeerService {
         } = load_config(path)?;
         let timeout = Duration::from_millis(config.timeout_ms);
         let elections = config.elections.as_ref().map(ElectionConfig::timing);
-        std::fs::create_dir_all(&state).map_err(|err| err.to_string())?;
+        rsf_storage::create_dir_all_synced(&state).map_err(|err| err.to_string())?;
         let lock = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -629,3 +629,6 @@ mod tests {
         assert_eq!(decode_fingerprint(&"ab".repeat(32)).unwrap(), [0xab; 32]);
     }
 }
+
+#[cfg(all(test, unix))]
+mod directory_custody_tests;

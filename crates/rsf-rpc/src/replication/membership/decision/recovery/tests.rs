@@ -10,6 +10,8 @@ fn peer(now: Instant) -> Peer {
         query_next: false,
         failures: 0,
         provisioned: false,
+        refresh: true,
+        repair: None,
     }
 }
 
@@ -75,6 +77,7 @@ fn staged_rejection_after_one_completed_provision_does_not_loop_upload_or_claim_
     for _ in 0..20 {
         peer.failed(worker::Kind::Stage, interval, now);
         assert_eq!(peer.upload, None);
+        assert_eq!(peer.repair, Some(choice::Repair::Inspect));
         assert!(peer.require_stage);
         assert!(!peer.query_next);
         assert!(peer.next <= now + Duration::from_secs(60));

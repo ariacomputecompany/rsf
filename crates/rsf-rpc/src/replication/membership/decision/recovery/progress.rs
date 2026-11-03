@@ -16,10 +16,7 @@ impl Group {
             return Err("managed membership journal changed its bound proposal".into());
         }
         let Some(chosen) = store.chosen().cloned() else {
-            // Accepted input is retained but does not itself prove a choice.
-            // A remote retained chosen certificate may still arrive via STAGE.
-            return Ok((self.update(pg, "waiting-for-choice",
-                "retained authority has no chosen certificate; pre-choice rounds are not scheduled".into()), None));
+            return self.prechoice_step(server, pg);
         };
         if self.input.is_some_and(|input| input != chosen.input_id()) {
             self.reset_derived();
@@ -27,6 +24,7 @@ impl Group {
                 "retained membership choice changed; stale recovery progress was discarded".into(),
             );
         }
+        self.choice = choice::Choice::default();
         self.input = Some(chosen.input_id());
         if self.local_stage.is_none() {
             let report = server.stage_membership_locally(chosen, apply)?;
@@ -47,14 +45,7 @@ impl Group {
             let now = Instant::now();
             for replica in &stage.plan().input().proposal().new_voters {
                 if *replica != server.local {
-                    self.peers.entry(*replica).or_insert(Peer {
-                        next: now,
-                        upload: None,
-                        require_stage: false,
-                        query_next: false,
-                        failures: 0,
-                        provisioned: false,
-                    });
+                    self.peers.entry(*replica).or_insert_with(|| Peer::new(now));
                 }
             }
             return Ok((
@@ -107,7 +98,9 @@ impl Group {
             ));
         };
         let peer = &self.peers[&replica];
-        let action = if let Some(upload) = peer.upload {
+        let action = if let Some(repair) = peer.repair {
+            self.repair_action(server, pg, repair)?
+        } else if let Some(upload) = peer.upload {
             self.upload_action(server, pg, upload)?
         } else if let Some(quorum) = &self.quorum
             && self.local_publication.is_some()
@@ -136,7 +129,7 @@ impl Group {
         Ok((update, Some((replica, action))))
     }
 
-    fn validate_local_identity(
+    pub(super) fn validate_local_identity(
         &self,
         server: &PeerReplicaServer,
         pg: PlacementGroupId,
@@ -233,20 +226,20 @@ impl Group {
         self.reported_majority = false;
         self.peers.clear();
         self.last_peer = None;
+        self.choice = choice::Choice::default();
     }
 }
 
 impl Recovery {
     pub(super) fn finish(
         &mut self,
-        server: &PeerReplicaServer,
+        server: &mut PeerReplicaServer,
         request: PendingAction,
         result: Result<Reply, String>,
     ) -> Result<PeerMembershipRecoveryUpdate, String> {
         let PendingAction {
             pg,
-            input,
-            plan,
+            binding,
             replica,
             phase,
             action,
@@ -255,32 +248,39 @@ impl Recovery {
             .groups
             .get_mut(&pg)
             .ok_or_else(|| "recovery reply lost its group".to_string())?;
-        let current = server.membership_decisions.get(&pg).and_then(|store| {
-            (Some(store.proposal()) == server.membership_recovery_bindings.get(&pg))
-                .then(|| store.chosen())
-                .flatten()
-        });
-        if group.input != Some(input)
-            || group.plan != Some(plan)
-            || current.is_none_or(|chosen| chosen.input_id() != input)
-        {
-            group.reset_derived();
-            return Ok(group.update(
-                pg,
-                "stale-reply",
-                "recovery context changed or lost healthy custody; pending response discarded"
-                    .into(),
-            ));
+        match group.matches_binding(server, pg, binding) {
+            Ok(true) => {}
+            Ok(false) => {
+                if matches!(binding.scope, Scope::Plan { .. }) {
+                    group.reset_derived();
+                }
+                return Ok(group.update(
+                    pg,
+                    "stale-reply",
+                    "recovery context changed or lost healthy custody; pending response discarded"
+                        .into(),
+                ));
+            }
+            Err(error) => {
+                return Ok(group.update(
+                    pg,
+                    "local-error",
+                    format!(
+                        "recovery reply discarded because local custody failed validation: {error}"
+                    ),
+                ));
+            }
         }
-        if let Err(error) = group.validate_local_identity(server, pg) {
-            return Ok(group.update(
-                pg,
-                "local-error",
-                format!(
-                    "recovery reply discarded because local custody failed validation: {error}"
-                ),
-            ));
+        if let worker::Kind::Choice(kind) = action {
+            let result = result.and_then(|reply| match reply {
+                Reply::Choice(value) => Ok(value),
+                _ => Err("recovery worker returned another action's response".into()),
+            });
+            return group.finish_choice(server, request, kind, result);
         }
+        let Scope::Plan { input, plan } = binding.scope else {
+            return Err("legacy recovery reply has no canonical staged plan".into());
+        };
         let peer = group
             .peers
             .get_mut(&replica)
@@ -319,6 +319,7 @@ impl Recovery {
                 peer.failures = 0;
                 peer.next = now + group.timing.interval;
                 match reply {
+                    Reply::Choice(_) => unreachable!(),
                     Reply::Offset(offset) => {
                         let total = match action {
                             worker::Kind::Begin { total } | worker::Kind::Batch { total, .. } => {

@@ -10,9 +10,11 @@ pub(super) enum Kind {
     Stage,
     Publish,
     Query,
+    Choice(choice::exchange::Kind),
 }
 
 pub(super) enum Action {
+    Choice(choice::exchange::Request),
     Upload {
         kind: Kind,
         payload: Vec<u8>,
@@ -28,24 +30,30 @@ pub(super) enum Action {
     },
 }
 impl Action {
-    pub(super) fn kind(&self) -> Kind {
-        match self {
+    pub(super) fn kind(&self) -> Result<Kind, String> {
+        Ok(match self {
+            Self::Choice(request) => Kind::Choice(request.kind()?),
             Self::Upload { kind, .. } => *kind,
             Self::Stage { .. } => Kind::Stage,
             Self::Publish(_) => Kind::Publish,
             Self::Query { .. } => Kind::Query,
-        }
+        })
     }
     pub(super) fn phase(&self) -> &'static str {
-        match self.kind() {
-            Kind::Begin { .. } | Kind::Batch { .. } | Kind::Finish => "provisioning",
-            Kind::Stage => "staging",
-            Kind::Publish => "publishing",
-            Kind::Query => "querying",
+        if let Self::Choice(request) = self {
+            return request.phase();
+        }
+        match self {
+            Self::Upload { .. } => "provisioning",
+            Self::Stage { .. } => "staging",
+            Self::Publish(_) => "publishing",
+            Self::Query { .. } => "querying",
+            Self::Choice(_) => unreachable!(),
         }
     }
     fn execute(self, transport: &NetworkVsrTransport, replica: NodeId) -> Result<Reply, String> {
         match self {
+            Self::Choice(request) => request.execute(transport, replica).map(Reply::Choice),
             Self::Stage { chosen, expected } => transport
                 .stage_membership_report(replica, &chosen, &expected)
                 .map(Reply::Stage)
@@ -94,6 +102,7 @@ impl Action {
 
 #[derive(Debug)]
 pub(super) enum Reply {
+    Choice(choice::exchange::Response),
     Offset(u64),
     Finished,
     Stage(VsrMembershipStagedReport),

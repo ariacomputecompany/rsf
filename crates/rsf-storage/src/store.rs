@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 mod coordination;
+mod custody;
+pub use custody::SegmentStoreCustody;
 mod initialization;
 use coordination::{StoreGate, lock_gate, store_gate};
 
@@ -663,6 +665,10 @@ impl SegmentStore {
 
     pub fn recover(root: impl AsRef<Path>) -> RsfResult<SegmentStoreRecovery> {
         let root = root.as_ref();
+        // This entry point may initialize a store. Lock acquisition itself is
+        // not a publication barrier, including on existing-path retries.
+        crate::create_dir_all_synced(root)
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
         let _lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
         let gate = store_gate(root)?;
         let _guard = lock_gate(&gate)?;
@@ -670,7 +676,10 @@ impl SegmentStore {
         recover_manifest(root, &manifest)
     }
 
-    /// Recover published state without initializing an absent store.
+    /// Recover existing state without initializing an absent store. This reads
+    /// and validates bytes (and may repair a torn active tail); it does not
+    /// publish namespace entries or grant durable ownership. Callers returning
+    /// custody acknowledgements must establish their own publication boundary.
     pub fn recover_existing(root: impl AsRef<Path>) -> RsfResult<SegmentStoreRecovery> {
         let root = root.as_ref();
         // Check the manifest before acquiring a lock, whose sidecar is created
@@ -688,6 +697,10 @@ impl SegmentStore {
 
     pub fn recover_or_quarantine(root: impl AsRef<Path>) -> RsfResult<SegmentStoreRecovery> {
         let root = root.as_ref();
+        // This entry point may initialize a store. Lock acquisition itself is
+        // not a publication barrier, including on existing-path retries.
+        crate::create_dir_all_synced(root)
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
         let _lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
         let gate = store_gate(root)?;
         let _guard = lock_gate(&gate)?;
@@ -1190,6 +1203,9 @@ fn quarantine_segment(
     let quarantine_dir = root.join("quarantine");
     fs::create_dir_all(&quarantine_dir)
         .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+    // This child is created after the owner-root barrier. Publish its link
+    // before moving the only retained corrupt segment into it, including retry.
+    sync_dir(root)?;
     let source = root.join(SEGMENT_DIR).join(&segment.file_name);
     let quarantine_path = quarantine_dir.join(format!("{}.corrupt", segment.file_name));
     let _ = fs::remove_file(&quarantine_path);

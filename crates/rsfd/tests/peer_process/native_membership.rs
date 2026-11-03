@@ -8,6 +8,7 @@ use fixture::*;
 fn native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy()
 {
     let r = fixture();
+    let g = &r.groups[0];
     // Missing managed anchors must not be replaced by empty bootstraps/learners
     // during startup, even before monotonic identity enrollment has completed.
     for (node, name) in [(2, "pg-1"), (3, "learner-1")] {
@@ -39,12 +40,12 @@ fn native_managed_membership_recovers_without_candidate_and_never_admits_clients
         let cell =
             DurableVsrCell::open_existing(r.root.join(format!("store-{node}/pg-1")), PG).unwrap();
         assert_eq!(cell.view(), Epoch(2));
-        assert_eq!(cell.request_commit(&r.request), Some(LogIndex(1)));
+        assert_eq!(cell.request_commit(&g.request), Some(LogIndex(1)));
         assert_eq!(
             cell.prepared(LogIndex(2)).unwrap().operation,
             VsrOperation::ReplicatedCommand {
-                operation_id: r.commands[1].commit.operation_id,
-                payload: r.commands[1].encode().unwrap(),
+                operation_id: g.commands[1].commit.operation_id,
+                payload: g.commands[1].encode().unwrap(),
             }
         );
         if node == 3 {
@@ -57,11 +58,7 @@ fn native_managed_membership_recovers_without_candidate_and_never_admits_clients
         assert_eq!(identity["version"], 2);
         assert_eq!(identity["managed_membership"], serde_json::json!([1]));
         assert_eq!(
-            follower_kv(&r.root, node)
-                .get(b"membership/value")
-                .unwrap()
-                .value
-                .len(),
+            follower_kv(&r.root, node).get(&g.key).unwrap().value.len(),
             128 * 1024
         );
     }
@@ -108,16 +105,16 @@ fn native_managed_membership_recovers_without_candidate_and_never_admits_clients
     assert_eq!(
         primary.committed_operation(LogIndex(2)),
         Some(&VsrOperation::ReplicatedCommand {
-            operation_id: r.commands[1].commit.operation_id,
-            payload: r.commands[1].encode().unwrap(),
+            operation_id: g.commands[1].commit.operation_id,
+            payload: g.commands[1].encode().unwrap(),
         })
     );
-    let payload = r.commands[2].encode().unwrap();
+    let payload = g.commands[2].encode().unwrap();
     let VsrDecision::Prepared(later) = primary
         .prepare(
             NodeId(2),
             VsrOperation::ReplicatedCommand {
-                operation_id: r.commands[2].commit.operation_id,
+                operation_id: g.commands[2].commit.operation_id,
                 payload: payload.clone(),
             },
             payload.len() as u32,
@@ -133,16 +130,13 @@ fn native_managed_membership_recovers_without_candidate_and_never_admits_clients
     drop(primary);
     drop(third);
     let promoted = DurableVsrCell::open_existing(r.root.join("store-3/pg-1"), PG).unwrap();
-    assert_eq!(promoted.request_commit(&r.request), Some(LogIndex(1)));
+    assert_eq!(promoted.request_commit(&g.request), Some(LogIndex(1)));
     assert_eq!(
         promoted.committed_operation(LogIndex(3)),
         Some(&later.operation)
     );
     assert_eq!(
-        follower_kv(&r.root, 3)
-            .get(b"membership/value")
-            .unwrap()
-            .value,
+        follower_kv(&r.root, 3).get(&g.key).unwrap().value,
         b"committed through the new native voter after election"
     );
     drop(promoted);
@@ -192,3 +186,6 @@ fn native_managed_membership_recovers_without_candidate_and_never_admits_clients
     assert!(rejected.contains("custody"), "{rejected}");
     assert!(!r.root.join("store-3/membership-1").exists());
 }
+
+#[path = "native_membership/prechoice.rs"]
+mod prechoice;

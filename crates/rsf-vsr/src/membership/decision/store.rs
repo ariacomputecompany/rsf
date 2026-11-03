@@ -161,6 +161,15 @@ impl MembershipDecisionStore {
         if let Some((_, id)) = store.state.staged {
             store.read_records(id)?;
         }
+        // Replay validates authority; cold ownership also renews the namespace
+        // of every journal-bound input before this acceptor can acknowledge.
+        let mut inputs = std::collections::BTreeSet::from([authority]);
+        inputs.extend(store.state.accepted.map(|(_, id)| id));
+        inputs.extend(store.state.staged.map(|(_, id)| id));
+        inputs.extend(store.state.chosen.as_ref().map(|chosen| chosen.input_id()));
+        for id in inputs {
+            disk::sync_input_publication(&store.root, id)?;
+        }
         Ok(store)
     }
     pub fn proposal(&self) -> &VsrMembershipProposal {
@@ -191,14 +200,7 @@ impl MembershipDecisionStore {
     /// or acknowledge application effects.
     pub fn retained_approval(&self, id: [u8; 32]) -> RsfResult<Option<VsrMembershipApproval>> {
         self.healthy()?;
-        let bound = id == self.authority
-            || self.state.accepted.is_some_and(|(_, stored)| stored == id)
-            || self.state.staged.is_some_and(|(_, stored)| stored == id)
-            || self
-                .state
-                .chosen
-                .as_ref()
-                .is_some_and(|chosen| chosen.input_id() == id);
+        let bound = self.input_is_bound(id);
         match std::fs::symlink_metadata(self.directory(id)) {
             Ok(metadata) if metadata.file_type().is_dir() => self.read_approval(id).map(Some),
             Ok(_) => Err(corrupt(
@@ -335,6 +337,21 @@ impl MembershipDecisionStore {
         decision: &VsrMembershipDecision,
         after_synced: impl FnOnce(),
     ) -> RsfResult<VsrMembershipAccepted> {
+        self.accept_plan_with_publication(
+            sender,
+            decision,
+            after_synced,
+            disk::sync_input_publication,
+        )
+    }
+
+    fn accept_plan_with_publication(
+        &mut self,
+        sender: NodeId,
+        decision: &VsrMembershipDecision,
+        after_synced: impl FnOnce(),
+        publish: impl FnOnce(&Path, [u8; 32]) -> RsfResult<()>,
+    ) -> RsfResult<VsrMembershipAccepted> {
         self.healthy()?;
         let round = decision.round();
         self.require_round(sender, round)?;
@@ -350,6 +367,11 @@ impl MembershipDecisionStore {
             ));
         }
         self.read_approval(id)?;
+        if !self.input_is_bound(id) {
+            // A complete unbound retained input is readable data, not yet local
+            // durable custody. Bind it only after its publication barrier.
+            publish(&self.root, id)?;
+        }
         if self.state.accepted != Some((round, id)) {
             let mut next = self.state.clone();
             next.accepted = Some((round, id));
@@ -461,6 +483,14 @@ impl MembershipDecisionStore {
     /// compared every persisted byte against an opaque validated approval.
     /// This method still rechecks consensus state and never installs a cell.
     fn learn_verified_chosen(&mut self, chosen: VsrMembershipChosen) -> RsfResult<()> {
+        self.learn_verified_chosen_with_publication(chosen, disk::sync_input_publication)
+    }
+
+    fn learn_verified_chosen_with_publication(
+        &mut self,
+        chosen: VsrMembershipChosen,
+        publish: impl FnOnce(&Path, [u8; 32]) -> RsfResult<()>,
+    ) -> RsfResult<()> {
         self.validate_choice(&chosen)?;
         if self
             .state
@@ -469,6 +499,9 @@ impl MembershipDecisionStore {
             .is_some_and(|old| old.input_id() == chosen.input_id())
         {
             return Ok(());
+        }
+        if !self.input_is_bound(chosen.input_id()) {
+            publish(&self.root, chosen.input_id())?;
         }
         let mut next = self.state.clone();
         next.promised = Some(
@@ -483,6 +516,19 @@ impl MembershipDecisionStore {
         }
         next.chosen = Some(chosen);
         self.write_state(next, || {})
+    }
+
+    // Each durable reference is renewed on cold open; live factories and BEGIN
+    // publish before adding one. This is derived custody, never a cached bit.
+    fn input_is_bound(&self, id: [u8; 32]) -> bool {
+        id == self.authority
+            || self.state.accepted.is_some_and(|(_, stored)| stored == id)
+            || self.state.staged.is_some_and(|(_, stored)| stored == id)
+            || self
+                .state
+                .chosen
+                .as_ref()
+                .is_some_and(|chosen| chosen.input_id() == id)
     }
 
     fn authorize(&self, sender: NodeId, round: VsrMembershipRound) -> RsfResult<()> {

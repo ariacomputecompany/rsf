@@ -357,7 +357,8 @@ impl PeerReplicaServer {
                 "membership request has a different proposal identity",
             ));
         }
-        match kind {
+        let mut copy = None;
+        let result = match kind {
             MEMBERSHIP_PROMISE if payload.len() == 56 => store
                 .promise(sender, round)
                 .and_then(|r| r.encode())
@@ -369,10 +370,10 @@ impl PeerReplicaServer {
                         .ok_or_else(|| invalid("missing membership input descriptor"))?,
                 )
                 .map_err(rsf)?;
-                store
-                    .begin_input(sender, round, input)
-                    .map(|count| count.to_le_bytes().to_vec())
-                    .map_err(rsf)
+                let id = input.id().map_err(rsf)?;
+                let count = store.begin_input(sender, round, input).map_err(rsf)?;
+                copy = Some((id, count));
+                Ok(count.to_le_bytes().to_vec())
             }
             MEMBERSHIP_INPUT_BATCH => {
                 let id = id_at(payload, 56)?;
@@ -382,13 +383,16 @@ impl PeerReplicaServer {
                         .ok_or_else(|| invalid("missing membership input batch"))?,
                 )
                 .map_err(rsf)?;
-                store
-                    .append_input(sender, round, id, batch)
-                    .map(|count| count.to_le_bytes().to_vec())
-                    .map_err(rsf)
+                let count = store.append_input(sender, round, id, batch).map_err(rsf)?;
+                copy = Some((id, count));
+                Ok(count.to_le_bytes().to_vec())
             }
             _ => Err(invalid("invalid membership decision RPC kind or length")),
+        };
+        if result.is_ok() {
+            self.note_membership_recovery_progress(pg, sender, round, copy);
         }
+        result
     }
 }
 

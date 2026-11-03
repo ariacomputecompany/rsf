@@ -28,18 +28,20 @@ impl PeerReplicaServer {
             ));
         }
         let rsf = |e: rsf_core::RsfError| invalid(e.message);
+        let mut activity = None;
         let bytes = match tag {
             STATE if body.is_empty() => state.encode().map_err(rsf)?,
-            PROMISE if body.len() == 16 => store
-                .try_promise(
-                    sender,
-                    VsrMembershipRound {
-                        counter: u64_at(body, 0)?,
-                        coordinator: NodeId(u64_at(body, 8)?),
-                    },
-                )
-                .and_then(|value| value.encode())
-                .map_err(rsf)?,
+            PROMISE if body.len() == 16 => {
+                let round = VsrMembershipRound {
+                    counter: u64_at(body, 0)?,
+                    coordinator: NodeId(u64_at(body, 8)?),
+                };
+                let value = store.try_promise(sender, round).map_err(rsf)?;
+                if matches!(value, VsrMembershipPromiseReply::Granted(_)) {
+                    activity = Some((round, None));
+                }
+                value.encode().map_err(rsf)?
+            }
             CHOSEN if body.len() == 32 => {
                 let id = id_at(body, 0)?;
                 match store.chosen() {
@@ -78,19 +80,40 @@ impl PeerReplicaServer {
                 .finish_chosen_input(sender, id_at(body, 0)?)
                 .and_then(|value| value.encode())
                 .map_err(rsf)?,
-            READ if body.len() == 40 => {
+            READ if body.len() == 40 || body.len() == 56 => {
+                let round = if body.len() == 56 {
+                    let round = VsrMembershipRound {
+                        counter: u64_at(body, 40)?,
+                        coordinator: NodeId(u64_at(body, 48)?),
+                    };
+                    if round.coordinator != sender || state.promised != Some(round) {
+                        return Err(invalid("membership active read has another durable round"));
+                    }
+                    Some(round)
+                } else {
+                    None
+                };
                 let (_, records) = store.input(id_at(body, 0)?).map_err(rsf)?;
                 let ordinal = u64_at(body, 32)?;
                 let at = usize::try_from(ordinal)
                     .map_err(|_| invalid("membership input ordinal exceeds platform range"))?;
-                rsf_vsr::VsrHistoryBatch::pack(
+                let batch = rsf_vsr::VsrHistoryBatch::pack(
                     ordinal,
                     records.get(at..).ok_or_else(|| {
                         invalid("membership input ordinal exceeds retained prefix")
                     })?,
                 )
-                .and_then(|value| value.encode())
-                .map_err(rsf)?
+                .map_err(rsf)?;
+                if let Some(round) = round {
+                    if batch.records.is_empty() {
+                        return Err(invalid("membership active read has no copied records"));
+                    }
+                    let end = ordinal
+                        .checked_add(batch.records.len() as u64)
+                        .ok_or_else(|| invalid("membership read cursor overflow"))?;
+                    activity = Some((round, Some((id_at(body, 0)?, end))));
+                }
+                batch.encode().map_err(rsf)?
             }
             _ => {
                 return Err(invalid(
@@ -98,6 +121,9 @@ impl PeerReplicaServer {
                 ));
             }
         };
+        if let Some((round, copy)) = activity {
+            self.note_membership_recovery_progress(pg, sender, round, copy);
+        }
         response(tag, &bytes)
     }
 }

@@ -159,6 +159,11 @@ impl MembershipStagingStore {
         };
         store.validate_receipt()?;
         store.publication_quorum()?;
+        // Strict reads establish content, not completion of an earlier rename.
+        // The routes were validated before replay and remain under stage custody.
+        disk::sync_input_publication(&store.root, store.plan.input.id()?)?;
+        rsf_storage::create_dir_all_synced(store.root.join("selected/segments"))
+            .map_err(io_error)?;
         Ok(store)
     }
     pub fn validate_anchor(&self, anchor: &DurableVsrCell) -> RsfResult<()> {
@@ -302,6 +307,7 @@ impl MembershipStagingStore {
     }
 }
 fn write_history(root: &Path, plan: &VsrMembershipStagedPlan) -> RsfResult<()> {
+    disk::records_route(&root.join("selected"), true)?;
     let mut options = SegmentStoreOptions::default();
     options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
     let mut store = SegmentStore::open_with_options(root.join("selected"), options)?;
@@ -333,6 +339,7 @@ fn read_history(
     pg: PlacementGroupId,
     epoch: Epoch,
 ) -> RsfResult<Vec<VsrHistoryRecord>> {
+    disk::records_route(&root.join("selected"), false)?;
     let recovery = SegmentStore::recover_existing(root.join("selected"))?.recovery;
     let mut records = Vec::new();
     for (n, record) in recovery.wal_records.iter().enumerate() {

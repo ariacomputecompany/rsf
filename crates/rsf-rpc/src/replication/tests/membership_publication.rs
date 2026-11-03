@@ -696,3 +696,6 @@ mod failures;
 mod recovery;
 #[path = "membership_publication/reply_loss.rs"]
 mod reply_loss;
+
+#[path = "membership_publication/adversarial.rs"]
+mod adversarial;

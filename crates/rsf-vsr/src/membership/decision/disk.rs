@@ -250,7 +250,7 @@ fn regular_file(path: &Path, optional: bool) -> RsfResult<bool> {
     }
 }
 
-fn records_route(root: &Path, initializing: bool) -> RsfResult<()> {
+pub(in crate::membership) fn records_route(root: &Path, initializing: bool) -> RsfResult<()> {
     match fs::symlink_metadata(root) {
         Ok(metadata) if metadata.is_dir() => {}
         Ok(_) => {

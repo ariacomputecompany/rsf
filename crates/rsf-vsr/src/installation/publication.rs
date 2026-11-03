@@ -360,7 +360,7 @@ impl DurableVsrCell {
         self.ensure_healthy()?;
         let next_revision = self.next_state_revision()?;
         let mut publication_started = false;
-        let store = match publish(
+        let (store, store_custody) = match publish(
             &self.root,
             self.cell.pg,
             self.options,
@@ -368,8 +368,12 @@ impl DurableVsrCell {
             records,
             hook,
             &mut publication_started,
-        ) {
-            Ok(store) => store,
+        )
+        .and_then(|store| {
+            let custody = store.capture_owned_custody()?;
+            Ok((store, custody))
+        }) {
+            Ok(owned) => owned,
             Err(error) => {
                 if publication_started {
                     *self
@@ -383,6 +387,7 @@ impl DurableVsrCell {
         };
         self.state_revision = next_revision;
         self.store = store;
+        self.store_custody = store_custody;
         self.cell = recovered.0;
         self.history = recovered.1;
         self.view_change = recovered.2;

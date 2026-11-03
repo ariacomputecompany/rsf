@@ -124,6 +124,34 @@ impl NetworkVsrTransport {
         bootstrap: [u8; 32],
         ordinal: u64,
     ) -> Result<rsf_vsr::VsrHistoryBatch, VsrTransportError> {
+        self.read_membership_input_batch(replica, input, bootstrap, None, ordinal)
+    }
+    /// Scheduler-only copy activity carries its exact durable round. Ordinary
+    /// read-only observers never affect coordinator failure detection.
+    pub(in crate::replication) fn membership_round_input_batch(
+        &self,
+        replica: NodeId,
+        input: &VsrMembershipInput,
+        bootstrap: [u8; 32],
+        round: VsrMembershipRound,
+        ordinal: u64,
+    ) -> Result<rsf_vsr::VsrHistoryBatch, VsrTransportError> {
+        if round.coordinator != self.local || round.counter == 0 {
+            return Err(VsrTransportError {
+                replica,
+                reason: "membership active read has another coordinator".into(),
+            });
+        }
+        self.read_membership_input_batch(replica, input, bootstrap, Some(round), ordinal)
+    }
+    fn read_membership_input_batch(
+        &self,
+        replica: NodeId,
+        input: &VsrMembershipInput,
+        bootstrap: [u8; 32],
+        round: Option<VsrMembershipRound>,
+        ordinal: u64,
+    ) -> Result<rsf_vsr::VsrHistoryBatch, VsrTransportError> {
         let fail = |reason: String| VsrTransportError { replica, reason };
         let count = input.records().map_err(|e| fail(e.message))?;
         if ordinal >= count {
@@ -131,6 +159,10 @@ impl NetworkVsrTransport {
         }
         let mut body = input.id().map_err(|e| fail(e.message))?.to_vec();
         body.extend_from_slice(&ordinal.to_le_bytes());
+        if let Some(round) = round {
+            body.extend_from_slice(&round.counter.to_le_bytes());
+            body.extend_from_slice(&round.coordinator.0.to_le_bytes());
+        }
         let bytes = self.decision_exchange(replica, input.proposal(), bootstrap, READ, &body)?;
         let batch = rsf_vsr::VsrHistoryBatch::decode(&bytes).map_err(|e| fail(e.message))?;
         if batch.ordinal != ordinal

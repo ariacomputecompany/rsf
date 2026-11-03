@@ -23,8 +23,8 @@ use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
     CompactionReport, QuarantineReport, SegmentDescriptor, SegmentScan, SegmentScanFilter,
-    SegmentStore, SegmentStoreBenchmark, SegmentStoreOptions, SegmentStoreRecovery,
-    SegmentStoreRevision, TruncateReport,
+    SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody, SegmentStoreOptions,
+    SegmentStoreRecovery, SegmentStoreRevision, TruncateReport,
 };
 
 const MAGIC: [u8; 4] = *b"RSF1";
@@ -109,12 +109,30 @@ impl SegmentLog {
         lock: SegmentLock,
         options: SegmentLogOptions,
     ) -> RsfResult<Self> {
+        Self::open_locked_with_publication(
+            path,
+            lock,
+            options,
+            durable_directory::sync_file_publication,
+        )
+    }
+
+    fn open_locked_with_publication(
+        path: PathBuf,
+        lock: SegmentLock,
+        options: SegmentLogOptions,
+        publish: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> RsfResult<Self> {
         let file = OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
             .open(&path)
             .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+        // Existing-file retries also need this barrier: a visible segment name
+        // can remain after an interrupted creation. Failure drops file and lock;
+        // no writable handle escapes before the name is durably published.
+        publish(&path).map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
 
         Ok(Self {
             path,
@@ -129,7 +147,9 @@ impl SegmentLog {
     }
 
     pub fn recover_current(&self) -> RsfResult<Recovery> {
-        Self::recover_unlocked(&self.path)
+        // This handle already owns a published segment. Missing custody cannot
+        // become a fresh empty file during an append/recovery read.
+        Self::recover_existing_with_tails(&self.path, BTreeMap::new(), true)
     }
 
     pub fn append(&mut self, payload: &[u8]) -> RsfResult<u64> {
@@ -235,7 +255,12 @@ impl SegmentLog {
     pub fn recover(path: impl AsRef<Path>) -> RsfResult<Recovery> {
         let path = path.as_ref();
         let _lock = SegmentLock::acquire(path)?;
-        Self::recover_unlocked(path)
+        let recovery = Self::recover_unlocked(path)?;
+        // Public recovery can create a file. Publish that name even when this
+        // is a retry of an interrupted visible creation before returning data.
+        durable_directory::sync_file_publication(path)
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
+        Ok(recovery)
     }
 
     fn recover_unlocked(path: &Path) -> RsfResult<Recovery> {
@@ -542,7 +567,11 @@ impl SegmentLock {
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
         {
-            create_dir_all_synced(parent)
+            // A sidecar lock establishes exclusion, not durable data custody.
+            // Create-capable factories/recovery and writable handles publish
+            // their own data paths explicitly; read scans must not repeat that
+            // publication merely to acquire this ephemeral ownership lock.
+            std::fs::create_dir_all(parent)
                 .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         }
         let file = OpenOptions::new()
@@ -2084,3 +2113,9 @@ mod tests {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod segment_publication_tests;
+
+#[cfg(test)]
+mod recovery_publication_tests;

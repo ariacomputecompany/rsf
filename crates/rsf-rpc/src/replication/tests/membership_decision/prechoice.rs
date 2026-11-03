@@ -513,3 +513,9 @@ fn real_tls_prechoice_lost_promise_and_chosen_finish_replies_are_idempotent_and_
     assert_eq!(store.decision_state().unwrap().promised, Some(round));
     assert_eq!(store.chosen(), Some(fixture.plan.chosen()));
 }
+
+#[path = "prechoice/active_read.rs"]
+mod active_read;
+
+#[path = "prechoice/custody.rs"]
+mod custody;

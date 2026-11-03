@@ -1,13 +1,16 @@
-//! Bounded recovery of an already chosen transition. Workers own transport only;
+//! Bounded recovery of an already bound transition. Workers own transport only;
 //! durable authority and application materialization stay on the server thread.
 use super::*;
 use rsf_vsr::{
-    VsrMembershipPublishedQuorum, VsrMembershipPublishedReport, VsrMembershipStagedQuorum,
-    VsrMembershipStagedReport,
+    VsrHistoryBatch, VsrLearnerStateToken, VsrMembershipDecisionState, VsrMembershipImportReply,
+    VsrMembershipInputProgress, VsrMembershipPromiseReply, VsrMembershipPublishedQuorum,
+    VsrMembershipPublishedReport, VsrMembershipStagedQuorum, VsrMembershipStagedReport,
 };
 use std::sync::mpsc::TryRecvError;
 
+mod choice;
 mod progress;
+use choice::exchange::{Binding, Scope};
 mod worker;
 use worker::{Action, Reply};
 
@@ -51,9 +54,24 @@ struct Peer {
     query_next: bool,
     failures: u32,
     provisioned: bool,
+    refresh: bool,
+    repair: Option<choice::Repair>,
 }
 
 impl Peer {
+    fn new(now: Instant) -> Self {
+        Self {
+            next: now,
+            upload: None,
+            require_stage: false,
+            query_next: false,
+            failures: 0,
+            provisioned: false,
+            refresh: true,
+            repair: None,
+        }
+    }
+
     fn failed(&mut self, action: worker::Kind, interval: Duration, now: Instant) {
         self.failures = self.failures.saturating_add(1).min(6);
         self.next = now
@@ -62,7 +80,8 @@ impl Peer {
                 .min(Duration::from_secs(60));
         match action {
             worker::Kind::Stage if !self.provisioned => self.upload = Some(Upload::Begin),
-            worker::Kind::Stage => {}
+            worker::Kind::Stage => self.repair = Some(choice::Repair::Inspect),
+            worker::Kind::Choice(_) => self.refresh = true,
             worker::Kind::Publish => self.require_stage = true,
             worker::Kind::Query => self.query_next = false,
             // Ask the durable inbox for its offset after a failed upload. No
@@ -86,6 +105,10 @@ struct Group {
     reported_majority: bool,
     peers: BTreeMap<NodeId, Peer>,
     last_peer: Option<NodeId>,
+    choice: choice::Choice,
+    started: Instant,
+    grace: Duration,
+    learner_token: Option<VsrLearnerStateToken>,
 }
 
 impl Group {
@@ -103,6 +126,10 @@ impl Group {
             reported_majority: false,
             peers: BTreeMap::new(),
             last_peer: None,
+            choice: choice::Choice::default(),
+            started: now,
+            grace: Duration::ZERO,
+            learner_token: None,
         }
     }
 
@@ -133,8 +160,7 @@ impl Group {
 #[derive(Clone, Copy, Debug)]
 struct PendingAction {
     pg: PlacementGroupId,
-    input: [u8; 32],
-    plan: [u8; 32],
+    binding: Binding,
     replica: NodeId,
     phase: &'static str,
     action: worker::Kind,
@@ -175,6 +201,16 @@ impl PeerReplicaServer {
         if timing.is_empty() {
             return Err("membership recovery requires at least one managed group".into());
         }
+        let max_peers = timing
+            .keys()
+            .map(|pg| {
+                self.membership_decisions
+                    .get(pg)
+                    .map_or(0, |s| s.proposal().new_voters.len().saturating_sub(1))
+            })
+            .max()
+            .unwrap_or(0);
+        let grace = choice::grace(self.control_transport.timeout, &timing, max_peers)?;
         let now = Instant::now();
         let mut groups = BTreeMap::new();
         let mut bindings = BTreeMap::new();
@@ -203,7 +239,15 @@ impl PeerReplicaServer {
                 return Err("managed learner requires a configured promotion target".into());
             }
             bindings.insert(pg, proposal);
-            groups.insert(pg, Group::new(timing, now));
+            let mut group = Group::new(timing, now);
+            group.grace = grace;
+            group.learner_token = self
+                .learners
+                .get(&pg)
+                .map(|learner| learner.published_state_token())
+                .transpose()
+                .map_err(|e| e.message)?;
+            groups.insert(pg, group);
         }
         self.membership_recovery_bindings = bindings;
         self.membership_recovery = Some(Recovery {
@@ -314,21 +358,15 @@ impl Recovery {
             Err(error) => return Ok(Some(group.update(pg, "local-error", error))),
         };
         if let Some((replica, action)) = action {
-            let input = group
-                .input
-                .ok_or_else(|| "recovery action has no chosen input".to_string())?;
-            let plan = group
-                .plan
-                .ok_or_else(|| "recovery action has no canonical plan".to_string())?;
+            let binding = group.binding(server, pg, &action)?;
             let phase = action.phase();
-            let kind = action.kind();
+            let kind = action.kind()?;
             match worker::spawn(Arc::clone(&self.transport), replica, action) {
                 Ok(worker) => {
                     self.flight = Some(Flight {
                         request: PendingAction {
                             pg,
-                            input,
-                            plan,
+                            binding,
                             replica,
                             phase,
                             action: kind,
