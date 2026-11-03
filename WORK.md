@@ -24,23 +24,27 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. The last frozen-source
-23-domain gate on `c03eab1` passes 15 domains and fails eight. It exposes a new
-regression setup timeout and stale-primary leadership churn, plus client I/O
-budget failures in native workloads/stress and a workspace test-process panic.
-The full failed evidence remains in `artifacts/verification.tkfvBr`.
+Current release status: **not production qualified**. The frozen-source run on
+`e74dc20` passes all 23 domain executions, including 1,198 workspace tests with
+zero failures and one ignored stress test. Both automatic takeover and SQL stream
+profiles pass. Debug/release stress verify 198/774 acknowledged writes, three
+uncertain-write resolutions and 18 abrupt shutdowns per profile. These are local
+loopback durability checks, not independent-host or regional capacity evidence.
 
-The controller now gives a stale returning primary one bounded chance to adopt a
-higher installed view before ordinary re-election. Repeated authenticated status
-reads cannot renew this window or follower liveness. Three real TLS recovery
-regressions and the daemon stale-primary rejoin test pass, with strict recorded
-trace verification, replay, CI and warnings-denied RPC/daemon Clippy. Initial
-preemption fixture setup uses the suite's ordinary host RPC budget; the recovery
-controller and native workload/deadline/retry settings retain their bounds.
-See `docs/stale-primary-adoption-verification-2026-11-02.json`.
+The original aggregate gate exits 1 because a child diagnostic prefixes a passing
+membership regression result on the same line. Its preserved report misses that
+result. The evidence parser now recognizes exact libtest result tokens after such
+prefixes while rejecting failed results and name/status suffixes. Direct checks
+cover the actual missed line and negative examples; a fresh final-harness gate
+remains required. See `docs/stale-primary-full-verification-2026-11-02.json`.
 
-A fresh complete gate is required. Diagnose and fix any remaining client I/O,
-stress and workspace failures without weakening workload or durability checks.
+Returning stale primaries receive one bounded adoption window for a higher
+installed view; repeated status reads do not renew it or follower liveness. All
+three recovery regressions, broader daemon tests, strict traces/replay/CI and
+warnings-denied RPC/daemon Clippy pass. Existing native deadlines, workload sizes
+and retry budgets remain intact. Earlier failed gates are preserved and are not
+reclassified as passing. Growing-history protocol reopening remains expensive in
+a scoped stress-primary stack sample and still needs performance work.
 
 Kernel activation is verified; native peer membership publication/promotion and
 atomic control admission remain unfinished. Growing-history memory, cold protocol

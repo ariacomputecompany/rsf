@@ -123,6 +123,14 @@ import json
 import sys
 from pathlib import Path
 
+import re
+
+def test_passed(line, name):
+    # Host child diagnostics can prefix a libtest result on the same line.
+    # Require a complete test path, exact name and successful result token.
+    return re.search(r"(?<!\S)test [A-Za-z0-9_:]+::" + re.escape(name)
+                     + r" \.\.\. ok(?:\s|$)", line) is not None
+
 root, seed, passed, failed, before, after = sys.argv[1:]
 metrics = {}
 automatic_client_metrics = {}
@@ -227,37 +235,37 @@ if workspace_trace.exists():
         if decision.get("kind") == "proc_spawn" and decision.get("exit_code") == 0
     )
 session_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in session_regressions
 }
 sessions_valid = all(session_evidence.values())
 uncertain_begin_name = "automatic_client_takeover_uncertain_sql_begin_preserves_token_after_both_peer_restarts"
-uncertain_begin_workspace = any(line.startswith("test ") and f"::{uncertain_begin_name} ... ok" in line
+uncertain_begin_workspace = any(test_passed(line, uncertain_begin_name)
                                for line in workspace_stdout.splitlines())
 uncertain_begin_profile_runs = 0
 if automatic_trace.exists():
     uncertain_begin_profile_runs = sum(
-        any(line.startswith("test ") and f"::{uncertain_begin_name} ... ok" in line
+        any(test_passed(line, uncertain_begin_name)
             for line in decision.get("stdout", "").splitlines())
         for decision in json.loads(automatic_trace.read_text()).get("decisions", [])
         if decision.get("kind") == "proc_spawn" and decision.get("exit_code") == 0
     )
 uncertain_begin_valid = uncertain_begin_workspace and uncertain_begin_profile_runs == 2
 client_transport_name = "automatic_client_takeover_transport_loss_preserves_exact_sql_mutation_after_restart"
-client_transport_workspace = any(line.startswith("test ") and f"::{client_transport_name} ... ok" in line
+client_transport_workspace = any(test_passed(line, client_transport_name)
                                  for line in workspace_stdout.splitlines())
 client_transport_profile_runs = 0
 if automatic_trace.exists():
     client_transport_profile_runs = sum(
-        any(line.startswith("test ") and f"::{client_transport_name} ... ok" in line
+        any(test_passed(line, client_transport_name)
             for line in decision.get("stdout", "").splitlines())
         for decision in json.loads(automatic_trace.read_text()).get("decisions", [])
         if decision.get("kind") == "proc_spawn" and decision.get("exit_code") == 0
     )
 client_transport_valid = client_transport_workspace and client_transport_profile_runs == 2
 kv_batch_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in (
         "rejected_committed_batches_preserve_all_values_versions_and_changes",
@@ -278,7 +286,7 @@ stream_regressions = [
     "native_sql_streams_large_results_and_bounds_legacy_responses",
 ]
 stream_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in stream_regressions
 }
@@ -314,7 +322,7 @@ indexed_names = [
     "query_size_metadata_tracks_physical_writes_transactions_and_recovery",
 ]
 indexed_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in indexed_names
 }
@@ -333,42 +341,42 @@ membership_approval_names = [
     "membership_approval_recovers_from_real_old_voters_after_primary_loss",
 ]
 membership_approval_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in membership_approval_names
 }
 membership_approval_valid = all(membership_approval_evidence.values())
 membership_decision_names = ['membership_input_and_decision_codecs_bind_exact_quorums_and_reject_truncation', 'membership_higher_round_retains_minority_nomination_and_chosen_plan_after_old_data_loss', 'membership_upload_retries_are_atomic_bounded_and_fenced_by_new_rounds', 'membership_decision_rejects_missing_proofs_wrong_roles_and_malformed_durable_state', 'killed_membership_coordinator_recovers_synced_nomination_before_reply', 'every_new_quorum_intersection_preserves_chosen_input_across_recovery_rounds', 'torn_membership_input_batch_recovers_previous_prefix_and_cannot_be_accepted']
 membership_decision_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in membership_decision_names
 }
 membership_decision_valid = all(membership_decision_evidence.values())
 membership_peer_names = ['membership_authority_inbox_resumes_validated_proof_without_voting_authority', 'real_tls_membership_plan_choice_survives_old_voter_and_coordinator_data_loss', 'real_tls_membership_authority_rejects_unpublished_learners_and_foreign_bootstrap', 'membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote']
 membership_peer_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in membership_peer_names
 }
 membership_peer_valid = all(membership_peer_evidence.values())
 membership_staging_names = ['chosen_membership_retention_retry_rejects_missing_input_without_recreation', 'synced_directory_creation_preserves_existing_files_across_nested_retries', 'synced_directory_creation_rejects_file_obstructions_without_replacing_data', 'chosen_membership_stage_merges_commit_and_receipt_evidence_deterministically', 'membership_stage_materialization_is_boot_scoped_and_preserves_receiver_receipts', 'staged_membership_quorums_reject_mixed_duplicate_and_invalid_receipts', 'membership_stage_reopen_rejects_torn_or_missing_sealed_history_without_rewrite', 'killed_membership_stage_recovers_receipt_and_replays_materialization_before_report', 'real_tls_staged_membership_requires_materializer_and_survives_peer_restart']
 membership_staging_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in membership_staging_names
 }
 membership_staging_valid = all(membership_staging_evidence.values())
 membership_activation_names = ['membership_activation_preserves_certificates_receipts_pending_data_and_later_commits', 'membership_activation_requires_boot_materialization_matching_quorum_and_root_fence', 'membership_activation_replay_rejects_truncation_corrupt_boundaries_and_ordinary_markers', 'membership_activation_publication_boundaries_recover_old_fence_or_complete_new_authority', 'copied_membership_activation_history_retains_quorum_authority_guards', 'killed_membership_activation_recovers_sealed_authority_before_any_reply', 'successive_membership_activations_preserve_authority_and_fence_removed_voters', 'copied_view_installation_history_retains_quorum_authority_guards', 'published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker']
 membership_activation_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in membership_activation_names
 }
 membership_activation_valid = all(membership_activation_evidence.values())
 idle_application_names = ['idle_sql_writer_survives_polls_while_status_and_transport_checks_remain_fresh', 'idle_application_rejects_same_version_divergent_protocol_history_repeatedly']
 idle_application_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in idle_application_names
 }
@@ -379,7 +387,7 @@ primary_recovery_names = [
     "stale_primary_waits_once_for_newer_installed_view_then_recovers_if_repair_never_arrives",
 ]
 primary_recovery_evidence = {
-    name: any(line.startswith("test ") and f"::{name} ... ok" in line
+    name: any(test_passed(line, name)
               for line in workspace_stdout.splitlines())
     for name in primary_recovery_names
 }
