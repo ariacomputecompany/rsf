@@ -24,15 +24,16 @@ The standard is strict:
 
 ## Current State Audit
 
-Current release status: **not production qualified**. Peer publication and cold
-transition recovery pass all 405 affected-package tests with zero failures and
-one opt-in stress test ignored. The source fingerprint is unchanged. Strict
-five-run doctor, deterministic orchestration, real host execution, strict trace
-verification, replay, CI and affected-target Clippy pass. The full final-source
-gate remains required; see `docs/peer-publication-verification-2026-11-02.json`.
-The preceding publication recovery source `ef24d94` passes all 23 domains and
-1,229 workspace tests, including debug/release takeover, SQL streaming and process
-stress; see `docs/publication-recovery-full-verification-2026-11-02.json`.
+Current release status: **not production qualified**. Peer publication source
+`23fb6b2` passes all 23 domains and aggregate evidence checks on an unchanged
+source fingerprint. Workspace passes 1,234 tests, zero failures and one opt-in
+stress test ignored; the separate debug/release stress domains both pass, as do
+automatic client takeover and SQL streaming in both profiles. All four new peer
+publication/current-prefix regressions pass in the recorded workspace run. Every
+domain includes strict five-run doctor, deterministic orchestration, real host
+execution, strict trace verification, replay and CI. Affected-target Clippy also
+passes. See `docs/peer-publication-full-verification-2026-11-02.json` and
+`docs/peer-publication-verification-2026-11-02.json`.
 
 Native daemon transition orchestration and atomic control admission remain
 unfinished. Growing-history protocol reopening/replay, retention,

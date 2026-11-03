@@ -17,13 +17,15 @@ The developer experience standard is equally high: scaling from one server to re
 
 ## Current Docs
 
-RSF is still under development. The daemon supports durable SQL autocommit,
-KV, object, and blob paths, with authenticated peer replication when configured.
-Standalone initialization provides one durable copy. Some admin/policy paths
-still use local transport. Certified network membership installation, learner
-promotion, primary failover, legacy-state migration, durable SQL sessions,
-bounded storage lifecycle, and measured production release gates remain open
-in [WORK.md](./WORK.md).
+RSF is still under development and is not production qualified. The daemon
+supports durable SQL sessions, KV, object, and blob paths, with authenticated
+peer replication and opt-in automatic primary/client takeover. Standalone
+initialization provides one durable copy. Some admin/policy paths still use local
+transport. Certified peer membership publication and learner promotion have
+local TLS recovery coverage; native transition orchestration and replicated
+control admission remain unfinished. Independent-group routing, legacy migration,
+bounded storage lifecycle, and independent-host performance/fault qualification
+also remain open in [WORK.md](./WORK.md).
 
 `rsfd init` selects a standalone policy with one durable copy. That node can
 serve writes and recover them after restart, but cannot survive loss of its
