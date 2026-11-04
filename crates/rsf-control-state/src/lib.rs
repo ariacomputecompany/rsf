@@ -8,7 +8,10 @@ mod model;
 mod replay;
 
 pub use model::*;
-pub use replay::{CommittedAdmission, ControlOutcome, ControlState, Rejection};
+pub use replay::{
+    CommittedAdmission, CommittedIntent, ControlOutcome, ControlState, PublishedControlState,
+    PublishedIntent, Rejection,
+};
 
 use rsf_core::{ErrorCode, RsfError, RsfResult};
 

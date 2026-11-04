@@ -7,6 +7,7 @@ mod exclusive_lock;
 pub use exclusive_lock::ExclusiveFileLock;
 
 mod catalog;
+mod reader;
 mod store;
 #[cfg(test)]
 mod sync_observation;
@@ -24,10 +25,12 @@ use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
-    CompactionReport, QuarantineReport, SegmentDescriptor, SegmentReadCustody, SegmentScan,
-    SegmentScanFilter, SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody,
-    SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision, TruncateReport, WalGroupEntry,
-    WalGroupRecord,
+    CompactionReport, OwnedWalGroup, QuarantineReport, SegmentDescriptor, SegmentReadCursor,
+    SegmentReadCustody, SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScan,
+    SegmentScanControl, SegmentScanFilter, SegmentScanOutcome, SegmentStore, SegmentStoreBenchmark,
+    SegmentStoreCustody, SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision,
+    TruncateReport, WalGroupEntry, WalGroupRecord, append_only_manifest_byte_bound,
+    wal_record_disk_bytes,
 };
 
 fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {
@@ -52,6 +55,7 @@ fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {
 const MAGIC: [u8; 4] = *b"RSF1";
 const SEGMENT_RECORD_VERSION: u16 = 1;
 const HEADER_LEN: usize = 4 + 2 + 2 + 8 + 8;
+const WAL_HEADER_LEN: usize = 4 + 8 + 8 + 8 + 1 + 32 + 32 + 32 + 8;
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 const DEFAULT_CHECKSUM_ALGORITHM: ChecksumAlgorithm = ChecksumAlgorithm::Blake3_64;
@@ -341,18 +345,17 @@ impl SegmentLog {
             .metadata()
             .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
             .len();
-
         let mut offset = 0_u64;
         let mut records = Vec::new();
         let mut wal_records = Vec::new();
         let mut maintenance_records = Vec::new();
         let mut pg_tails = initial_pg_tails;
-        let mut header = [0_u8; HEADER_LEN];
-
         loop {
-            match file.read_exact(&mut header) {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+            let record = match reader::next_frame(&mut file, file_len, offset, |_| {
+                Ok::<(), std::convert::Infallible>(())
+            }) {
+                Ok(Some(record)) => record,
+                Ok(None) => {
                     truncate_recovery_tail(&file, offset, repair_tail)?;
                     return Ok(Recovery {
                         records,
@@ -363,150 +366,18 @@ impl SegmentLog {
                         truncated_to: offset,
                     });
                 }
-                Err(err) => return Err(storage_error(StorageIoOperation::Recover, err)),
-            }
-
-            if header[0..4] != MAGIC {
-                return Err(RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!("invalid segment magic at offset {offset}"),
-                ));
-            }
-
-            let version = u16::from_le_bytes(header[4..6].try_into().expect("slice length"));
-            if version != SEGMENT_RECORD_VERSION {
-                return Err(RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!(
-                        "unsupported segment record version {version} at offset {offset}; expected {SEGMENT_RECORD_VERSION}"
-                    ),
-                ));
-            }
-            let checksum_algorithm_id =
-                u16::from_le_bytes(header[6..8].try_into().expect("slice length"));
-            let checksum_algorithm =
-                ChecksumAlgorithm::from_u16(checksum_algorithm_id).ok_or_else(|| {
-                    RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "unsupported checksum algorithm {checksum_algorithm_id} at offset {offset}"
-                        ),
-                    )
-                })?;
-            let len = u64::from_le_bytes(header[8..16].try_into().expect("slice length"));
-            let expected_checksum =
-                u64::from_le_bytes(header[16..24].try_into().expect("slice length"));
-            // A corrupt or torn length header must not allocate untrusted
-            // quantities of memory before discovering the missing payload.
-            if len
-                > file_len
-                    .saturating_sub(offset)
-                    .saturating_sub(HEADER_LEN as u64)
-            {
-                truncate_recovery_tail(&file, offset, repair_tail)?;
-                return Ok(Recovery {
-                    records,
-                    wal_records,
-                    maintenance_records,
-                    pg_tails,
-                    compacted_prefixes: BTreeMap::new(),
-                    truncated_to: offset,
-                });
-            }
-            let payload_len = usize::try_from(len).map_err(|_| {
-                RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!("record length too large at offset {offset}"),
-                )
-            })?;
-            let mut payload = vec![0_u8; payload_len];
-
-            match file.read_exact(&mut payload) {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    truncate_recovery_tail(&file, offset, repair_tail)?;
-                    return Ok(Recovery {
-                        records,
-                        wal_records,
-                        maintenance_records,
-                        pg_tails,
-                        compacted_prefixes: BTreeMap::new(),
-                        truncated_to: offset,
-                    });
-                }
-                Err(err) => return Err(storage_error(StorageIoOperation::Recover, err)),
-            }
-
-            let actual_checksum = checksum_algorithm.checksum(&payload);
-            if actual_checksum != expected_checksum {
-                return Err(RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!(
-                        "checksum mismatch at offset {offset} using {:?}",
-                        checksum_algorithm
-                    ),
-                ));
-            }
-
-            let segment_record = SegmentRecord {
-                offset,
-                header: SegmentRecordHeader {
-                    version,
-                    checksum_algorithm,
-                    payload_len: len,
-                    checksum: expected_checksum,
-                },
-                payload: payload.clone(),
+                Err(reader::FrameError::Failure(error)) => return Err(error),
+                Err(reader::FrameError::Policy(impossible)) => match impossible {},
             };
-
-            if let Some(record) = decode_maintenance_record(&payload)? {
-                maintenance_records.push(record);
-            } else if let Some(wal_record) = decode_wal_record(&payload)? {
-                let tail = pg_tails.get(&wal_record.pg).copied();
-                let expected_previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-                if wal_record.previous_hash != expected_previous_hash {
-                    return Err(RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "wal hash-chain mismatch for pg {} at offset {offset}",
-                            wal_record.pg.0
-                        ),
-                    ));
-                }
-                let expected_index = tail.map_or(1, |tail| tail.index.0 + 1);
-                if wal_record.index.0 != expected_index {
-                    return Err(RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "wal index {} is not monotonic for pg {}; expected {expected_index}",
-                            wal_record.index.0, wal_record.pg.0
-                        ),
-                    ));
-                }
-                if let Some(tail) = tail
-                    && wal_record.epoch.0 < tail.epoch.0
-                {
-                    return Err(RsfError::new(
-                        ErrorCode::StaleEpoch,
-                        format!(
-                            "wal epoch {} moved backward for pg {} from epoch {}",
-                            wal_record.epoch.0, wal_record.pg.0, tail.epoch.0
-                        ),
-                    ));
-                }
-                pg_tails.insert(
-                    wal_record.pg,
-                    WalTail {
-                        epoch: wal_record.epoch,
-                        index: wal_record.index,
-                        record_hash: wal_record.record_hash,
-                    },
-                );
-                wal_records.push(wal_record);
+            let decoded = reader::decode_and_chain(&record, &mut pg_tails)?;
+            if let Some(wal) = decoded.wal {
+                wal_records.push(wal);
             }
-
-            records.push(segment_record);
-            offset += HEADER_LEN as u64 + len;
+            if let Some(maintenance) = decoded.maintenance {
+                maintenance_records.push(maintenance);
+            }
+            offset += HEADER_LEN as u64 + record.header.payload_len;
+            records.push(record);
         }
     }
 
@@ -612,6 +483,10 @@ impl SegmentLock {
             .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         let lock_path = std::fs::canonicalize(&lock_path)
             .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
+        Self::register_opened(lock_path, file)
+    }
+
+    fn register_opened(lock_path: PathBuf, file: File) -> RsfResult<Self> {
         let mut registry = lock_registry().lock().map_err(|_| {
             RsfError::new(ErrorCode::InvalidInput, "segment lock registry is poisoned")
         })?;
@@ -1064,7 +939,6 @@ fn decode_wal_record(bytes: &[u8]) -> RsfResult<Option<WalRecord>> {
         return Ok(None);
     }
 
-    const WAL_HEADER_LEN: usize = 4 + 8 + 8 + 8 + 1 + 32 + 32 + 32 + 8;
     if bytes.len() < WAL_HEADER_LEN {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,

@@ -7,7 +7,14 @@ mod membership;
 pub use control::{PeerElectionProgress, PeerElectionTiming, PeerElectionUpdate};
 pub use membership::{PeerMembershipRecoveryTiming, PeerMembershipRecoveryUpdate};
 mod history;
+mod learner;
+pub use history::status::HistoryBeginRequired;
+pub use managed_control::learner::ControlLearnerPolicy;
 mod installation;
+mod managed_control;
+pub use managed_control::writer::{
+    ControlWriterProgress, ObservedControlGenesisDelivery, ObservedOldControlDelivery,
+};
 mod recovery_retry;
 mod tls;
 mod wire;
@@ -123,8 +130,16 @@ impl NetworkVsrTransport {
             &mut stream,
             &frame(&self.cluster, self.local, replica, kind, payload)?,
         )?;
+        let request_payload = payload;
         let response = read_frame(&mut stream)?;
         let (response_kind, payload) = parse(&response, &self.cluster, replica, self.local)?;
+        if response_kind == history::status::BEGIN_REQUIRED_RESPONSE {
+            return Err(history::status::decode_response(
+                kind,
+                payload,
+                request_payload,
+            )?);
+        }
         if response_kind == 255 {
             return Err(invalid(format!(
                 "peer rejected request: {}",
@@ -226,8 +241,9 @@ pub struct PeerReplicaServer {
     identity: PeerIdentity,
     nodes: BTreeMap<[u8; 32], NodeId>,
     cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
+    managed_control: Option<managed_control::Binding>,
     timeout: Duration,
-    learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
+    learners: BTreeMap<PlacementGroupId, learner::LearnerOwner>,
     election_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrViewChangeSnapshot>,
     membership_snapshots: BTreeMap<PlacementGroupId, rsf_vsr::VsrMembershipSnapshot>,
     membership_stage_voter_tokens: BTreeMap<PlacementGroupId, rsf_vsr::VsrStateToken>,
@@ -281,14 +297,11 @@ impl PeerReplicaServer {
             &mut BTreeMap<PlacementGroupId, DurableVsrCell>,
             NetworkVsrTransport,
         ) -> (R, bool),
-    ) -> R {
-        self.installation_pending.extend(self.cells.keys().copied());
-        let (result, materialized) =
-            operation(self.local, &mut self.cells, self.control_transport.clone());
-        if materialized {
-            self.installation_pending.clear();
+    ) -> Result<R, String> {
+        if self.managed_control.is_some() {
+            return Err("reserved control custody requires application-only scoped access".into());
         }
-        result
+        self.with_application_cells(operation)
     }
 
     pub fn new(
@@ -317,6 +330,29 @@ impl PeerReplicaServer {
         peers: BTreeMap<NodeId, PeerEndpoint>,
         cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
         learners: BTreeMap<PlacementGroupId, rsf_vsr::LearnerHistoryStore>,
+        timeout: Duration,
+    ) -> Result<Self, String> {
+        Self::with_learner_owners(
+            local,
+            cluster,
+            identity,
+            peers,
+            cells,
+            learners
+                .into_iter()
+                .map(|(pg, owner)| (pg, learner::LearnerOwner::Application(Box::new(owner))))
+                .collect(),
+            timeout,
+        )
+    }
+
+    fn with_learner_owners(
+        local: NodeId,
+        cluster: &ClusterId,
+        identity: PeerIdentity,
+        peers: BTreeMap<NodeId, PeerEndpoint>,
+        cells: BTreeMap<PlacementGroupId, DurableVsrCell>,
+        learners: BTreeMap<PlacementGroupId, learner::LearnerOwner>,
         timeout: Duration,
     ) -> Result<Self, String> {
         validate_configuration(local, &identity, &peers, timeout)?;
@@ -374,6 +410,7 @@ impl PeerReplicaServer {
                 .map(|(node, peer)| (peer.fingerprint, node))
                 .collect(),
             cells,
+            managed_control: None,
             timeout,
             learners,
             election_snapshots: BTreeMap::new(),
@@ -450,6 +487,8 @@ impl PeerReplicaServer {
         self.pending_contact = None;
         let response = if let Err(error) = self.guard_membership_recovery(kind, payload) {
             Err(error)
+        } else if kind == CONTROL_COMMITTED {
+            self.dispatch_control_committed(sender, payload)
         } else if kind == MEMBERSHIP_STAGE {
             if !materializer_present {
                 Err(invalid(
@@ -504,12 +543,25 @@ impl PeerReplicaServer {
                 &frame(&self.cluster, self.local, sender, kind, &payload)?,
             ),
             Err(err) => {
-                let message = err.to_string();
-                let bounded = &message.as_bytes()[..message.len().min(1024)];
-                write_frame(
-                    &mut stream,
-                    &frame(&self.cluster, self.local, sender, 255, bounded)?,
-                )?;
+                if let Some(required) = history::status::from_error(&err) {
+                    write_frame(
+                        &mut stream,
+                        &frame(
+                            &self.cluster,
+                            self.local,
+                            sender,
+                            history::status::BEGIN_REQUIRED_RESPONSE,
+                            &required.encode(),
+                        )?,
+                    )?;
+                } else {
+                    let message = err.to_string();
+                    let bounded = &message.as_bytes()[..message.len().min(1024)];
+                    write_frame(
+                        &mut stream,
+                        &frame(&self.cluster, self.local, sender, 255, bounded)?,
+                    )?;
+                }
                 Err(err)
             }
         }
@@ -521,25 +573,19 @@ impl PeerReplicaServer {
         pg: PlacementGroupId,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
     ) -> io::Result<&mut DurableVsrCell> {
-        let local = self.local;
         let cell = self
             .cells
-            .get_mut(&pg)
+            .get(&pg)
             .ok_or_else(|| invalid("placement group is not hosted here"))?;
-        if sender == local || sender != cell.primary() || !cell.contains_replica(sender) {
+        if sender == self.local || sender != cell.primary() || !cell.contains_replica(sender) {
             return Err(invalid("sender is not the active remote primary"));
         }
         self.pending_contact = Some(pg);
-        if self.installation_pending.contains(&pg) {
-            for entry in cell
-                .committed_prefix()
-                .map_err(|err| invalid(err.message))?
-            {
-                apply(&entry).map_err(invalid)?;
-            }
+        if self.installation_pending.contains(&pg) || self.is_control_group(pg) {
+            self.materialize_owned_prefix(pg, apply).map_err(invalid)?;
             self.installation_pending.remove(&pg);
         }
-        Ok(cell)
+        Ok(self.cells.get_mut(&pg).expect("validated hosted cell"))
     }
 
     fn dispatch(
@@ -570,7 +616,11 @@ impl PeerReplicaServer {
             PREPARE => {
                 let prepare = VsrPrepare::decode(payload).map_err(rsf)?;
                 let index = prepare.index;
-                self.cell(sender, prepare.pg, apply)?
+                self.cell(sender, prepare.pg, apply)?;
+                self.preflight_received_control(&prepare).map_err(invalid)?;
+                self.cells
+                    .get_mut(&prepare.pg)
+                    .expect("validated hosted cell")
                     .receive_prepare(local, sender, prepare)
                     .map_err(rsf)?;
                 Ok(index)
@@ -578,16 +628,25 @@ impl PeerReplicaServer {
             COMMIT => {
                 let commit = VsrCommit::decode(payload).map_err(rsf)?;
                 let index = commit.index;
-                let cell = self.cell(sender, commit.pg, apply)?;
-                cell.receive_commit(local, sender, commit.clone())
-                    .map_err(rsf)?;
-                let prepare = cell
+                let pg = commit.pg;
+                let prepare = self
+                    .cell(sender, pg, apply)?
                     .prepared(index)
                     .cloned()
                     .ok_or_else(|| invalid("committed command has no prepare"))?;
-                let pg = commit.pg;
+                let entry = VsrCommittedEntry { prepare, commit };
+                self.preflight_committed_control(&entry).map_err(invalid)?;
+                self.cells
+                    .get_mut(&pg)
+                    .expect("validated hosted cell")
+                    .receive_commit(local, sender, entry.commit.clone())
+                    .map_err(rsf)?;
                 self.installation_pending.insert(pg);
-                apply(&VsrCommittedEntry { prepare, commit }).map_err(invalid)?;
+                if self.is_control_group(pg) {
+                    self.materialize_owned_prefix(pg, apply).map_err(invalid)?;
+                } else {
+                    apply(&entry).map_err(invalid)?;
+                }
                 self.installation_pending.remove(&pg);
                 Ok(index)
             }
@@ -615,12 +674,21 @@ impl PeerReplicaServer {
                 .map_err(rsf)?;
                 let index = prepare.index;
                 let entry = VsrCommittedEntry { prepare, commit };
-                self.cell(sender, entry.prepare.pg, apply)?
+                let pg = entry.prepare.pg;
+                self.cell(sender, pg, apply)?;
+                self.preflight_committed_control(&entry).map_err(invalid)?;
+                self.cells
+                    .get_mut(&pg)
+                    .expect("validated hosted cell")
                     .catch_up_from(std::slice::from_ref(&entry))
                     .map_err(rsf)?;
-                self.installation_pending.insert(entry.prepare.pg);
-                apply(&entry).map_err(invalid)?;
-                self.installation_pending.remove(&entry.prepare.pg);
+                self.installation_pending.insert(pg);
+                if self.is_control_group(pg) {
+                    self.materialize_owned_prefix(pg, apply).map_err(invalid)?;
+                } else {
+                    apply(&entry).map_err(invalid)?;
+                }
+                self.installation_pending.remove(&pg);
                 Ok(index)
             }
             _ => Err(invalid("unsupported peer request or invalid payload size")),

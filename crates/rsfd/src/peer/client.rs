@@ -158,97 +158,109 @@ impl ClientService {
             Ok(admission) => admission,
             Err(error) => return rejected(MutationOutcome::NotAttempted, error.message),
         };
-        server.with_voting_cells(|local, cells, transport| {
-            let response = (|| {
-                // Read-only status remains available while a promise fences normal
-                // probes. No stale authority or volatile observation admits clients.
-                let statuses = cells
-                    .values()
-                    .map(|cell| cell.primary_probe())
-                    .collect::<RsfResult<Vec<_>>>();
-                let statuses = match statuses {
-                    Ok(statuses) if !statuses.is_empty() => statuses,
-                    Ok(_) => {
+        server
+            .with_application_cells(|local, cells, transport| {
+                let response = (|| {
+                    // Read-only status remains available while a promise fences normal
+                    // probes. No stale authority or volatile observation admits clients.
+                    let statuses = cells
+                        .values()
+                        .map(|cell| cell.primary_probe())
+                        .collect::<RsfResult<Vec<_>>>();
+                    let statuses = match statuses {
+                        Ok(statuses) if !statuses.is_empty() => statuses,
+                        Ok(_) => {
+                            return rejected(
+                                MutationOutcome::NotAttempted,
+                                "no hosted voting cells".into(),
+                            );
+                        }
+                        Err(error) => {
+                            return rejected(MutationOutcome::NotAttempted, error.message);
+                        }
+                    };
+                    if statuses.iter().any(|status| status.voters != admitted) {
                         return rejected(
                             MutationOutcome::NotAttempted,
-                            "no hosted voting cells".into(),
+                            "installed membership differs from admitted voters".into(),
                         );
                     }
-                    Err(error) => return rejected(MutationOutcome::NotAttempted, error.message),
-                };
-                if statuses.iter().any(|status| status.voters != admitted) {
-                    return rejected(
-                        MutationOutcome::NotAttempted,
-                        "installed membership differs from admitted voters".into(),
-                    );
-                }
-                let primary = statuses[0].primary;
-                if statuses.iter().any(|status| status.primary != primary) {
-                    return rejected(
-                        MutationOutcome::NotAttempted,
-                        "placement groups require coordinated primary routing".into(),
-                    );
-                }
-                if primary != local {
-                    return DataPlaneResponse::Redirect {
-                        protocol: envelope.protocol.as_str(),
-                        primary: primary.0,
-                        address: self.endpoints[&primary],
-                    };
-                }
-                let result = self.coordinator.borrow_mut().with_cells(
-                    &self.coordination,
-                    epoch,
-                    local,
-                    cells,
-                    transport,
-                    |router, state| {
-                        if state == rsf_protocol::CoordinatorState::Recovered {
-                            self.applied_version.set(rsf_core::CommitVersion(0));
-                            router.reconcile_installed_application_commands()?;
-                        } else {
-                            router.reconcile_application_commands()?;
-                        }
-                        for command in
-                            router.committed_application_commands_since(self.applied_version.get())
-                        {
-                            materializer.apply(&command).map_err(invalid)?;
-                            self.applied_version.set(command.commit.version);
-                        }
-                        // Even immutable reads through this primary endpoint wait
-                        // for a fresh installed quorum; no election event is a lease.
-                        router.confirm_read_quorum()?;
-                        let response = materializer.execute(&envelope, router, output)?;
-                        // Complete the prefix contract explicitly, including any
-                        // secondary payload commands. Reapplying the selected
-                        // engine's own command is idempotent; protocol-only pins
-                        // never enter this application index.
-                        for command in
-                            router.committed_application_commands_since(self.applied_version.get())
-                        {
-                            materializer.apply(&command).map_err(invalid)?;
-                            self.applied_version.set(command.commit.version);
-                        }
-                        self.applied_version.set(router.latest_version());
-                        Ok(response)
-                    },
-                );
-                result.unwrap_or_else(|error| {
-                    rejected(
-                        match envelope.operation_kind {
-                            WireOperationKind::Read => MutationOutcome::NotAttempted,
-                            _ => MutationOutcome::Unknown,
+                    let primary = statuses[0].primary;
+                    if statuses.iter().any(|status| status.primary != primary) {
+                        return rejected(
+                            MutationOutcome::NotAttempted,
+                            "placement groups require coordinated primary routing".into(),
+                        );
+                    }
+                    if primary != local {
+                        return DataPlaneResponse::Redirect {
+                            protocol: envelope.protocol.as_str(),
+                            primary: primary.0,
+                            address: self.endpoints[&primary],
+                        };
+                    }
+                    let result = self.coordinator.borrow_mut().with_cells(
+                        &self.coordination,
+                        epoch,
+                        local,
+                        cells,
+                        transport,
+                        |router, state| {
+                            if state == rsf_protocol::CoordinatorState::Recovered {
+                                self.applied_version.set(rsf_core::CommitVersion(0));
+                                router.reconcile_installed_application_commands()?;
+                            } else {
+                                router.reconcile_application_commands()?;
+                            }
+                            for command in router
+                                .committed_application_commands_since(self.applied_version.get())
+                            {
+                                materializer.apply(&command).map_err(invalid)?;
+                                self.applied_version.set(command.commit.version);
+                            }
+                            // Even immutable reads through this primary endpoint wait
+                            // for a fresh installed quorum; no election event is a lease.
+                            router.confirm_read_quorum()?;
+                            let response = materializer.execute(&envelope, router, output)?;
+                            // Complete the prefix contract explicitly, including any
+                            // secondary payload commands. Reapplying the selected
+                            // engine's own command is idempotent; protocol-only pins
+                            // never enter this application index.
+                            for command in router
+                                .committed_application_commands_since(self.applied_version.get())
+                            {
+                                materializer.apply(&command).map_err(invalid)?;
+                                self.applied_version.set(command.commit.version);
+                            }
+                            self.applied_version.set(router.latest_version());
+                            Ok(response)
                         },
-                        error.message,
-                    )
-                })
-            })();
-            let materialized = matches!(
-                response,
-                DataPlaneResponse::Executed { .. } | DataPlaneResponse::Streamed { .. }
-            );
-            (response, materialized)
-        })
+                    );
+                    result.unwrap_or_else(|error| {
+                        rejected(
+                            match envelope.operation_kind {
+                                WireOperationKind::Read => MutationOutcome::NotAttempted,
+                                _ => MutationOutcome::Unknown,
+                            },
+                            error.message,
+                        )
+                    })
+                })();
+                let materialized = matches!(
+                    response,
+                    DataPlaneResponse::Executed { .. } | DataPlaneResponse::Streamed { .. }
+                );
+                (response, materialized)
+            })
+            .unwrap_or_else(|reason| {
+                rejected(
+                    match envelope.operation_kind {
+                        WireOperationKind::Read => MutationOutcome::NotAttempted,
+                        _ => MutationOutcome::Unknown,
+                    },
+                    reason,
+                )
+            })
     }
 }
 fn invalid(message: impl Into<String>) -> RsfError {

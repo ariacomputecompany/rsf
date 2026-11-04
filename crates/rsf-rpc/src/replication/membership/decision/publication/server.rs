@@ -40,6 +40,7 @@ impl PeerReplicaServer {
     ) -> Result<VsrMembershipPublishedReport, String> {
         quorum.encode().map_err(|e| e.message)?;
         let pg = quorum.proposal().election.pg;
+        self.control_stage_supported(pg)?;
         if !quorum.proposal().new_voters.contains(&self.local) {
             return Err("membership publication requires a proposed local voter".into());
         }
@@ -47,7 +48,7 @@ impl PeerReplicaServer {
             check_published(&report, self.local, quorum)?;
             return self.query_membership_publication(pg, quorum.plan_id(), apply);
         }
-        self.validate_managed_membership_anchor(pg)?;
+        self.control_membership_mutation(pg, Some(quorum.proposal()))?;
         if quorum
             .proposal()
             .new_voters
@@ -121,9 +122,7 @@ impl PeerReplicaServer {
             .historical_publication(pg, plan)?
             .ok_or_else(|| "membership plan is not published locally".to_string())?;
         self.installation_pending.insert(pg);
-        for entry in self.cells[&pg].committed_prefix().map_err(|e| e.message)? {
-            apply(&entry)?;
-        }
+        self.materialize_owned_prefix(pg, apply)?;
         let report = self.historical_publication(pg, plan)?.ok_or_else(|| {
             "membership publication disappeared during materialization".to_string()
         })?;

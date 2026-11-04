@@ -13,6 +13,16 @@ pub(super) fn publish(source: &mut DurableVsrCell, target: &mut rsf_vsr::Learner
     target.finish(id).unwrap();
 }
 
+fn publish_application(
+    source: &mut DurableVsrCell,
+    target: &mut crate::replication::learner::LearnerOwner,
+) {
+    let crate::replication::learner::LearnerOwner::Application(target) = target else {
+        panic!("application custody fixture cannot bypass a control owner");
+    };
+    publish(source, target);
+}
+
 pub(super) fn managed_learner(fixture: &Accepted) -> (PeerReplicaServer, DurableVsrCell) {
     let root = &fixture.root;
     let mut source = DurableVsrCell::open(
@@ -273,7 +283,7 @@ fn real_tls_managed_changed_learner_revalidates_original_authority_before_cachin
         source.commit(NodeId(0), entry.index).unwrap(),
         VsrDecision::Committed(_)
     ));
-    publish(&mut source, server.learners.get_mut(&PG).unwrap());
+    publish_application(&mut source, server.learners.get_mut(&PG).unwrap());
     let second = server.learners[&PG].published_state_token().unwrap();
     assert_ne!(first, second);
     let round = VsrMembershipRound {
@@ -304,7 +314,7 @@ fn real_tls_managed_changed_learner_revalidates_original_authority_before_cachin
         source.commit(NodeId(0), entry.index).unwrap(),
         VsrDecision::Committed(_)
     ));
-    publish(&mut source, server.learners.get_mut(&PG).unwrap());
+    publish_application(&mut source, server.learners.get_mut(&PG).unwrap());
     assert_ne!(
         second,
         server.learners[&PG].published_state_token().unwrap()
@@ -391,7 +401,7 @@ fn real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receip
         .remember_client_request(fixture.request.clone(), entry.index)
         .unwrap();
     let old = server.learners[&PG].published_state_token().unwrap();
-    publish(&mut source, server.learners.get_mut(&PG).unwrap());
+    publish_application(&mut source, server.learners.get_mut(&PG).unwrap());
     assert_ne!(old, server.learners[&PG].published_state_token().unwrap());
     let request = wire_request(0, &proposed(), bootstrap(&fixture), &[]);
     let (mut server, result, applied) =

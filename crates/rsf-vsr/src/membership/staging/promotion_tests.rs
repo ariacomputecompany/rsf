@@ -611,3 +611,6 @@ fn learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership
 
 #[path = "promotion_metadata_tests.rs"]
 mod bounded_promotion_metadata;
+
+#[path = "promotion_tests/bounded_voter.rs"]
+mod bounded_voter;

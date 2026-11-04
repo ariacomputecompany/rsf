@@ -1,6 +1,7 @@
 //! Non-voting history transfer uses authenticated peer RPCs but cannot satisfy
 //! any voting RPC. Source ownership and current-voter probes bracket transfer.
 use super::*;
+pub(super) mod status;
 use rsf_vsr::{VsrHistoryDescriptor, VsrHistoryRecord, VsrPrimaryProbe};
 
 impl NetworkVsrTransport {
@@ -104,6 +105,17 @@ impl PeerReplicaServer {
             Some(descriptor) => descriptor.probe.pg,
             None => PlacementGroupId(u64_at(payload, 0)?),
         };
+        let reserved = self.is_control_group(pg);
+        if self
+            .learners
+            .get(&pg)
+            .is_some_and(|owner| matches!(owner, learner::LearnerOwner::Control(_)))
+            != reserved
+        {
+            return Err(invalid(
+                "control learner owner differs from immutable binding",
+            ));
+        }
         let learner = self
             .learners
             .get_mut(&pg)
@@ -114,7 +126,14 @@ impl PeerReplicaServer {
             ));
         }
         if let Some(descriptor) = descriptor {
-            return learner.begin(descriptor).map(LogIndex).map_err(rsf);
+            return match learner {
+                learner::LearnerOwner::Application(owner) => {
+                    owner.begin(descriptor).map(LogIndex).map_err(rsf)
+                }
+                learner::LearnerOwner::Control(owner) => {
+                    owner.begin(sender, descriptor).map(LogIndex)
+                }
+            };
         }
         let id = payload
             .get(8..40)
@@ -124,25 +143,38 @@ impl PeerReplicaServer {
         match kind {
             HISTORY_RECORD => {
                 let ordinal = u64_at(payload, 40)?;
-                let record = VsrHistoryRecord::decode(
-                    payload
-                        .get(48..)
-                        .ok_or_else(|| invalid("missing history record"))?,
-                )
-                .map_err(rsf)?;
-                learner
-                    .append(id, ordinal, record)
-                    .map(LogIndex)
-                    .map_err(rsf)
+                let encoded = payload
+                    .get(48..)
+                    .ok_or_else(|| invalid("missing history record"))?;
+                match learner {
+                    learner::LearnerOwner::Application(owner) => owner
+                        .append(id, ordinal, VsrHistoryRecord::decode(encoded).map_err(rsf)?)
+                        .map(LogIndex)
+                        .map_err(rsf),
+                    learner::LearnerOwner::Control(owner) => {
+                        owner.append(sender, id, ordinal, encoded).map(LogIndex)
+                    }
+                }
             }
             HISTORY_FINISH if payload.len() == 40 => {
-                let tail = learner.finish(id).map_err(rsf)?;
-                // Publishing the WAL precedes materialization, so crashes or lost
-                // replies can retry the idempotent materializer from ACTIVE.
-                if self.learner_materialized.get(&pg) != Some(&id) {
-                    for entry in learner.committed_entries().map_err(rsf)? {
-                        apply(&entry).map_err(invalid)?;
+                let tail = match learner {
+                    learner::LearnerOwner::Application(owner) => owner.finish(id).map_err(rsf)?,
+                    learner::LearnerOwner::Control(owner) => {
+                        let (tail, state) = owner.finish(sender, id)?;
+                        let binding = self
+                            .managed_control
+                            .as_mut()
+                            .ok_or_else(|| invalid("control learner lost immutable binding"))?;
+                        if binding.pg() != pg {
+                            return Err(invalid("control learner binding PG mismatch"));
+                        }
+                        binding.record_learner_observation(state);
+                        self.learner_materialized.insert(pg, id);
+                        return Ok(tail);
                     }
+                };
+                if self.learner_materialized.get(&pg) != Some(&id) {
+                    self.materialize_owned_learner(pg, apply).map_err(invalid)?;
                     self.learner_materialized.insert(pg, id);
                 }
                 Ok(tail)

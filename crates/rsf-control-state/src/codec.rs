@@ -14,6 +14,11 @@ pub(crate) fn hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 }
 
 impl ControlCommand {
+    /// Domain discrimination only, never successful decoding or authority.
+    pub fn has_domain_prefix(bytes: &[u8]) -> bool {
+        bytes.starts_with(MAGIC)
+    }
+
     pub fn encode(&self) -> RsfResult<Vec<u8>> {
         let mut w = Writer::new();
         w.raw(MAGIC)?;

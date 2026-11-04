@@ -3,6 +3,14 @@ use rsf_core::{LogIndex, NodeId, PlacementGroupId};
 use rsf_vsr::{DurableVsrCell, VsrMembershipLineage, VsrOperation, VsrStateToken};
 use std::collections::BTreeMap;
 
+mod import;
+mod intent;
+mod preflight;
+mod published;
+mod read;
+pub use intent::CommittedIntent;
+pub use published::{PublishedControlState, PublishedIntent};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Rejection {
     AlreadyInitialized,
@@ -40,23 +48,17 @@ pub struct ControlState {
 }
 impl ControlState {
     pub fn recover(anchor: &ControlBootstrap, cell: &DurableVsrCell) -> RsfResult<Self> {
-        anchor.validate()?;
         let stamp = cell.recovery_state_token()?;
         let current = cell.membership_lineage()?;
-        if current.pg != anchor.control_pg || current.bootstrap != anchor.control_bootstrap {
-            return Err(corrupt(
-                "control cell does not extend provisioned bootstrap",
-            ));
-        }
-        // Check aggregate allocation before committed_prefix clones payloads.
-        let tail = cell.committed_tail().0;
-        if tail > MAX_CONTROL_RECORDS as u64 || cell.committed_count() > MAX_CONTROL_RECORDS {
-            return Err(invalid(
-                "control history exceeds qualified replay record bound",
-            ));
-        }
+        let mut replay = read::CommittedReplay::new(
+            anchor,
+            &current,
+            cell.committed_tail(),
+            cell.committed_count(),
+        )?;
+        // Bound allocation before the compatibility prefix accessor clones.
         let mut bytes = 0usize;
-        for index in 1..=tail {
+        for index in 1..=cell.committed_tail().0 {
             if let Some(operation) = cell.committed_operation(LogIndex(index)) {
                 let VsrOperation::ReplicatedCommand { payload, .. } = operation else {
                     return Err(corrupt("non-control operation in control history"));
@@ -64,57 +66,27 @@ impl ControlState {
                 bytes = bytes
                     .checked_add(payload.len())
                     .ok_or_else(|| corrupt("control replay byte overflow"))?;
-                if bytes > MAX_REPLAY_BYTES {
+                if bytes > MAX_REPLAY_BYTES || payload.len() > MAX_COMMAND_BYTES {
                     return Err(invalid(
                         "control history exceeds qualified replay byte bound",
                     ));
                 }
-                let prepare = cell
-                    .prepared(LogIndex(index))
-                    .ok_or_else(|| corrupt("committed control operation has no prepare"))?;
-                let historical = cell
-                    .membership_lineage_at(prepare.view)?
-                    .ok_or_else(|| corrupt("control operation has no historical lineage"))?;
-                if historical.voters.len() > MAX_NODES {
-                    return Err(invalid("control history exceeds qualified voter bound"));
-                }
             }
         }
-        let entries = cell.committed_prefix()?;
-        let mut state = ReplayState::new(anchor.clone());
-        for entry in entries {
-            if entry.prepare.pg != anchor.control_pg
-                || entry.commit.pg != anchor.control_pg
-                || entry.prepare.index != entry.commit.index
-                || entry.prepare.operation != entry.commit.certificate.operation
-            {
-                return Err(corrupt("control committed entry identity mismatch"));
-            }
-            let VsrOperation::ReplicatedCommand { payload, .. } = &entry.prepare.operation else {
-                return Err(corrupt("non-control operation in control history"));
-            };
-            let command =
-                ControlCommand::decode(payload).map_err(|error| corrupt(error.message))?;
-            let authority = cell
+        for entry in cell.committed_prefix()? {
+            let historical = cell
                 .membership_lineage_at(entry.prepare.view)?
                 .ok_or_else(|| corrupt("control entry lacks historical membership lineage"))?;
-            // Reprepare may replace an ordinary view/primary envelope around the
-            // same operation. Replay consumes its stable membership authority;
-            // concrete proposal freshness must not change a committed outcome.
-            state.apply(entry.prepare.index, &authority, command)?;
+            replay.push(&entry.prepare, &entry.commit, &historical)?;
         }
-        if state.catalog.is_none() || state.tail.0 != tail {
-            return Err(corrupt(
-                "control history lacks complete committed genesis/prefix",
-            ));
-        }
+        let (state, replay_bytes) = replay.finish()?;
         if stamp != cell.recovery_state_token()? {
             return Err(corrupt("control authority changed during replay"));
         }
         Ok(Self {
             state,
             stamp,
-            replay_bytes: bytes,
+            replay_bytes,
         })
     }
     pub fn catalog(&self) -> &ControlCatalog {
@@ -133,7 +105,16 @@ impl ControlState {
         self.state.last.as_ref().expect("recovered genesis")
     }
     pub fn pending(&self) -> Option<&MembershipIntent> {
-        self.state.pending.as_ref()
+        self.state.pending.as_ref().map(|pending| &pending.intent)
+    }
+    /// First committed Begin that produced IntentAccepted for this request.
+    /// Accepted-only VSR entries and rejected Begin commands have no such index.
+    /// Exact retries retain this origin even after finalization.
+    pub fn request_begin_index(&self, request: ControlRequestId) -> Option<LogIndex> {
+        self.state
+            .receipts
+            .get(&request)
+            .and_then(|receipt| receipt.begin)
     }
     pub fn request_outcome(&self, request: ControlRequestId) -> Option<&ControlOutcome> {
         self.state
@@ -146,58 +127,6 @@ impl ControlState {
             .completed
             .get(&intent)
             .map(|complete| complete.proofs.as_slice())
-    }
-    /// Call before proposing, under exclusive control-cell custody, after
-    /// reconciling any accepted tail. Reserve one maximum finalization before
-    /// allowing an intent to fence data. No checkpoint exists in this format.
-    /// This is a capacity check, not a proposal-freshness authorization. The
-    /// writer and each fence receiver must validate the exact concrete proposal
-    /// against their live cell immediately before effects. An ordinary election
-    /// leaves a stale pending proposal intact; this API never rebases or cancels it.
-    pub fn preflight_command(
-        &self,
-        control: &DurableVsrCell,
-        command: &ControlCommand,
-    ) -> RsfResult<usize> {
-        if self.stamp != control.recovery_state_token()?
-            || control.next_index().0 != self.state.tail.0 + 1
-        {
-            return Err(invalid(
-                "control preflight requires current replay and reconciled accepted tail",
-            ));
-        }
-        let bytes = command.encode()?.len();
-        let pending = self.pending();
-        control.primary_probe()?;
-        let completes_pending =
-            if let (ControlCommand::Finalize(finalization), Some(_)) = (command, pending) {
-                let mut simulated = self.state.clone();
-                simulated.finalize(finalization.clone(), &control.membership_lineage()?)?;
-                simulated.pending.is_none()
-            } else {
-                false
-            };
-        let reservation = if completes_pending {
-            0
-        } else if let Some(intent) = pending {
-            intent.preflight()?.maximum_encoded_bytes
-        } else if let ControlCommand::Begin(intent) = command {
-            intent.preflight()?.maximum_encoded_bytes
-        } else {
-            0
-        };
-        let total = self
-            .replay_bytes
-            .checked_add(bytes)
-            .and_then(|total| total.checked_add(reservation))
-            .ok_or_else(|| invalid("control history budget overflow"))?;
-        let records = control.next_index().0 + if reservation != 0 { 1 } else { 0 };
-        if total > MAX_REPLAY_BYTES || records > MAX_CONTROL_RECORDS as u64 {
-            return Err(invalid(
-                "control history has no qualified capacity for command and finalization",
-            ));
-        }
-        Ok(bytes)
     }
     pub fn admission(&self, control: &DurableVsrCell) -> RsfResult<CommittedAdmission> {
         if self.stamp != control.recovery_state_token()? {
@@ -309,6 +238,13 @@ impl CommittedAdmission {
 struct Receipt {
     command: [u8; 32],
     outcome: ControlOutcome,
+    begin: Option<LogIndex>,
+}
+#[derive(Clone, Debug)]
+struct PendingIntent {
+    intent: MembershipIntent,
+    begin: LogIndex,
+    old_control: VsrMembershipLineage,
 }
 #[derive(Clone, Debug)]
 struct Completion {
@@ -323,7 +259,7 @@ pub(crate) struct ReplayState {
     root: Option<CatalogRoot>,
     revision: ControlRevision,
     tail: LogIndex,
-    pending: Option<MembershipIntent>,
+    pending: Option<PendingIntent>,
     receipts: BTreeMap<ControlRequestId, Receipt>,
     completed: BTreeMap<IntentId, Completion>,
     last: Option<ControlOutcome>,
@@ -364,7 +300,7 @@ impl ReplayState {
                 if self.catalog.is_none() {
                     return Err(corrupt("membership intent precedes genesis"));
                 }
-                self.begin(intent, authority)?
+                self.begin(index, intent, authority)?
             }
             ControlCommand::Finalize(finalization) => {
                 if self.catalog.is_none() {
@@ -412,6 +348,7 @@ impl ReplayState {
     }
     fn begin(
         &mut self,
+        index: LogIndex,
         intent: MembershipIntent,
         authority: &VsrMembershipLineage,
     ) -> RsfResult<ControlOutcome> {
@@ -429,7 +366,11 @@ impl ReplayState {
         let outcome = match self.check_intent(&intent, authority) {
             Err(reason) => rejected(reason),
             Ok(()) => {
-                self.pending = Some(intent.clone());
+                self.pending = Some(PendingIntent {
+                    intent: intent.clone(),
+                    begin: index,
+                    old_control: authority.clone(),
+                });
                 ControlOutcome::IntentAccepted { intent: id }
             }
         };
@@ -438,6 +379,7 @@ impl ReplayState {
             Receipt {
                 command: id.0,
                 outcome: outcome.clone(),
+                begin: matches!(&outcome, ControlOutcome::IntentAccepted { .. }).then_some(index),
             },
         );
         Ok(outcome)
@@ -523,9 +465,10 @@ impl ReplayState {
                 },
             );
         }
-        let Some(intent) = self.pending.as_ref() else {
+        let Some(pending) = self.pending.as_ref() else {
             return Ok(rejected(Rejection::MissingIntent));
         };
+        let intent = &pending.intent;
         if intent.id()? != finalization.intent {
             return Ok(rejected(Rejection::MissingIntent));
         }

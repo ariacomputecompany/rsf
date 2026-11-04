@@ -9,6 +9,7 @@ impl PeerReplicaServer {
         chosen: &VsrMembershipChosen,
     ) -> Result<Option<VsrMembershipStagedReport>, String> {
         let pg = chosen.proposal().election.pg;
+        self.control_stage_supported(pg)?;
         // A warm receipt is independently bound to this stage and live hosted
         // token. Fresh staging below still requires the managed decision owner.
         let Some(stage) = self.membership_staging.get(&pg) else {
@@ -45,9 +46,11 @@ impl PeerReplicaServer {
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
     ) -> Result<VsrMembershipStagedReport, String> {
         let pg = chosen.proposal().election.pg;
+        self.control_stage_supported(pg)?;
         if let Some(report) = self.staged_receipt_retry(&chosen)? {
             return Ok(report);
         }
+        self.control_membership_mutation(pg, Some(chosen.proposal()))?;
         let approval = self
             .membership_decisions
             .get(&pg)
@@ -66,7 +69,8 @@ impl PeerReplicaServer {
     ) -> Result<VsrMembershipStagedReport, String> {
         quorum.encode().map_err(|e| e.message)?;
         let pg = quorum.proposal().election.pg;
-        self.validate_managed_membership_anchor(pg)?;
+        self.control_stage_supported(pg)?;
+        self.control_membership_mutation(pg, Some(quorum.proposal()))?;
         let decision = self
             .membership_decisions
             .get(&pg)
@@ -120,6 +124,7 @@ impl PeerReplicaServer {
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
     ) -> Result<VsrMembershipStagedReport, String> {
         let pg = chosen.proposal().election.pg;
+        self.control_stage_supported(pg)?;
         self.load_chosen_membership(chosen, approval)?;
         self.materialize_membership_stage(pg, apply)
     }
@@ -130,7 +135,8 @@ impl PeerReplicaServer {
         approval: VsrMembershipApproval,
     ) -> Result<(), String> {
         let pg = chosen.proposal().election.pg;
-        self.validate_managed_membership_anchor(pg)?;
+        self.control_stage_supported(pg)?;
+        self.control_membership_mutation(pg, Some(chosen.proposal()))?;
         self.initialize_membership_decision(&approval)?;
         self.membership_decisions
             .get_mut(&pg)
@@ -245,6 +251,7 @@ impl PeerReplicaServer {
     ) -> io::Result<Vec<u8>> {
         let chosen = VsrMembershipChosen::decode(payload).map_err(|e| invalid(e.message))?;
         let pg = chosen.proposal().election.pg;
+        self.control_stage_supported(pg).map_err(invalid)?;
         if sender == self.local || !chosen.proposal().new_voters.contains(&sender) {
             return Err(invalid(
                 "membership staging requires an authenticated proposed-voter coordinator",
@@ -253,6 +260,8 @@ impl PeerReplicaServer {
         if let Some(report) = self.staged_receipt_retry(&chosen).map_err(invalid)? {
             return report.encode().map_err(|e| invalid(e.message));
         }
+        self.control_membership_mutation(pg, Some(chosen.proposal()))
+            .map_err(invalid)?;
         let retained = if let Some(store) = self.membership_decisions.get(&pg) {
             if store.proposal() != chosen.proposal() {
                 return Err(invalid("membership staging differs from retained proposal"));

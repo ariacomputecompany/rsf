@@ -28,35 +28,39 @@ Current release status: **not production qualified**. Linux is the only producti
 target. Verification is local and releases use ordinary pushes to remote `main`;
 no CI/CD is authorized.
 
-The current local baseline passes all 25 domains: 1,443 workspace tests, zero
-failures, all 150 required regressions and all 16 native-membership commands.
-The single workspace-ignored stress test passes separately in debug and release.
-Strict workspace all-target Clippy and formatting also pass. Deadlines, retries,
-workloads and concurrency remain unchanged. The source-bound report is
-`docs/custody-group-full-verification-2026-11-03.json`.
+The current bounded replay/control checkpoint is **not a passing full baseline**.
+Its full 25-domain attempt passed 20 domains and failed five, including a stale
+custody-test assertion and intermittent STAGE deadlines. The assertion is corrected;
+the timeout work remains open. Preserve that failed attempt in
+`docs/bounded-control-full-v1-attempt-2026-11-03.json`. The earlier passing baseline
+in `docs/custody-group-full-verification-2026-11-03.json` does not qualify this source.
 
-Earlier failed attempts remain preserved in the custody and membership-group
-verification reports. This changed-source pass does not establish the exact
-substep causes of their transport deadline failures. Timing headroom and
-independent-host capacity still require qualification.
+Closeout evidence is recorded in `docs/checkpoints/2026-11-03/README.md`:
+484 scoped tests, strict local trace checks, workspace all-target Clippy and
+formatting pass on the recorded source. This is not the missing full baseline.
+Temporary diagnostics have been removed. Pending storage-open, namespace-disposal,
+initial-learner and native-identity patches are archived for review, not integrated
+or runtime-qualified features. The native-identity draft needs its retained-file
+readback correction and actual red/green execution before integration.
 
 Managed control initiation, authenticated commit-delivery confirmation, new-voter
-retention and receiver/client admission remain unfinished. Reviewed artifact
-drafts are not integrated or runtime-qualified production features. Local policy
-or a passing baseline cannot authorize those operations.
-
-Growing-history reopening/replay, bounded retention, legacy migration,
-independent-group routing and independent-host/region fault and numerical capacity
-qualification remain required. These one-host tests do not establish machine
-power-loss durability or production capacity. Actual Linux VM qualification
-remains open. Subsequent implementation requires fresh verification.
+retention and receiver/client admission remain unfinished. Local policy or passing
+scoped tests cannot authorize those operations. Growing-history reopening/replay,
+bounded retention, legacy migration, independent-group routing and independent-host/
+region fault and numerical capacity qualification remain required. Local Darwin
+checks do not establish Linux kernel behavior, machine power-loss durability or
+production capacity. Actual Linux VM qualification and a fresh full baseline remain
+open.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 
-- Integrate and qualify bounded historical replay, original-custody append and
-  control bootstrap/initial-learner paths. Complete bounded namespace disposal
-  and its provisional-retention contract; finite WAL reads alone do not bound
-  the complete transfer lifecycle.
+- Resolve STAGE deadline headroom and qualify integrated bounded historical
+  replay, original-custody append and control bootstrap against a fresh full
+  baseline. Review and execute the archived storage-open publication correction.
+- Integrate and qualify initial-learner/native-identity paths and bounded namespace
+  disposal with its provisional-retention contract. Compose the private initial
+  owner context with disposal before combining those drafts; finite WAL reads
+  alone do not bound the complete transfer lifecycle.
 - Investigate responsive corrupt accepted minorities with the five-driver
   diagnostic; qualify unfenced old-voter enrollment without treating missing
   acknowledged input as repairable.

@@ -4,13 +4,13 @@ use super::*;
 
 #[derive(Debug)]
 pub struct SegmentReadCustody {
-    root: PathBuf,
-    gate: StoreGate,
-    root_identity: Identity,
-    directory: Identity,
-    manifest: FileStamp,
-    manifest_bytes: Vec<u8>,
-    segments: Vec<(String, FileStamp)>,
+    pub(super) root: PathBuf,
+    pub(super) gate: StoreGate,
+    pub(super) root_identity: Identity,
+    pub(super) directory: Identity,
+    pub(super) manifest: FileStamp,
+    pub(super) manifest_bytes: Vec<u8>,
+    pub(super) segments: Vec<(String, FileStamp)>,
 }
 
 impl SegmentStore {
@@ -34,50 +34,10 @@ fn recover_immutable(
     max_manifest_bytes: usize,
     captured: impl FnOnce(),
 ) -> RsfResult<(SegmentStoreRecovery, SegmentReadCustody)> {
-    let mut path = PathBuf::new();
-    for component in root.components() {
-        if component != std::path::Component::CurDir {
-            path.push(component.as_os_str());
-        }
-    }
-    if path.as_os_str().is_empty() {
-        path.push(".");
-    }
-    let root_identity = directory_identity(&path)?;
-    let directory = directory_identity(&path.join(SEGMENT_DIR))?;
+    let path = normalize_root(root);
     let gate = store_gate(&path)?;
     let _guard = lock_gate(&gate)?;
-    let manifest_path = path.join(MANIFEST_FILE);
-    let manifest_stamp = regular_file(&manifest_path)?;
-    let limit = u64::try_from(max_manifest_bytes)
-        .map_err(|_| custody_error("immutable manifest budget exceeds platform range"))?;
-    if manifest_stamp.bytes > limit {
-        return Err(custody_error(
-            "immutable manifest exceeds caller byte budget",
-        ));
-    }
-    let bytes = read_checked(&manifest_path, &manifest_stamp, limit)?;
-    let manifest = SegmentManifest::decode(&bytes)?;
-    if manifest.encode().as_bytes() != bytes {
-        return Err(custody_error("immutable manifest is not canonical"));
-    }
-    let segments = manifest
-        .segments
-        .iter()
-        .map(|segment| {
-            let stamp = regular_file(&path.join(SEGMENT_DIR).join(&segment.file_name))?;
-            Ok((segment.file_name.clone(), stamp))
-        })
-        .collect::<RsfResult<Vec<_>>>()?;
-    let custody = SegmentReadCustody {
-        root: path,
-        gate: gate.clone(),
-        root_identity,
-        directory,
-        manifest: manifest_stamp,
-        manifest_bytes: bytes,
-        segments,
-    };
+    let (manifest, custody) = capture_locked(path, gate.clone(), max_manifest_bytes)?;
     captured();
     let mut recovery = Recovery {
         records: Vec::new(),
@@ -133,6 +93,61 @@ fn recover_immutable(
     ))
 }
 
+pub(super) fn normalize_root(root: &Path) -> PathBuf {
+    let mut path = PathBuf::new();
+    for component in root.components() {
+        if component != std::path::Component::CurDir {
+            path.push(component.as_os_str());
+        }
+    }
+    if path.as_os_str().is_empty() {
+        path.push(".");
+    }
+    path
+}
+
+// Caller holds this root's gate throughout capture and its ensuing read.
+pub(super) fn capture_locked(
+    path: PathBuf,
+    gate: StoreGate,
+    max_manifest_bytes: usize,
+) -> RsfResult<(SegmentManifest, SegmentReadCustody)> {
+    let root_identity = directory_identity(&path)?;
+    let directory = directory_identity(&path.join(SEGMENT_DIR))?;
+    let manifest_path = path.join(MANIFEST_FILE);
+    let manifest_stamp = regular_file(&manifest_path)?;
+    let limit = u64::try_from(max_manifest_bytes)
+        .map_err(|_| custody_error("immutable manifest budget exceeds platform range"))?;
+    if manifest_stamp.bytes > limit {
+        return Err(custody_error(
+            "immutable manifest exceeds caller byte budget",
+        ));
+    }
+    let bytes = read_checked(&manifest_path, &manifest_stamp, limit)?;
+    let manifest = SegmentManifest::decode(&bytes)?;
+    if manifest.encode().as_bytes() != bytes {
+        return Err(custody_error("immutable manifest is not canonical"));
+    }
+    let segments = manifest
+        .segments
+        .iter()
+        .map(|segment| {
+            let stamp = regular_file(&path.join(SEGMENT_DIR).join(&segment.file_name))?;
+            Ok((segment.file_name.clone(), stamp))
+        })
+        .collect::<RsfResult<Vec<_>>>()?;
+    let custody = SegmentReadCustody {
+        root: path,
+        gate: gate.clone(),
+        root_identity,
+        directory,
+        manifest: manifest_stamp,
+        manifest_bytes: bytes,
+        segments,
+    };
+    Ok((manifest, custody))
+}
+
 impl SegmentReadCustody {
     /// Metadata/manifest-only comparison. Never adopts a changed file, reads WAL
     /// payloads, syncs, creates, truncates or repairs anything. Unix file identity
@@ -143,7 +158,7 @@ impl SegmentReadCustody {
         self.validate_locked()
     }
 
-    fn validate_locked(&self) -> RsfResult<()> {
+    pub(super) fn validate_locked(&self) -> RsfResult<()> {
         if directory_identity(&self.root)? != self.root_identity
             || directory_identity(&self.root.join(SEGMENT_DIR))? != self.directory
         {
@@ -163,7 +178,7 @@ impl SegmentReadCustody {
     }
 }
 
-fn open_checked(path: &Path, expected: &FileStamp) -> RsfResult<File> {
+pub(super) fn open_checked(path: &Path, expected: &FileStamp) -> RsfResult<File> {
     if regular_file(path)? != *expected {
         return Err(custody_error("immutable named file changed before open"));
     }
@@ -181,7 +196,7 @@ fn open_checked(path: &Path, expected: &FileStamp) -> RsfResult<File> {
     Ok(file)
 }
 
-fn read_checked(path: &Path, expected: &FileStamp, limit: u64) -> RsfResult<Vec<u8>> {
+pub(super) fn read_checked(path: &Path, expected: &FileStamp, limit: u64) -> RsfResult<Vec<u8>> {
     let file = open_checked(path, expected)?;
     if expected.bytes > limit {
         return Err(custody_error("immutable file exceeds bounded read"));

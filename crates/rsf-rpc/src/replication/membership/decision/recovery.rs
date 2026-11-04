@@ -212,6 +212,7 @@ impl PeerReplicaServer {
         let now = Instant::now();
         let mut groups = BTreeMap::new();
         for (pg, timing) in timing {
+            self.control_stage_supported(pg)?;
             timing.validate()?;
             let store = self.membership_decisions.get(&pg).ok_or_else(|| {
                 "membership recovery requires an existing decision journal".to_string()

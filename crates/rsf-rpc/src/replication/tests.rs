@@ -1875,3 +1875,5 @@ mod membership_publication;
 
 #[path = "tests/learner_custody.rs"]
 mod learner_custody;
+
+mod managed_control;

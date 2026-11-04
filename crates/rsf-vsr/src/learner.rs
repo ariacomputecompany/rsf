@@ -2,6 +2,10 @@
 //! hash-checked history, normal VSR recovery, and extension of published truth.
 use super::*;
 mod custody;
+mod replay;
+pub use replay::PublishedVsrReplay;
+mod prefix;
+pub use prefix::VsrImportPreview;
 pub(crate) mod promotion;
 pub use custody::VsrLearnerStateToken;
 use rsf_core::Digest;
@@ -21,6 +25,7 @@ struct Stage {
 
 #[derive(Debug)]
 struct Published {
+    bounded_flat: Option<prefix::guard::Flat>,
     id: [u8; 32],
     descriptor: VsrHistoryDescriptor,
     cell: DurableVsrCell,
@@ -38,6 +43,7 @@ pub struct LearnerHistoryStore {
     stage: Option<Stage>,
     published: Option<Published>,
     failed: AtomicBool,
+    prefix_context: Option<prefix::PrefixContext>,
     _lock: rsf_storage::ExclusiveFileLock,
 }
 
@@ -92,6 +98,7 @@ impl LearnerHistoryStore {
             stage: None,
             published: None,
             failed: AtomicBool::new(false),
+            prefix_context: None,
             _lock: lock,
         };
         match fs::read(learner.root.join("ACTIVE")) {
@@ -172,6 +179,7 @@ impl LearnerHistoryStore {
     /// lost reply or process restart. A different descriptor has a separate WAL.
     pub fn begin(&mut self, descriptor: VsrHistoryDescriptor) -> RsfResult<u64> {
         self.healthy()?;
+        self.require_ordinary_transfer()?;
         self.validate_descriptor(&descriptor)?;
         let id = descriptor.id()?;
         if let Some(published) = &self.published {
@@ -224,6 +232,7 @@ impl LearnerHistoryStore {
         record: VsrHistoryRecord,
     ) -> RsfResult<u64> {
         self.healthy()?;
+        self.require_ordinary_transfer()?;
         record.encode()?;
         let stage = self
             .stage
@@ -297,6 +306,7 @@ impl LearnerHistoryStore {
     /// prior snapshot remains authoritative until the synced ACTIVE rename.
     pub fn finish(&mut self, id: [u8; 32]) -> RsfResult<LogIndex> {
         self.healthy()?;
+        self.require_ordinary_transfer()?;
         if let Some(published) = &self.published
             && published.id == id
         {
@@ -403,6 +413,14 @@ impl LearnerHistoryStore {
         }
         Ok(())
     }
+    fn require_ordinary_transfer(&self) -> RsfResult<()> {
+        if self.prefix_context.is_some() {
+            return Err(invalid_input(
+                "bounded learner transfer requires its bounded API and validator",
+            ));
+        }
+        Ok(())
+    }
     fn healthy(&self) -> RsfResult<()> {
         self.check_failure()?;
         if self.published.is_some() {
@@ -497,6 +515,7 @@ impl LearnerHistoryStore {
             ));
         }
         Ok(Published {
+            bounded_flat: None,
             id: descriptor.id()?,
             descriptor,
             cell,

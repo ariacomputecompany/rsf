@@ -3,10 +3,10 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-const POINTER: &str = "VSR_ACTIVE";
-const GENERATIONS: &str = "vsr-views";
-const SEAL: &str = "VSR_SEAL";
-const PUBLISHED: &str = "VSR_PUBLISHED";
+pub(crate) const POINTER: &str = "VSR_ACTIVE";
+pub(crate) const GENERATIONS: &str = "vsr-views";
+pub(crate) const SEAL: &str = "VSR_SEAL";
+pub(crate) const PUBLISHED: &str = "VSR_PUBLISHED";
 
 #[derive(Clone, Copy)]
 pub(crate) enum Boundary {
@@ -19,6 +19,17 @@ pub(crate) struct Active {
     pub path: PathBuf,
     pub plan: Option<[u8; 32]>,
     seal: Option<([u8; 32], u64)>,
+}
+
+// Only an actually owned, already replayed flat learner uses this route. The
+// caller retains its original flat absence/store guards through construction.
+// It must not resolve a newly appeared pointer or complete a marker.
+pub(crate) fn flat_owned(path: &Path) -> Active {
+    Active {
+        path: path.to_path_buf(),
+        plan: None,
+        seal: None,
+    }
 }
 
 fn io_error(err: std::io::Error) -> RsfError {
@@ -69,21 +80,30 @@ pub(crate) fn publication_marked(root: &Path) -> bool {
     root.join(PUBLISHED).is_file()
 }
 
+pub(crate) fn published_record(pg: PlacementGroupId) -> Vec<u8> {
+    let mut bytes = b"VSP1".to_vec();
+    bytes.extend_from_slice(&pg.0.to_le_bytes());
+    checksum(&mut bytes);
+    bytes
+}
+
+pub(crate) fn validate_published(bytes: &[u8], pg: PlacementGroupId) -> RsfResult<()> {
+    checked_file(bytes, b"VSP1", 44)?;
+    if read_u64(bytes, 4)? != pg.0 {
+        return Err(corrupt("VSR publication marker belongs to another group"));
+    }
+    Ok(())
+}
+
 pub(crate) fn mark_published(root: &Path, pg: PlacementGroupId) -> RsfResult<()> {
     match read_fixed_file(&root.join(PUBLISHED), 44) {
         Ok(bytes) => {
-            checked_file(&bytes, b"VSP1", 44)?;
-            if read_u64(&bytes, 4)? != pg.0 {
-                return Err(corrupt("VSR publication marker belongs to another group"));
-            }
-            return Ok(());
+            return validate_published(&bytes, pg);
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(io_error(error)),
     }
-    let mut bytes = b"VSP1".to_vec();
-    bytes.extend_from_slice(&pg.0.to_le_bytes());
-    checksum(&mut bytes);
+    let bytes = published_record(pg);
     let temporary = root.join(".VSR_PUBLISHED.tmp");
     write_synced(&temporary, &bytes)?;
     fs::rename(temporary, root.join(PUBLISHED)).map_err(io_error)?;
@@ -91,7 +111,15 @@ pub(crate) fn mark_published(root: &Path, pg: PlacementGroupId) -> RsfResult<()>
 }
 
 pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
-    let bytes = match read_fixed_file(&root.join(POINTER), 140) {
+    active_with(root, pg, &mut read_fixed_file)
+}
+
+pub(crate) fn active_with(
+    root: &Path,
+    pg: PlacementGroupId,
+    read: &mut impl FnMut(&Path, usize) -> io::Result<Vec<u8>>,
+) -> RsfResult<Active> {
+    let bytes = match read(&root.join(POINTER), 140) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             if crate::learner::promotion::has_claim(root) {
@@ -119,7 +147,10 @@ pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
         if promoted { b"VSA2" } else { b"VSA1" },
         if promoted { 140 } else { 108 },
     )?;
-    match (promoted, crate::learner::promotion::owner_digest(root)?) {
+    match (
+        promoted,
+        crate::learner::promotion::owner_digest_with(root, read)?,
+    ) {
         (false, None) => {}
         (true, Some(owner)) if bytes[76..108] == owner => {}
         _ => return Err(corrupt("active pointer differs from promotion ownership")),
@@ -141,7 +172,7 @@ pub(crate) fn active(root: &Path, pg: PlacementGroupId) -> RsfResult<Active> {
             "active VSR generation must be an existing directory",
         ));
     }
-    let seal = read_fixed_file(&path.join(SEAL), 116).map_err(io_error)?;
+    let seal = read(&path.join(SEAL), 116).map_err(io_error)?;
     checked_file(&seal, b"VSS1", 116)?;
     if read_u64(&seal, 4)? != pg.0 || seal[12..44] != id || seal[44..76] != plan {
         return Err(corrupt("active VSR generation seal differs from pointer"));

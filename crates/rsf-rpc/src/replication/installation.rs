@@ -66,6 +66,21 @@ impl NetworkVsrTransport {
         local: &mut DurableVsrCell,
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
     ) -> Result<rsf_core::Epoch, VsrTransportError> {
+        self.resume_view_installation_owned(local, &mut |cell| {
+            for entry in cell.committed_prefix().map_err(|e| e.message)? {
+                apply(&entry)?;
+            }
+            Ok(())
+        })
+    }
+
+    // Internal owner-aware completion permits configured projections to inspect
+    // the installed lineage without ever exposing a learner or synthetic cell.
+    pub(in crate::replication) fn resume_view_installation_owned(
+        &self,
+        local: &mut DurableVsrCell,
+        materialize: &mut impl FnMut(&DurableVsrCell) -> Result<(), String>,
+    ) -> Result<rsf_core::Epoch, VsrTransportError> {
         let fail = |reason: String| VsrTransportError {
             replica: self.local,
             reason,
@@ -86,9 +101,7 @@ impl NetworkVsrTransport {
         let view = local
             .finish_installation_input(self.local, id)
             .map_err(|err| fail(err.message))?;
-        for entry in local.committed_prefix().map_err(|err| fail(err.message))? {
-            apply(&entry).map_err(fail)?;
-        }
+        materialize(local).map_err(fail)?;
         let mut installed = 1;
         let mut failures = Vec::new();
         for replica in input
@@ -180,6 +193,7 @@ impl PeerReplicaServer {
             None => PlacementGroupId(u64_at(payload, 0)?),
         };
         self.pending_contact = Some(pg);
+        let control = self.is_control_group(pg);
         let cell = self
             .cells
             .get_mut(&pg)
@@ -228,10 +242,14 @@ impl PeerReplicaServer {
                     };
                     self.installation_pending.insert(pg);
                     let view = cell.finish_installation_input(sender, id).map_err(rsf)?;
-                    if !materialized || before != Some(cell.state_token().map_err(rsf)?) {
-                        for entry in cell.committed_prefix().map_err(rsf)? {
-                            apply(&entry).map_err(invalid)?;
-                        }
+                    if control || !materialized || before != Some(cell.state_token().map_err(rsf)?)
+                    {
+                        managed_control::materialize_voter(
+                            self.managed_control.as_mut(),
+                            cell,
+                            apply,
+                        )
+                        .map_err(invalid)?;
                     }
                     self.installation_pending.remove(&pg);
                     view.0

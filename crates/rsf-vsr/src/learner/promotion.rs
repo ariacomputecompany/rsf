@@ -171,6 +171,13 @@ pub(crate) fn owner_digest(root: &Path) -> RsfResult<Option<[u8; 32]>> {
     Ok(Identity::read(root)?.map(|i| i.digest()))
 }
 
+pub(crate) fn owner_digest_with(
+    root: &Path,
+    read: &mut impl FnMut(&Path, usize) -> std::io::Result<Vec<u8>>,
+) -> RsfResult<Option<[u8; 32]>> {
+    Ok(Identity::read_with(root, read)?.map(|identity| identity.digest()))
+}
+
 pub(crate) fn validate_history<'a>(
     root: &Path,
     pg: PlacementGroupId,

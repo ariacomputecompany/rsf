@@ -445,7 +445,7 @@ impl PeerService {
             learners,
             timeout,
         )?;
-        let server = if managed.is_empty() {
+        let mut server = if managed.is_empty() {
             server
         } else {
             server
@@ -459,7 +459,7 @@ impl PeerService {
         state_identity.enroll(&state, &managed)?;
         let mut materializer = ApplicationMaterializer::new(state.join("application"));
         let mut recovered = Vec::new();
-        for entry in server.committed_entries()? {
+        for entry in server.committed_application_entries()? {
             if let Some(command) = decode_application_entry(&entry)? {
                 recovered.push(command);
             }

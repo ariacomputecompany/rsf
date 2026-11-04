@@ -8,6 +8,9 @@ Testing is not enough for RSF. The database must be designed so its failure case
 
 ## Running the release checks
 
+Run these checks locally. Repository delivery uses direct pushes to remote `main`;
+no CI/CD workflows, hosted runners or deployment automation are authorized.
+
 Use the Fozzy determinism engine. `fz` is the FozzyLang compiler, and some
 machines also install that compiler under the name `fozzy`. The verification
 script checks the CLI identity and accepts an explicit engine path:
@@ -73,8 +76,9 @@ from a copy of each scenario and runs its actual process steps with host
 backends. Cargo must exit successfully. Host stdout and stderr are recorded
 without asserting that variable test timing or scheduling matches empty mock
 output. Every host trace must pass strict integrity verification, replay, and
-CI. Replay verifies recorded observations; it does not constitute another fresh
-execution of the Rust tests.
+the local `fozzy ci` trace-parity command. That command checks a local trace; it
+does not create or run a CI/CD pipeline. Replay verifies recorded observations;
+it does not constitute another fresh execution of the Rust tests.
 
 The script requires Python 3 to prepare host scenarios and Cargo to execute
 them. A pass from a compiler shim or a scripted-only scenario is insufficient

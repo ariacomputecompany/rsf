@@ -156,6 +156,7 @@ impl PeerReplicaServer {
         let path = self
             .membership_paths
             .get(&pg)
+            .cloned()
             .ok_or_else(|| "membership group has no configured transition path".to_string())?;
         if let Some(existing) = self.membership_decisions.get(&pg) {
             if existing.proposal() != approval.proposal() {
@@ -175,6 +176,7 @@ impl PeerReplicaServer {
             }
             return Ok(());
         }
+        self.control_membership_mutation(pg, Some(approval.proposal()))?;
         // An ancestral proof never creates a new acceptor or replaces a journal.
         self.validate_decision_authority(pg, approval)?;
         let store = MembershipDecisionStore::open(path.join("decision"), self.local, approval)
@@ -228,6 +230,7 @@ impl PeerReplicaServer {
         pg: PlacementGroupId,
         operation: impl FnOnce(&mut MembershipDecisionStore, NetworkVsrTransport) -> R,
     ) -> Result<R, String> {
+        self.control_membership_mutation(pg, None)?;
         let store = self
             .membership_decisions
             .get_mut(&pg)
@@ -282,7 +285,7 @@ impl PeerReplicaServer {
         if kind == MEMBERSHIP_AUTH_BEGIN {
             let input = VsrMembershipInput::decode(payload).map_err(rsf)?;
             let pg = input.proposal().election.pg;
-            self.validate_managed_membership_anchor(pg)
+            self.control_membership_mutation(pg, Some(input.proposal()))
                 .map_err(invalid)?;
             self.validate_decision_nodes(input.proposal())
                 .map_err(invalid)?;
@@ -304,7 +307,12 @@ impl PeerReplicaServer {
         }
         if matches!(kind, MEMBERSHIP_AUTH_BATCH | MEMBERSHIP_AUTH_FINISH) {
             let pg = PlacementGroupId(u64_at(payload, 0)?);
-            self.validate_managed_membership_anchor(pg)
+            let selected = self
+                .membership_inputs
+                .get(&pg)
+                .and_then(|inbox| inbox.selected_input())
+                .map(|input| input.proposal().clone());
+            self.control_membership_mutation(pg, selected.as_ref())
                 .map_err(invalid)?;
             let id = id_at(payload, 8)?;
             let inbox = self
@@ -334,7 +342,7 @@ impl PeerReplicaServer {
         if kind == MEMBERSHIP_ACCEPT {
             let (decision, nomination) = decode_acceptance(payload)?;
             let pg = decision.input().proposal().election.pg;
-            self.validate_managed_membership_anchor(pg)
+            self.control_membership_mutation(pg, Some(decision.input().proposal()))
                 .map_err(invalid)?;
             let store = self
                 .membership_decisions
@@ -348,7 +356,7 @@ impl PeerReplicaServer {
         if kind == MEMBERSHIP_CHOSEN {
             let chosen = VsrMembershipChosen::decode(payload).map_err(rsf)?;
             let pg = chosen.proposal().election.pg;
-            self.validate_managed_membership_anchor(pg)
+            self.control_membership_mutation(pg, Some(chosen.proposal()))
                 .map_err(invalid)?;
             let store = self
                 .membership_decisions
@@ -398,7 +406,7 @@ impl PeerReplicaServer {
             .map_err(rsf);
         }
         let (pg, round, proposal_id) = read_context(payload)?;
-        self.validate_managed_membership_anchor(pg)
+        self.control_membership_mutation(pg, None)
             .map_err(invalid)?;
         let store = self
             .membership_decisions

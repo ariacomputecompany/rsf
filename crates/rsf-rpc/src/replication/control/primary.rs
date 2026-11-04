@@ -12,9 +12,7 @@ impl PeerReplicaServer {
     ) -> Result<String, String> {
         let local = self.local;
         if self.installation_pending.contains(&pg) {
-            for entry in self.cells[&pg].committed_prefix().map_err(|e| e.message)? {
-                apply(&entry)?;
-            }
+            self.materialize_owned_prefix(pg, apply)?;
             self.installation_pending.remove(&pg);
         }
         if self.cells[&pg].has_installed_view()
@@ -184,7 +182,9 @@ impl PeerReplicaServer {
     ) -> Result<(), String> {
         let cell = self.cells.get_mut(&pg).unwrap();
         self.control_transport
-            .resume_view_installation(cell, apply)
+            .resume_view_installation_owned(cell, &mut |cell| {
+                managed_control::materialize_voter(self.managed_control.as_mut(), cell, apply)
+            })
             .map_err(|e| e.reason)?;
         let tail = cell.committed_tail();
         if tail.0 != 0 {

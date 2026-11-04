@@ -1,0 +1,1653 @@
+{
+  "date": "2026-11-03",
+  "scope": "Terminal first full local run of bounded history and managed control; failed baseline retained",
+  "all_pass": false,
+  "production_qualified": false,
+  "source_sha256": "a2b41fd8e57b2e7f4754e1b4a61563a801085abf70ab3fb9070806eaf026e12c",
+  "source_unchanged": true,
+  "source_base_commit": "fa79986f334fb70f1893ce834bc33a9dac982114",
+  "engine": {
+    "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+    "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "version": "fozzy 0.1.0"
+  },
+  "execution_context": {
+    "cargo_configs": {
+      "/.cargo/config": null,
+      "/.cargo/config.toml": null,
+      "/Users/.cargo/config": null,
+      "/Users/.cargo/config.toml": null,
+      "/Users/deepsaint/.cargo/config": null,
+      "/Users/deepsaint/.cargo/config.toml": null,
+      "/Users/deepsaint/Desktop/.cargo/config": null,
+      "/Users/deepsaint/Desktop/.cargo/config.toml": null,
+      "/Users/deepsaint/Desktop/rsf/.cargo/config": null,
+      "/Users/deepsaint/Desktop/rsf/.cargo/config.toml": null
+    },
+    "environment_sha256": {
+      "CARGO_BUILD_JOBS": null,
+      "CARGO_BUILD_RUSTFLAGS": null,
+      "CARGO_BUILD_TARGET": "602526fe5d0720f8fb8f60272c924a754eb90c461381908e5d8a5f04f6e504c0",
+      "CARGO_ENCODED_RUSTFLAGS": null,
+      "CARGO_HOME": null,
+      "CARGO_INCREMENTAL": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+      "RUSTC": null,
+      "RUSTC_WORKSPACE_WRAPPER": null,
+      "RUSTC_WRAPPER": null,
+      "RUSTDOC": null,
+      "RUSTDOCFLAGS": null,
+      "RUSTFLAGS": null,
+      "RUSTUP_HOME": null,
+      "RUSTUP_TOOLCHAIN": null,
+      "RUST_TEST_THREADS": null
+    },
+    "host": {
+      "machine": "x86_64",
+      "python": "3.14.7",
+      "release": "24.3.0",
+      "system": "Darwin"
+    },
+    "tools": {
+      "cargo": {
+        "path": "/Users/deepsaint/.cargo/bin/cargo",
+        "version": "cargo 1.92.0 (344c4567c 2025-10-21)"
+      },
+      "rustc": {
+        "path": "/Users/deepsaint/.cargo/bin/rustc",
+        "version": "rustc 1.92.0 (ded5c06cf 2025-12-08)\nbinary: rustc\ncommit-hash: ded5c06cf21d2b93bffd5d884aa6e96934ee4234\ncommit-date: 2025-12-08\nhost: aarch64-apple-darwin\nrelease: 1.92.0\nLLVM version: 21.1.3"
+      }
+    }
+  },
+  "seed": 20260912,
+  "passed_domains": [
+    "storage",
+    "vsr",
+    "control-state",
+    "membership",
+    "membership-decision",
+    "protocol",
+    "kv-transactions",
+    "sql",
+    "authentication",
+    "tenancy",
+    "daemon",
+    "native-membership",
+    "automatic-client",
+    "sql-stream",
+    "daemon-stress",
+    "release-stress",
+    "object-blob",
+    "recovery",
+    "policy",
+    "end-to-end"
+  ],
+  "failed_domains": [
+    "membership-peer",
+    "membership-staging",
+    "membership-activation",
+    "peer-rpc",
+    "workspace"
+  ],
+  "domains": {
+    "authentication": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/authentication/attempt-0001/trace.fozzy",
+        "sha256": "4739f6ff1ed31d084d5d98278f55cf5bb87c3b800b872358918f8f0a052e5f41"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-auth",
+            "-p",
+            "rsf-api",
+            "-p",
+            "rsf-core",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 152 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.44s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "automatic-client": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/automatic-client/attempt-0001/trace.fozzy",
+        "sha256": "b8c14ea1443a1612d75a64ec5e40a8efc20611069c9a64bb90d908d7bedd928e"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "automatic_client_takeover",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 69.36s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "automatic_client_takeover",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 58.74s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "control-state": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/control-state/attempt-0001/trace.fozzy",
+        "sha256": "3335f4459e318a271d0cebe9b12535430637fb925df2445f2eca315d4ad29b26"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsf-control-state"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.65s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "daemon": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/daemon/attempt-0001/trace.fozzy",
+        "sha256": "34ea775a6dd08050da056d0db6137886e7547f52722ec425e626d7b3e0c15ccc"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsfd"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.87s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s",
+            "test result: ok. 29 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 303.44s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "daemon-stress": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/daemon-stress/attempt-0001/trace.fozzy",
+        "sha256": "619516c66e64555ac90f0d994acdf5b6ca69711071bfc529db79c43c5c65914c"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_kv_stress",
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 59.57s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "end-to-end": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/end-to-end/attempt-0001/trace.fozzy",
+        "sha256": "a496937f2fc02f8143511e409776b12ed7627cdf54243118d8c791d7714fc6b2"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-poc",
+            "--lib",
+            "runner::tests::run_output_writes_full_summary_and_service_logs",
+            "--",
+            "--exact"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.08s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "kv-transactions": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/kv-transactions/attempt-0001/trace.fozzy",
+        "sha256": "f037f829ede6993f6439ce5ef737c2738bc078718d8ae91def794be03b62ae4d"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-kv",
+            "-p",
+            "rsf-txn",
+            "-p",
+            "rsf-isolation"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "membership": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/membership/attempt-0001/trace.fozzy",
+        "sha256": "51da9583a2d60bede06919abda2cc14d0a1b2ca33037232561e2304a064be001"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-admin"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "membership-activation": {
+      "status": "failed",
+      "reason": "host exited 1",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/membership-activation/attempt-0001/trace.fozzy",
+        "sha256": "a8f8d57b2acdd9c63b0b8c3c9287c1626b952c362939198e5c785efdda271696"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsf-storage",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit": 101,
+          "reported_test_results": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.25s",
+            "test result: FAILED. 135 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 83.47s"
+          ],
+          "failed_test_names": [
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers",
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": "thread 'replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise' (5495934) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/custody.rs:75:10:\ncalled `Result::unwrap()` on an `Err` value: \"learner durability failed; reopen before further operations\"\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-31351-1793752467674389000-0",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31351-1793752488243291000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31351-1793752488243291000-0 replica=2 elapsed=674.580167ms\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers' (5502328) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31351-1793752488243291000-0 replica=3 elapsed=1.604093833s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31351-1793752492176172000-0\n\nthread 'replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner' (5503466) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31351-1793752492176172000-0 replica=2 elapsed=1.603107584s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }"
+          }
+        }
+      ]
+    },
+    "membership-decision": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/membership-decision/attempt-0001/trace.fozzy",
+        "sha256": "6487a094e8dc710a0ebb63711b50f210ef3151f512cb6aa2aad1b96e7ab5a8ed"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsf-vsr",
+            "membership::decision",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 229 filtered out; finished in 42.48s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "membership-peer": {
+      "status": "failed",
+      "reason": "host exited 1",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/membership-peer/attempt-0001/trace.fozzy",
+        "sha256": "737f2a45f3110841f75c16ac48fafa873ea9f9f6c234cd4c7d0e9348ef8702de"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit": 101,
+          "reported_test_results": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.06s",
+            "test result: FAILED. 130 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 81.67s"
+          ],
+          "failed_test_names": [
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers",
+            "replication::tests::membership_publication::adversarial::lifecycle::managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody",
+            "replication::tests::membership_publication::adversarial::inbound::real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only",
+            "replication::tests::membership_publication::adversarial::peer::tests::real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live",
+            "replication::tests::membership_publication::adversarial::inbound::real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": "thread 'replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise' (5440852) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/custody.rs:75:10:\ncalled `Result::unwrap()` on an `Err` value: \"learner durability failed; reopen before further operations\"\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-82632-1793752285469750000-0",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752306399063000-0\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers' (5447042) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752306399063000-0 replica=2 elapsed=1.602772375s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::adversarial::lifecycle::managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303580919000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303580919000-0 replica=2 elapsed=790.684458ms\n\nthread 'replication::tests::membership_publication::adversarial::lifecycle::managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody' (5446143) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303580919000-0 replica=3 elapsed=1.604130166s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::adversarial::inbound::real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303261630000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303261630000-0 replica=2 elapsed=721.477541ms\n\nthread 'replication::tests::membership_publication::adversarial::inbound::real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only' (5446045) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303261630000-0 replica=3 elapsed=1.603878875s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::adversarial::peer::tests::real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303891123000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303891123000-0 replica=2 elapsed=780.636291ms\n\nthread 'replication::tests::membership_publication::adversarial::peer::tests::real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live' (5446244) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303891123000-0 replica=3 elapsed=1.604168875s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::adversarial::inbound::real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303570121000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303570121000-0 replica=2 elapsed=748.660875ms\n\nthread 'replication::tests::membership_publication::adversarial::inbound::real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise' (5446142) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752303570121000-0 replica=3 elapsed=1.604190917s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752305656020000-0\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss' (5446831) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752305656020000-0 replica=2 elapsed=1.604129458s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752304577959000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752304577959000-0 replica=2 elapsed=860.537417ms\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise' (5446470) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-82632-1793752304577959000-0 replica=3 elapsed=1.604351958s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }"
+          }
+        }
+      ]
+    },
+    "membership-staging": {
+      "status": "failed",
+      "reason": "host exited 1",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/membership-staging/attempt-0001/trace.fozzy",
+        "sha256": "bed89a0b696e68b7eeda4aab3db60d833ccefbfd3544d0e35bd94de4be65e3ff"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsf-storage",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit": 101,
+          "reported_test_results": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.25s",
+            "test result: FAILED. 136 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 86.24s"
+          ],
+          "failed_test_names": [
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise",
+            "replication::tests::membership_publication::stage_custody::real_tls_stage_loss_cannot_block_independently_backed_historical_publication"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": "thread 'replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise' (5467838) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/custody.rs:75:10:\ncalled `Result::unwrap()` on an `Err` value: \"learner durability failed; reopen before further operations\"\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-6756-1793752374789739000-0",
+            "replication::tests::membership_publication::stage_custody::real_tls_stage_loss_cannot_block_independently_backed_historical_publication": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-6756-1793752414236660000-0\n\nthread 'replication::tests::membership_publication::stage_custody::real_tls_stage_loss_cannot_block_independently_backed_historical_publication' (5479407) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-6756-1793752414236660000-0 replica=2 elapsed=1.604236667s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }"
+          }
+        }
+      ]
+    },
+    "native-membership": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/native-membership/attempt-0001/trace.fozzy",
+        "sha256": "379f97f38fea51d4b8ffbc95b783c00e0b9ed659ce365c63e86472766ce45810"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 14.90s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 2.80s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 1.48s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 8.90s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 2.46s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 1.25s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 14.68s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 26.85s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 291.92s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 72.36s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 14.67s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 8.76s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 16.63s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 22.50s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 61.19s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 4.22s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "object-blob": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/object-blob/attempt-0001/trace.fozzy",
+        "sha256": "97deb38fb0d0d7dae0e82ed22ac685a0ce6e940f4a681524f9016779432c8d93"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-object",
+            "-p",
+            "rsf-objectmeta",
+            "-p",
+            "rsf-blob",
+            "-p",
+            "rsf-chunkstore"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s",
+            "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "peer-rpc": {
+      "status": "failed",
+      "reason": "host exited 1",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/peer-rpc/attempt-0001/trace.fozzy",
+        "sha256": "755f0f0ecfe90a5c4d500fc2f7b00eac189abc3a3ece78622d3f32a45f9770bd"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-core",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit": 101,
+          "reported_test_results": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: FAILED. 137 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 82.72s"
+          ],
+          "failed_test_names": [
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": "thread 'replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise' (5523456) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/custody.rs:75:10:\ncalled `Result::unwrap()` on an `Err` value: \"learner durability failed; reopen before further operations\"\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-55494-1793752558864766000-0"
+          }
+        }
+      ]
+    },
+    "policy": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/policy/attempt-0001/trace.fozzy",
+        "sha256": "b6d7e1f6fb95be82be82726d7687b2c54df92288f94a2e2901d8712aa70d3b38"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-policy",
+            "-p",
+            "rsf-control",
+            "-p",
+            "rsf-gateway"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "protocol": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/protocol/attempt-0001/trace.fozzy",
+        "sha256": "af425bf3919a1c92f85b550345c79d52eb8afd4ec5d844acb2afbb2ec3b8a274"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "recovery": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/recovery/attempt-0001/trace.fozzy",
+        "sha256": "3bb43968efef3fb91b1563cd36ef5386c34a6de2f4fe8530d5dd00d4f111c8f2"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-recovery",
+            "-p",
+            "rsf-snapshot",
+            "-p",
+            "rsf-backup",
+            "-p",
+            "rsf-storage",
+            "-p",
+            "rsf-core"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 152 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.57s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "release-stress": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/release-stress/attempt-0001/trace.fozzy",
+        "sha256": "af73cf93b9fae564be362245ce202469c2470e1a67eb38761af0ddb2b7c1e547"
+      },
+      "processes": [
+        {
+          "command": "env",
+          "arguments": [
+            "CARGO_BUILD_JOBS=2",
+            "RSF_STRESS_WRITES_PER_CLIENT=64",
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_kv_stress",
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 89.16s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "sql": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/sql/attempt-0001/trace.fozzy",
+        "sha256": "53acae5d9cb983f3c461f4c509a6c5e83d698f243537dc794e36a7f331f9c1d2"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsf-page",
+            "-p",
+            "rsf-sql",
+            "-p",
+            "rsf-sqldml",
+            "-p",
+            "rsf-sqltxn",
+            "-p",
+            "rsf-sqlpipeline"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.94s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "sql-stream": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/sql-stream/attempt-0001/trace.fozzy",
+        "sha256": "6b541650ebc107a0556e0da205b57bdaea53f8613011487fb6d8f12ee7d99a3d"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_sql_streams_large_results_and_bounds_legacy_responses",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 40.16s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        },
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_sql_streams_large_results_and_bounds_legacy_responses",
+            "--",
+            "--nocapture"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 16.62s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "storage": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/storage/attempt-0001/trace.fozzy",
+        "sha256": "a249fc12f5a46053943b2f56982508ec4366f685bd5f4c6d41775c8b34f3950c"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 152 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.87s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "tenancy": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/tenancy/attempt-0001/trace.fozzy",
+        "sha256": "123909e7398ad873533b5aa5d7272e40951c529fab85edc6904fc0ac95e2a2f2"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-tenancy",
+            "-p",
+            "rsf-core",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 152 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.64s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "vsr": {
+      "status": "passed",
+      "reason": null,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/vsr/attempt-0001/trace.fozzy",
+        "sha256": "5d9c59a2a045828bbc8682875b61979b179046295132ec289487c823c3841c3b"
+      },
+      "processes": [
+        {
+          "command": "cargo",
+          "arguments": [
+            "test",
+            "-p",
+            "rsf-vsr"
+          ],
+          "exit": 0,
+          "reported_test_results": [
+            "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 130.70s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_test_names": [],
+          "failure_blocks": {}
+        }
+      ]
+    },
+    "workspace": {
+      "status": "failed",
+      "reason": "host exited 1",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1
+      },
+      "trace": {
+        "path": "artifacts/verification.bounded-control-20261103-v1/workspace/attempt-0001/trace.fozzy",
+        "sha256": "cee6730fb0fd81704ed8acd38673b659579c108effaa5c1c3b251666d6a53066"
+      },
+      "processes": [
+        {
+          "command": "sh",
+          "arguments": [
+            "scripts/capture-host-process.sh",
+            "/Users/deepsaint/Desktop/rsf/artifacts/verification.bounded-control-20261103-v1/workspace/attempt-0001/workspace.process.log",
+            "cargo",
+            "test",
+            "--workspace"
+          ],
+          "exit": 101,
+          "reported_test_results": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s",
+            "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.62s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s",
+            "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.34s",
+            "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.21s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: FAILED. 135 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 83.76s"
+          ],
+          "failed_test_names": [
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise",
+            "replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views",
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": "thread 'replication::tests::membership_decision::retained::prechoice::custody::managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise' (5975389) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/custody.rs:75:10:\ncalled `Result::unwrap()` on an `Err` value: \"learner durability failed; reopen before further operations\"\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-53537-1793754050892993000-0",
+            "replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-53537-1793754076748975000-0\n\nthread 'replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views' (5983136) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-53537-1793754076748975000-0 replica=2 elapsed=1.60340775s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }",
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner": "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-53537-1793754075265746000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-53537-1793754075265746000-0 replica=2 elapsed=626.653333ms\n\nthread 'replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner' (5982680) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-53537-1793754075265746000-0 replica=3 elapsed=1.603037792s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }"
+          }
+        }
+      ]
+    }
+  },
+  "workload_metrics": {
+    "daemon-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 198,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 14.187339233246728,
+      "elapsed_ms": 58797,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 452067,
+        "p50": 271755,
+        "p95": 362807,
+        "p99": 411381
+      },
+      "payload_bytes": 442587,
+      "profile": "debug",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    },
+    "release-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 774,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 23.34297122468169,
+      "elapsed_ms": 88571,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 285236,
+        "p50": 168195,
+        "p95": 207114,
+        "p99": 247358
+      },
+      "payload_bytes": 1769691,
+      "profile": "release",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    }
+  },
+  "automatic_client_metrics": {
+    "debug": {
+      "acknowledged_before_crash": 4,
+      "active_sql_session_resumed": true,
+      "client_transport_retries": 0,
+      "commit_confirmation_retries": 0,
+      "concurrent_clients": 4,
+      "coordinator_recoveries_before_crash": 3,
+      "coordinator_reuses_before_crash": 150,
+      "disjoint_sql_sessions_committed": true,
+      "elapsed_ms": 69338,
+      "history_growth_ms": 33442,
+      "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
+      "precrash_sql_read_dependency_recovered": true,
+      "primary_state_deleted": true,
+      "profile": "debug",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "serializable_sql_phantom_rejected": true,
+      "sql_key_components_isolated": true,
+      "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 162,
+      "workload": "automatic-client-takeover"
+    },
+    "release": {
+      "acknowledged_before_crash": 4,
+      "active_sql_session_resumed": true,
+      "client_transport_retries": 0,
+      "commit_confirmation_retries": 0,
+      "concurrent_clients": 4,
+      "coordinator_recoveries_before_crash": 3,
+      "coordinator_reuses_before_crash": 150,
+      "disjoint_sql_sessions_committed": true,
+      "elapsed_ms": 58724,
+      "history_growth_ms": 28599,
+      "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
+      "precrash_sql_read_dependency_recovered": true,
+      "primary_state_deleted": true,
+      "profile": "release",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "serializable_sql_phantom_rejected": true,
+      "sql_key_components_isolated": true,
+      "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 162,
+      "workload": "automatic-client-takeover"
+    }
+  },
+  "sql_stream_metrics": {
+    "debug": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 40161,
+      "indexed_queries_verified": true,
+      "profile": "debug",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    },
+    "release": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 16619,
+      "indexed_queries_verified": true,
+      "profile": "release",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    }
+  },
+  "summary": {
+    "path": "artifacts/verification.bounded-control-20261103-v1/summary.json",
+    "sha256": "b65bb4bf2121d3249e0b93be4ee607fde3ee66679018c866369a8b358a8f100a"
+  },
+  "checkpoint": {
+    "path": "artifacts/verification.bounded-control-20261103-v1/checkpoint.json",
+    "sha256": "678a3da69c3c81b27064cd0033cc96944d36b641a44a358c793462348af8cf4f"
+  },
+  "diagnosis": {
+    "path": "artifacts/bounded-control-full-v1-diagnosis-20261103/diagnosis.md",
+    "sha256": "5e48d2ea5102502a5ada993f3cd1905c730780107d99e33f0a4092e146f862c3"
+  },
+  "proposed_custody_test_correction": {
+    "path": "artifacts/bounded-control-full-v1-diagnosis-20261103/custody-test.patch",
+    "sha256": "90fe4377516d35d7a09fb3d0d5ac2cc4ce1945e76917ad34afc4ad6ea262217c"
+  },
+  "cicd_used": false,
+  "limits": [
+    "Failed domains and child exits remain failed even when trace verification and local fozzy ci parity pass.",
+    "Reported test counts are per actual process. A failed cargo command may stop before every requested package; these counts are not a complete passing workspace census.",
+    "The post-fault custody test used a now-guarded public mutable accessor as a read. The reviewed test-only correction requires exact public refusal, actual private decision state equality and retained journal-byte equality. This run does not execute that proposed correction.",
+    "Publication setup deadlines failed variably across planned domains. Later passes on unchanged source do not establish a cause or fix. Phase measurements are planned; no deadlines, retries, workload or concurrency are relaxed.",
+    "Strict scripted orchestration and replay are not fresh native execution. All actual host tests here run on one Darwin development machine; Linux VM and independent-host capacity/fault qualification remain open.",
+    "No success report, production qualification or green baseline may be inferred from this attempt."
+  ]
+}

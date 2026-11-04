@@ -206,3 +206,5 @@ fn migration_decoder_rejects_wrong_prefix_duplicate_and_truncated_records() {
     damaged.push(last);
     assert!(recover_bootstrap(&damaged.iter().collect::<Vec<_>>(), PlacementGroupId(1)).is_err());
 }
+
+mod bounded_voter;

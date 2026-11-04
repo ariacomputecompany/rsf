@@ -29,7 +29,13 @@ impl LearnerHistoryStore {
         result
     }
 
-    fn validate_published_custody(&self, published: &Published) -> RsfResult<VsrLearnerStateToken> {
+    pub(super) fn validate_published_custody(
+        &self,
+        published: &Published,
+    ) -> RsfResult<VsrLearnerStateToken> {
+        if let Some(flat) = &published.bounded_flat {
+            flat.validate_cell(&published.cell)?;
+        }
         // Normalize only harmless current-directory components. ParentDir
         // would require trusting a different lexical ownership route.
         let mut root = PathBuf::new();
@@ -59,10 +65,14 @@ impl LearnerHistoryStore {
             &directory.join("DESCRIPTOR"),
             &published.descriptor.encode()?,
         )?;
-        Ok(VsrLearnerStateToken {
+        let token = VsrLearnerStateToken {
             published: published.id,
             cell: published.cell.recovery_state_token()?,
-        })
+        };
+        if let Some(flat) = &published.bounded_flat {
+            flat.validate_cell(&published.cell)?;
+        }
+        Ok(token)
     }
 }
 

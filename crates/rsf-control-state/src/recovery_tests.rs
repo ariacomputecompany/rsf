@@ -13,6 +13,9 @@ use std::path::{Path, PathBuf};
 
 type Cells = BTreeMap<NodeId, DurableVsrCell>;
 
+#[path = "intent_tests.rs"]
+mod intent_origin;
+
 fn fixture(name: &str) -> (PathBuf, ControlCatalog, Cells, Cells) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -171,6 +174,12 @@ fn assert_pending(cell: &DurableVsrCell, initial: &ControlCatalog, begin: &Membe
     assert_eq!(state.root(), initial.root().unwrap());
     assert_eq!(state.revision(), ControlRevision(1));
     assert_eq!(state.pending(), Some(begin));
+    assert_eq!(state.request_begin_index(begin.request), Some(LogIndex(2)));
+    let live = state.committed_intent(cell, begin.id().unwrap()).unwrap();
+    assert_eq!(live.begin_index(), LogIndex(2));
+    assert_eq!(live.intent(), begin);
+    assert_eq!(live.old_control(), &authority(initial));
+    live.validate_live(cell).unwrap();
     assert_eq!(state.last_outcome(), &accepted);
     assert_eq!(state.request_outcome(begin.request), Some(&accepted));
 }
@@ -583,6 +592,11 @@ fn old_control_commit_majority_prevents_begin_reprepare_across_membership() {
             for node in [NodeId(1), NodeId(2)] {
                 assert_eq!(control[&node].committed_tail(), LogIndex(1));
                 assert_eq!(control[&node].next_index(), LogIndex(3));
+                let pending = ControlState::recover(&trusted, &control[&node]).unwrap();
+                assert!(
+                    pending.preflight_accepted_tail(&control[&node]).is_err(),
+                    "managed writer cannot reprepare an accepted Begin across membership authority"
+                );
             }
             let reprepared = control
                 .get_mut(&NodeId(1))
@@ -607,6 +621,12 @@ fn old_control_commit_majority_prevents_begin_reprepare_across_membership() {
                 assert_eq!(state.last_outcome(), &rejected);
                 assert_eq!(state.request_outcome(begin.request), Some(&rejected));
                 assert!(state.pending().is_none());
+                assert_eq!(state.request_begin_index(begin.request), None);
+                assert!(
+                    state
+                        .committed_intent(&control[&node], begin.id().unwrap())
+                        .is_err()
+                );
                 assert_eq!(state.root(), initial.root().unwrap());
                 assert!(state.admission(&control[&node]).is_err());
             }
@@ -616,3 +636,6 @@ fn old_control_commit_majority_prevents_begin_reprepare_across_membership() {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[path = "receiver_tests.rs"]
+mod receiver;

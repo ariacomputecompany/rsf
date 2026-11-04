@@ -4,8 +4,17 @@
 use super::*;
 use std::io::Read;
 use std::sync::Arc;
+mod append;
 mod immutable;
+pub(in crate::store) use append::OwnedAppend;
+pub use append::OwnedWalGroup;
+mod renewal;
+mod scan;
 pub use immutable::SegmentReadCustody;
+pub use scan::{
+    SegmentReadCursor, SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScanControl,
+    SegmentScanOutcome, append_only_manifest_byte_bound, wal_record_disk_bytes,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Identity {
@@ -132,6 +141,15 @@ impl SegmentStore {
     }
 
     fn capture_owned_custody_locked(&self) -> RsfResult<SegmentStoreCustody> {
+        self.capture_owned_custody_for_cursor_locked(None)
+    }
+
+    // An owned group temporarily holds the same cursor outside self while it
+    // mutates. This shares the exact bounded physical checks, not recovery.
+    fn capture_owned_custody_for_cursor_locked(
+        &self,
+        cursor: Option<&WalCursor>,
+    ) -> RsfResult<SegmentStoreCustody> {
         // Removing harmless '.' components exposes a final alias such as x/.
         // Preserve ParentDir: collapsing it across a trusted ancestor alias
         // would change the actual filesystem route.
@@ -145,6 +163,11 @@ impl SegmentStore {
             path.push(".");
         }
         let root = directory_identity(&path)?;
+        validate_lock_name(
+            &self._lock,
+            &path.join(MANIFEST_FILE).with_extension("lock"),
+        )?;
+        validate_lock_name(&self.active._lock, &self.active.path.with_extension("lock"))?;
         let directory = directory_identity(&path.join(SEGMENT_DIR))?;
         let expected = self.manifest.encode();
         let manifest_path = path.join(MANIFEST_FILE);
@@ -156,18 +179,13 @@ impl SegmentStore {
         }
         // Bound the read by the already known manifest encoding, never a
         // potentially changed on-disk length. No WAL payload is read here.
-        let mut bytes = Vec::with_capacity(expected.len());
-        File::open(&manifest_path)
-            .map_err(custody_io)?
-            .take(expected.len() as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(custody_io)?;
+        let bytes = immutable::read_checked(&manifest_path, &manifest, expected.len() as u64)?;
         if bytes != expected.as_bytes() {
             return Err(custody_error(
                 "owned manifest differs from validated layout",
             ));
         }
-        let cursor = self.cursor.as_ref().ok_or_else(|| {
+        let cursor = cursor.or(self.cursor.as_ref()).ok_or_else(|| {
             custody_error("owned custody requires an already validated WAL cursor")
         })?;
         if cursor.stamp.len() != self.manifest.segments.len() {
@@ -202,6 +220,26 @@ impl SegmentStore {
             segments,
         })
     }
+}
+
+// Compare the actual retained exclusion descriptor, never adopt a replaced
+// sidecar merely because its current named bytes are still empty.
+fn held_lock_stamp(lock: &SegmentLock) -> RsfResult<FileStamp> {
+    let registry = crate::lock_registry()
+        .lock()
+        .map_err(|_| custody_error("segment lock registry is poisoned"))?;
+    let owner = registry
+        .get(&lock.path)
+        .ok_or_else(|| custody_error("owned sidecar lock is absent"))?;
+    file_stamp(&owner._file.metadata().map_err(custody_io)?)
+}
+fn validate_lock_name(lock: &SegmentLock, path: &Path) -> RsfResult<()> {
+    if regular_file(path)? != held_lock_stamp(lock)? {
+        return Err(custody_error(
+            "owned sidecar path differs from actual held lock",
+        ));
+    }
+    Ok(())
 }
 
 fn directory_identity(path: &Path) -> RsfResult<Identity> {

@@ -1,3 +1,4 @@
+mod bounded;
 mod election;
 mod installation;
 mod membership;
@@ -18,10 +19,13 @@ mod history;
 pub use history::VsrMembershipLineage;
 mod learner;
 mod transfer;
-pub use learner::{LearnerHistoryStore, VsrLearnerStateToken};
+pub use learner::{
+    LearnerHistoryStore, PublishedVsrReplay, VsrImportPreview, VsrLearnerStateToken,
+};
 pub use transfer::{
     HISTORY_BATCH_TARGET_BYTES, MAX_HISTORY_BATCH_RECORDS, VsrHistoryBatch, VsrHistoryDescriptor,
-    VsrHistoryRecord, VsrHistorySnapshot,
+    VsrHistoryRecord, VsrHistorySnapshot, VsrLearnerPrefixExport, VsrPrefixExportError,
+    VsrPrefixLimits, VsrVoterPrefixExport,
 };
 mod migration;
 mod probe;
@@ -375,6 +379,26 @@ pub struct DurableVsrCell {
     view_change: Option<VsrViewChangeRequest>,
     membership_fence: Option<VsrMembershipProposal>,
     _writer_lock: rsf_storage::ExclusiveFileLock,
+}
+
+// A real store owner and its just-validated recovery move together. Bounded
+// learner opening uses this same replay/constructor instead of opening again.
+struct OpenedVsrStore {
+    root: std::path::PathBuf,
+    active: installation::publication::Active,
+    store: SegmentStore,
+    recovery: rsf_storage::Recovery,
+    options: SegmentStoreOptions,
+    writer_lock: rsf_storage::ExclusiveFileLock,
+}
+
+// Ephemeral result of the one authoritative semantic replay. It stays private,
+// is never cached across owner boundaries, and does not itself grant authority.
+struct ReplayedVsrStore {
+    recovered: replay::Recovered,
+    initial_bootstrap: Vec<u8>,
+    bootstrap_persisted: bool,
+    quorum_history: bool,
 }
 
 impl VsrCell {
@@ -784,13 +808,39 @@ impl DurableVsrCell {
             SegmentStore::recover_existing(&active.path)?;
         }
         let (store, recovered) = SegmentStore::open_recovered(&active.path, options)?;
-        let recovery = recovered.recovery;
+        Self::from_opened_store(
+            OpenedVsrStore {
+                root: path.to_path_buf(),
+                active,
+                store,
+                recovery: recovered.recovery,
+                options,
+                writer_lock,
+            },
+            pg,
+            || VsrCell::new(pg, view, primary, replicas).map_err(invalid_input),
+        )
+    }
+
+    fn from_opened_store(
+        opened: OpenedVsrStore,
+        pg: PlacementGroupId,
+        fallback: impl FnOnce() -> RsfResult<VsrCell>,
+    ) -> RsfResult<Self> {
+        let replayed = Self::replay_store(&opened.recovery, pg, fallback)?;
+        Self::from_replayed_store(opened, pg, replayed)
+    }
+
+    fn replay_store(
+        recovery: &rsf_storage::Recovery,
+        pg: PlacementGroupId,
+        fallback: impl FnOnce() -> RsfResult<VsrCell>,
+    ) -> RsfResult<ReplayedVsrStore> {
         let records = recovery
             .wal_records
             .iter()
             .filter(|record| record.pg == pg)
             .collect::<Vec<_>>();
-        installation::publication::validate_active(&active, pg, &records)?;
         let migrated_bootstrap = migration::recover_bootstrap(&records, pg)?;
         let has_migration = migrated_bootstrap.is_some();
         // Replay certificates against the membership that existed when the log
@@ -807,7 +857,7 @@ impl DurableVsrCell {
         } else if let Some(bootstrap) = migrated_bootstrap {
             bootstrap
         } else {
-            VsrCell::new(pg, view, primary, replicas).map_err(invalid_input)?
+            fallback()?
         };
 
         let initial_bootstrap = encode_bootstrap(&cell);
@@ -824,22 +874,73 @@ impl DurableVsrCell {
                 payload: &record.payload,
             })
             .collect::<Vec<_>>();
-        let (cell, history, view_change, membership_fence) = replay::recover(cell, &replay)?;
+        let recovered = replay::recover(cell, &replay)?;
+        let quorum_history = records.iter().any(|record| {
+            record.kind == WalRecordKind::ViewInstallation
+                && installation::is_activation_marker(&record.payload)
+        });
+        Ok(ReplayedVsrStore {
+            recovered,
+            initial_bootstrap,
+            bootstrap_persisted,
+            quorum_history,
+        })
+    }
+
+    fn from_replayed_store(
+        opened: OpenedVsrStore,
+        pg: PlacementGroupId,
+        replayed: ReplayedVsrStore,
+    ) -> RsfResult<Self> {
+        Self::from_replayed_store_with(opened, pg, replayed, |root, active, _| {
+            if active.plan.is_some() {
+                installation::publication::mark_published(root, pg)?;
+            }
+            Ok(())
+        })
+    }
+
+    // One owner construction and semantic handoff. Strict bounded recovery may
+    // constrain publication completion while retaining the same actual store.
+    fn from_replayed_store_with(
+        opened: OpenedVsrStore,
+        pg: PlacementGroupId,
+        replayed: ReplayedVsrStore,
+        finish: impl FnOnce(
+            &Path,
+            &installation::publication::Active,
+            &mut SegmentStore,
+        ) -> RsfResult<()>,
+    ) -> RsfResult<Self> {
+        let OpenedVsrStore {
+            root,
+            active,
+            mut store,
+            recovery,
+            options,
+            writer_lock,
+        } = opened;
+        let ReplayedVsrStore {
+            recovered: (cell, history, view_change, membership_fence),
+            initial_bootstrap,
+            bootstrap_persisted,
+            quorum_history,
+        } = replayed;
+        let path = root.as_path();
+        let records = recovery
+            .wal_records
+            .iter()
+            .filter(|record| record.pg == pg)
+            .collect::<Vec<_>>();
+        installation::publication::validate_active(&active, pg, &records)?;
         learner::promotion::validate_history(
             path,
             pg,
             records.iter().map(|r| (r.kind, r.payload.as_slice())),
         )?;
-        if active.plan.is_some() {
-            // Finish the publication fence before a recovered writer can serve.
-            // A crash before this fence could not acknowledge later operations.
-            installation::publication::mark_published(path, pg)?;
-        }
-        let quorum_history = records.iter().any(|record| {
-            record.kind == WalRecordKind::ViewInstallation
-                && installation::is_activation_marker(&record.payload)
-        });
-
+        // Complete the publication barrier only after seal and promotion
+        // provenance have passed the shared authoritative replay handoff.
+        finish(path, &active, &mut store)?;
         let store_custody = store.capture_owned_custody()?;
         let mut durable = Self {
             state_identity: std::sync::Arc::new(()),

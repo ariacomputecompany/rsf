@@ -25,6 +25,12 @@ impl Identity {
         Digest::blake3_bytes(&self.encode()).bytes
     }
     pub fn read(root: &Path) -> RsfResult<Option<Self>> {
+        Self::read_with(root, &mut publication::read_fixed_file)
+    }
+    pub(super) fn read_with(
+        root: &Path,
+        read: &mut impl FnMut(&Path, usize) -> std::io::Result<Vec<u8>>,
+    ) -> RsfResult<Option<Self>> {
         let path = root.join(NAME);
         match fs::symlink_metadata(&path) {
             Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {}
@@ -32,7 +38,7 @@ impl Identity {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(io_error(e)),
         }
-        let bytes = publication::read_fixed_file(&path, 118).map_err(io_error)?;
+        let bytes = read(&path, 118).map_err(io_error)?;
         if bytes.len() != 118
             || !bytes.starts_with(MAGIC)
             || bytes[86..] != Digest::blake3_bytes(&bytes[..86]).bytes

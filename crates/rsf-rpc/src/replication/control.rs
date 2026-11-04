@@ -210,7 +210,13 @@ impl PeerReplicaServer {
                 phase("resume", Some(input.records().map_err(|e| e.message)?));
                 let result = self
                     .control_transport
-                    .resume_view_installation(cell, apply)
+                    .resume_view_installation_owned(cell, &mut |cell| {
+                        managed_control::materialize_voter(
+                            self.managed_control.as_mut(),
+                            cell,
+                            apply,
+                        )
+                    })
                     .map_err(|e| e.reason);
                 return self.election_result(pg, result.map(|_| ()), timing);
             }
@@ -260,7 +266,9 @@ impl PeerReplicaServer {
                 .map_err(|e| e.reason)?;
             phase("install", Some(records));
             self.control_transport
-                .resume_view_installation(cell, apply)
+                .resume_view_installation_owned(cell, &mut |cell| {
+                    managed_control::materialize_voter(self.managed_control.as_mut(), cell, apply)
+                })
                 .map_err(|e| e.reason)?;
             Ok(())
         })();

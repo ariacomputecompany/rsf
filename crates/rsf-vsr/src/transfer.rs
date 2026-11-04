@@ -2,7 +2,11 @@
 use super::*;
 use rsf_core::Digest;
 mod batch;
+pub(crate) mod prefix;
 pub use batch::{HISTORY_BATCH_TARGET_BYTES, MAX_HISTORY_BATCH_RECORDS, VsrHistoryBatch};
+pub use prefix::{
+    VsrLearnerPrefixExport, VsrPrefixExportError, VsrPrefixLimits, VsrVoterPrefixExport,
+};
 
 pub const MAX_HISTORY_RECORD_BYTES: usize = MAX_REPLICATED_COMMAND_BYTES + 128 * 1024;
 

@@ -6,7 +6,11 @@ use std::time::{Instant, SystemTime};
 
 mod coordination;
 mod custody;
-pub use custody::{SegmentReadCustody, SegmentStoreCustody};
+pub use custody::{
+    OwnedWalGroup, SegmentReadCursor, SegmentReadCustody, SegmentReadError, SegmentReadLimit,
+    SegmentReadLimits, SegmentScanControl, SegmentScanOutcome, SegmentStoreCustody,
+    append_only_manifest_byte_bound, wal_record_disk_bytes,
+};
 mod group;
 mod initialization;
 mod wal;

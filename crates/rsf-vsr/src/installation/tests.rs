@@ -1521,3 +1521,5 @@ mod group_publication;
 
 #[path = "publication_metadata_tests.rs"]
 mod bounded_publication_metadata;
+
+mod bounded_voter;

@@ -899,6 +899,7 @@ name = "rsf-rpc"
 version = "0.1.0"
 dependencies = [
  "rcgen",
+ "rsf-control-state",
  "rsf-core",
  "rsf-protocol",
  "rsf-storage",

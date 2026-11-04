@@ -58,6 +58,8 @@ fn managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise
     let before = server
         .with_membership_decision(pg, |store, _| store.decision_state().unwrap())
         .unwrap();
+    let journal = root.join("membership-3/decision/journal");
+    let journal_before = files(&journal);
     let inner = root.join("learner-3").join(id_name(id)).join("cell");
     assert!(!inner.join("VSR_ACTIVE").exists());
     std::fs::remove_file(inner.join("MANIFEST")).unwrap();
@@ -70,10 +72,21 @@ fn managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise
         update.replica.is_none(),
         "no transport dispatch may precede this check"
     );
-    let after = server
-        .with_membership_decision(pg, |store, _| store.decision_state().unwrap())
-        .unwrap();
+    // This public entry grants mutable decision access, so the damaged hosted
+    // learner must prevent the callback before any new promise can be issued.
+    let error = server
+        .with_membership_decision::<()>(pg, |_, _| {
+            panic!("failed learner cannot grant decision mutation access")
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "learner durability failed; reopen before further operations"
+    );
+    // Inspect the actual private owner without bypassing the public refusal.
+    let after = server.membership_decisions[&pg].decision_state().unwrap();
     assert_eq!(after, before);
+    assert_eq!(files(&journal), journal_before);
     assert!(server.membership_recovery_enabled());
     assert!(
         !inner.join("MANIFEST").exists(),

@@ -281,6 +281,13 @@ impl PeerReplicaServer {
             }
             _ => return Err(invalid("unknown membership RPC")),
         };
+        if let Some(proposal) = proposal
+            .as_ref()
+            .or_else(|| resumed.as_ref().map(|report| &report.proposal))
+        {
+            self.control_membership_mutation(pg, Some(proposal))
+                .map_err(invalid)?;
+        }
         let cell = self
             .cells
             .get_mut(&pg)

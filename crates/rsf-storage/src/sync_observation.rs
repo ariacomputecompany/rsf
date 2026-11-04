@@ -13,6 +13,7 @@ pub(crate) struct Event {
 struct Observation {
     root: PathBuf,
     fail_at: Option<usize>,
+    panic_at: Option<usize>,
     events: Vec<Event>,
 }
 thread_local! {
@@ -38,10 +39,18 @@ pub(crate) fn watch(root: &Path, fail_at: Option<usize>) -> Guard {
         *slot = Some(Observation {
             root: root.to_path_buf(),
             fail_at,
+            panic_at: None,
             events: Vec::new(),
         });
     });
     Guard
+}
+// An injected unwind at the actual pre-syscall observation boundary. It is
+// separate from fail_at and never marks the recorded event as completed.
+pub(crate) fn watch_panic(root: &Path, position: usize) -> Guard {
+    let guard = watch(root, None);
+    OBSERVATION.with(|slot| slot.borrow_mut().as_mut().unwrap().panic_at = Some(position));
+    guard
 }
 pub(crate) fn before(path: &Path, policy: SyncPolicy) -> RsfResult<Option<usize>> {
     OBSERVATION.with(|slot| {
@@ -56,6 +65,11 @@ pub(crate) fn before(path: &Path, policy: SyncPolicy) -> RsfResult<Option<usize>
             manifest: std::fs::read(state.root.join("MANIFEST")).unwrap(),
             completed: false,
         });
+        assert_ne!(
+            state.panic_at,
+            Some(position),
+            "injected append sync panic (test only)"
+        );
         if state.fail_at == Some(position) {
             return Err(storage_error(
                 StorageIoOperation::Sync,
