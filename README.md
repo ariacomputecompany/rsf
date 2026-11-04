@@ -1,4 +1,4 @@
-# RSF
+# RSF - Replicated Storage Fabric
 
 RSF is a full distributed database system with an internal replicated storage-fabric protocol.
 
