@@ -28,14 +28,14 @@ Current release status: **not production qualified**. Linux is the only producti
 target. Verification is local and releases use ordinary pushes to remote `main`;
 no CI/CD is authorized.
 
-The current full V2 baseline has real failures at the original STAGE deadlines
-in membership-peer and membership-staging, plus a recovery fixture that terminates
-its listener on a connection EOF. Completed failing-domain evidence is recorded in
-`docs/storage-open-v2-failures-2026-11-06.json`; the remaining domains are still
-running on unchanged source. The storage-open optimization is insufficient to close
-timing qualification. Preserve these failures while qualifying targeted corrections.
-The earlier V1 named-evidence refusal and child-output correction remain recorded in
-`docs/storage-open-qualification-2026-11-06.json`.
+The complete V2 baseline passed 23 domains and 1,602 workspace tests but failed
+its overall gate on STAGE deadlines and a recovery-fixture EOF panic. Terminal
+evidence is preserved in `docs/storage-open-v2-terminal-2026-11-06.json`.
+The fixture correction has a genuine closed-socket RED/GREEN and a passing
+484-test concurrent suite, recorded in `docs/recovery-eof-qualification-2026-11-06.json`.
+STAGE timing remains unresolved: the storage-open optimization and later passing
+samples do not override the original deadline failures. A fresh complete baseline
+is required after the timing correction.
 
 Pending namespace-disposal, initial-learner and native-identity packages still
 require integration and runtime qualification. The native-identity draft needs
@@ -53,8 +53,8 @@ open.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 
-- Resolve the remaining STAGE deadline failures and recovery-fixture EOF handling,
-  then obtain a fresh full baseline certificate. Preserve original deadlines,
+- Resolve the remaining STAGE deadline failures, then obtain a fresh full
+  baseline certificate. Preserve original deadlines,
   retry counts, concurrency and every failed attempt.
 - Integrate and qualify initial-learner/native-identity paths and bounded namespace
   disposal with its provisional-retention contract. Compose the private initial

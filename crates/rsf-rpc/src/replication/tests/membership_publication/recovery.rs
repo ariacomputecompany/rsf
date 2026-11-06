@@ -14,6 +14,14 @@ fn real_tls_managed_recovery_polls_both_survivors_while_transport_waits() {
     ready.peers.get_mut(&NodeId(1)).unwrap().address = unavailable.local_addr().unwrap();
     ready.peers.get_mut(&NodeId(2)).unwrap().address = first.local_addr().unwrap();
     ready.peers.get_mut(&NodeId(3)).unwrap().address = second.local_addr().unwrap();
+    // A peer can close before completing TLS (for example after its own
+    // bounded attempt expires). Such a connection must not kill the listener.
+    // Queue a real closed connection on each survivor before either polls.
+    for listener in [&first, &second] {
+        let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        socket.shutdown(std::net::Shutdown::Both).unwrap();
+        drop(socket);
+    }
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = Arc::clone(&stop);
     unavailable.set_nonblocking(true).unwrap();
@@ -56,16 +64,31 @@ fn real_tls_managed_recovery_polls_both_survivors_while_transport_waits() {
             let mut reported = false;
             let mut empty_polls = 0;
             let mut inbound = 0;
+            let mut disconnected = 0;
             while Instant::now() < deadline && majorities.load(Ordering::SeqCst) < 2 {
                 for _ in 0..8 {
                     match listener.accept() {
                         Ok((socket, _)) => {
-                            server
-                                .serve_connection_with_apply(socket, &mut |entry| {
-                                    persist_staged_entry(&root, node, entry)
-                                })
-                                .unwrap();
-                            inbound += 1;
+                            let started = Instant::now();
+                            let mut applied = 0;
+                            // Exact implementation of serve_connection_with_apply,
+                            // retaining ErrorKind before that wrapper erases it.
+                            let result = server.serve_io(socket, &mut |entry| {
+                                applied += 1;
+                                persist_staged_entry(&root, node, entry)
+                            }, true);
+                            match result {
+                                Ok(()) => inbound += 1,
+                                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                                    assert_eq!(applied, 0, "EOF connection invoked materialization");
+                                    disconnected += 1;
+                                    eprintln!(
+                                        "recovery peer {node} rejected disconnected connection after {:?}: {error}",
+                                        started.elapsed()
+                                    );
+                                }
+                                Err(error) => panic!("recovery peer {node} inbound RPC failed: {error}"),
+                            }
                         }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(e) => panic!("recovery accept: {e}"),
@@ -91,6 +114,7 @@ fn real_tls_managed_recovery_polls_both_survivors_while_transport_waits() {
                 "node {node} blocked instead of yielding pending transport"
             );
             assert!(inbound > 0, "node {node} did not serve its surviving peer");
+            assert!(disconnected > 0, "node {node} did not observe its queued EOF connection");
             assert!(server.membership_recovery_enabled());
             assert!(server.membership_admission_required().unwrap());
             let plan = ready_plan(&server);
