@@ -28,16 +28,15 @@ Current release status: **not production qualified**. Linux is the only producti
 target. Verification is local and releases use ordinary pushes to remote `main`;
 no CI/CD is authorized.
 
-The complete V2 baseline passed 23 domains and 1,602 workspace tests but failed
-its overall gate on STAGE deadlines and a recovery-fixture EOF panic. Terminal
-evidence is preserved in `docs/storage-open-v2-terminal-2026-11-06.json`.
-The fixture correction has a genuine closed-socket RED/GREEN and a passing
-484-test concurrent suite, recorded in `docs/recovery-eof-qualification-2026-11-06.json`.
-The fresh-store publication correction has passing storage fault tests and the
-original 484-test concurrent suite, recorded in
-`docs/fresh-publication-qualification-2026-11-06.json`. STAGE timing still requires
-a fresh complete baseline; scoped passing samples do not override the original
-deadline failures.
+The latest complete baseline passed 22 domains and failed membership-staging,
+membership-activation and workspace. Terminal evidence is preserved in
+`docs/fresh-publication-baseline-terminal-2026-11-06.json`. Remaining failures
+include STAGE/publication deadlines and four cache/security socket timeouts.
+The fresh-store publication correction retains its scoped fault/concurrency
+evidence in `docs/fresh-publication-qualification-2026-11-06.json`; it does not
+establish a clean full baseline. Diagnose and fix these failures under the
+original deadlines, workloads, retries and concurrency, then requalify the final
+source through all 25 domains. Preserve earlier failed traces.
 
 Pending namespace-disposal, initial-learner and native-identity packages still
 require integration and runtime qualification. The native-identity draft needs
