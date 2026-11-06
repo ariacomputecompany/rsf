@@ -92,6 +92,7 @@ impl PublicationGuard {
         owner: &LearnerHistoryStore,
         candidate: &Published,
     ) -> RsfResult<Self> {
+        candidate.custody.validate_cell(&candidate.cell)?;
         let previous = owner
             .published
             .as_ref()
@@ -120,6 +121,7 @@ impl PublicationGuard {
         owner: &LearnerHistoryStore,
         candidate: &Published,
     ) -> RsfResult<Self> {
+        candidate.custody.validate_cell(&candidate.cell)?;
         let previous = owner.published_state_token()?;
         let published = owner
             .published
@@ -179,6 +181,7 @@ impl PublicationGuard {
         owner: &LearnerHistoryStore,
         candidate: &Published,
     ) -> RsfResult<()> {
+        candidate.custody.validate_cell(&candidate.cell)?;
         if let Some(flat) = &candidate.bounded_flat {
             flat.validate_cell(&candidate.cell)?;
         }
@@ -206,6 +209,7 @@ impl PublicationGuard {
         if let Some(flat) = &candidate.bounded_flat {
             flat.validate_cell(&candidate.cell)?;
         }
+        candidate.custody.validate_cell(&candidate.cell)?;
         Ok(())
     }
 }

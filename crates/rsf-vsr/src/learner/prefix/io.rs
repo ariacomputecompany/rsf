@@ -63,13 +63,21 @@ pub(in crate::learner) fn lock(
     create: bool,
 ) -> RsfResult<rsf_storage::ExclusiveFileLock> {
     let original = match fs::symlink_metadata(path) {
-        Ok(metadata) => Some((
-            guard::Exact::capture(path, &[])?,
-            guard::file_stamp(&metadata)?,
-        )),
+        Ok(_) => Some(guard::Exact::capture(path, &[])?),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => None,
         Err(error) => return Err(io_error(error)),
     };
+    lock_captured(path, original)
+}
+// Original absence always uses create_new. An intervening existing name cannot
+// be adopted as our newly created lock, even when its bytes happen to match.
+pub(in crate::learner) fn lock_captured(
+    path: &Path,
+    original: Option<guard::Exact>,
+) -> RsfResult<rsf_storage::ExclusiveFileLock> {
+    if let Some(exact) = &original {
+        exact.validate()?;
+    }
     let mut options = OpenOptions::new();
     options.write(true);
     if original.is_none() {
@@ -79,8 +87,8 @@ pub(in crate::learner) fn lock(
     let file = options.open(path).map_err(io_error)?;
     let held = guard::file_stamp(&file.metadata().map_err(io_error)?)?;
     let exact = match original {
-        Some((exact, expected)) => {
-            if held != expected {
+        Some(exact) => {
+            if held != guard::file_stamp(&fs::symlink_metadata(path).map_err(io_error)?)? {
                 return Err(corrupt("learner lock changed before acquisition"));
             }
             exact.validate()?;
@@ -142,7 +150,7 @@ impl PreparedPublication {
     pub(in crate::learner) fn publish(self) -> RsfResult<()> {
         self.publish_guarded().map(|_| ())
     }
-    pub(super) fn publish_guarded(self) -> RsfResult<guard::Exact> {
+    pub(in crate::learner) fn publish_guarded(self) -> RsfResult<guard::Exact> {
         self.exact.validate()?;
         fs::rename(self.temporary, &self.target).map_err(io_error)?;
         sync_directory(&self.directory)?;

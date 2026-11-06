@@ -61,6 +61,7 @@ impl LearnerHistoryStore {
                     if stage.descriptor.id()? != context.id {
                         return Err(corrupt("bounded stage identity changed"));
                     }
+                    stage.custody.validate()?;
                     stage.store.validate_owned_custody(expected)?;
                 }
                 Continuation::Rejected(rejected) => {
@@ -100,6 +101,7 @@ impl LearnerHistoryStore {
             self.validate_prefix_context(context)?;
         }
         if let Some(stage) = &self.stage {
+            stage.custody.validate()?;
             // A generic warm stage has no historical bounded stamp. Adoption
             // checks its actual retained writer; it never recreates its route.
             let expected = stage.store.capture_owned_custody()?;

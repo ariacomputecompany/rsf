@@ -59,6 +59,10 @@ open.
 - Resolve the remaining STAGE deadline failures, then obtain a fresh full
   baseline certificate. Preserve original deadlines,
   retry counts, concurrency and every failed attempt.
+- Renew recovered learner data before cold/resumed progress acknowledgments and
+  legacy cold published-owner admission. Replace ordinary duplicate APPEND's
+  repair-capable readback with immutable validation of the actual retained writer.
+  Keep live physical failures fenced and qualify cold recovery separately.
 - Integrate and qualify initial-learner/native-identity paths. Compose the private
   initial owner context with the qualified ordinary namespace disposal before
   combining those drafts; finite WAL reads alone do not bound the complete

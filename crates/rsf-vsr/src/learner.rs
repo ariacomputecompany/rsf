@@ -2,6 +2,7 @@
 //! hash-checked history, normal VSR recovery, and extension of published truth.
 use super::*;
 mod custody;
+mod ordinary;
 mod replay;
 pub use replay::PublishedVsrReplay;
 mod prefix;
@@ -16,6 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug)]
 struct Stage {
+    custody: custody::CandidateCustody,
     descriptor: VsrHistoryDescriptor,
     store: SegmentStore,
     count: u64,
@@ -25,6 +27,7 @@ struct Stage {
 
 #[derive(Debug)]
 struct Published {
+    custody: custody::CandidateCustody,
     bounded_flat: Option<prefix::guard::Flat>,
     id: [u8; 32],
     descriptor: VsrHistoryDescriptor,
@@ -36,6 +39,7 @@ struct Published {
 /// the transport; a transferred voter list cannot change this receiver's role.
 #[derive(Debug)]
 pub struct LearnerHistoryStore {
+    owner_custody: custody::OwnerCustody,
     root: PathBuf,
     pg: PlacementGroupId,
     local: NodeId,
@@ -48,81 +52,6 @@ pub struct LearnerHistoryStore {
 }
 
 impl LearnerHistoryStore {
-    pub fn open(
-        path: impl AsRef<Path>,
-        pg: PlacementGroupId,
-        local: NodeId,
-        source: NodeId,
-    ) -> RsfResult<Self> {
-        if local == source {
-            return Err(invalid_input("learner and source must differ"));
-        }
-        let root = path.as_ref().to_path_buf();
-        rsf_storage::create_dir_all_synced(&root).map_err(io_error)?;
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(root.join(".learner.lock"))
-            .map_err(io_error)?;
-        let lock = rsf_storage::ExclusiveFileLock::acquire(file)
-            .map_err(|err| invalid_input(format!("learner store already has an owner: {err}")))?;
-        let mut identity = b"RSFL1".to_vec();
-        for value in [pg.0, local.0, source.0] {
-            identity.extend_from_slice(&value.to_le_bytes());
-        }
-        match fs::read(root.join("IDENTITY")) {
-            Ok(existing) if existing == identity => {}
-            Ok(_) => {
-                return Err(invalid_input(
-                    "learner store identity differs from configuration",
-                ));
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                for entry in fs::read_dir(&root).map_err(io_error)? {
-                    let entry = entry.map_err(io_error)?;
-                    if entry.file_name() != ".learner.lock" && entry.file_name() != ".IDENTITY.tmp"
-                    {
-                        return Err(corrupt("nonempty learner store has no identity"));
-                    }
-                }
-                atomic_write(&root, "IDENTITY", &identity)?
-            }
-            Err(err) => return Err(io_error(err)),
-        }
-        let mut learner = Self {
-            root,
-            pg,
-            local,
-            source,
-            stage: None,
-            published: None,
-            failed: AtomicBool::new(false),
-            prefix_context: None,
-            _lock: lock,
-        };
-        match fs::read(learner.root.join("ACTIVE")) {
-            Ok(bytes) => {
-                let id: [u8; 32] = bytes
-                    .try_into()
-                    .map_err(|_| corrupt("invalid active learner history id"))?;
-                let directory = learner.directory(&id);
-                let descriptor = VsrHistoryDescriptor::decode(
-                    &fs::read(directory.join("DESCRIPTOR")).map_err(io_error)?,
-                )?;
-                learner.validate_descriptor(&descriptor)?;
-                if descriptor.id()? != id {
-                    return Err(corrupt("active learner descriptor identity mismatch"));
-                }
-                let stage = learner.recover_stage(descriptor)?;
-                learner.published = Some(learner.validate_complete(stage)?);
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => return Err(io_error(err)),
-        }
-        Ok(learner)
-    }
-
     /// Transition votes require the already published bootstrap/history anchor.
     /// Catch-up and this check never promote the learner's application role.
     pub fn validate_membership_authority(&self, approval: &VsrMembershipApproval) -> RsfResult<()> {
@@ -203,23 +132,36 @@ impl LearnerHistoryStore {
             self.reclaim_unreferenced()?;
             return Ok(count);
         }
+        self.failed.store(true, Ordering::Relaxed);
         self.stage = None;
         let directory = self.directory(&id);
         fs::create_dir_all(&directory).map_err(io_error)?;
+        let directory_identity = prefix::guard::directory(&directory)?;
         sync_directory(&self.root)?;
         let encoded = descriptor.encode()?;
-        match fs::read(directory.join("DESCRIPTOR")) {
-            Ok(existing) if existing == encoded => {}
-            Ok(_) => return Err(corrupt("staged descriptor identity mismatch")),
+        let exact = match fs::symlink_metadata(directory.join("DESCRIPTOR")) {
+            Ok(_) => prefix::guard::Exact::capture(&directory.join("DESCRIPTOR"), &encoded)?,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                atomic_write(&directory, "DESCRIPTOR", &encoded)?
+                prefix::io::prepare_publication(&directory, "DESCRIPTOR", &encoded)?
+                    .publish_guarded()?
             }
             Err(err) => return Err(io_error(err)),
+        };
+        fs::create_dir_all(directory.join("cell")).map_err(io_error)?;
+        let custody = custody::CandidateCustody::capture(&directory, &descriptor)?;
+        let stage = self.recover_stage(descriptor, custody)?;
+        exact.validate()?;
+        if prefix::guard::directory(&directory)? != directory_identity {
+            return Err(corrupt(
+                "learner candidate directory changed during recovery",
+            ));
         }
-        let stage = self.recover_stage(descriptor)?;
+        self.owner_custody.validate(&self.root, &self._lock)?;
         let count = stage.count;
         self.stage = Some(stage);
         self.reclaim_unreferenced()?;
+        self.owner_custody.validate(&self.root, &self._lock)?;
+        self.failed.store(false, Ordering::Relaxed);
         Ok(count)
     }
 
@@ -264,22 +206,33 @@ impl LearnerHistoryStore {
             ));
         }
         if ordinal < stage.count {
-            let recovery = stage.store.recover_current()?.recovery;
+            self.failed.store(true, Ordering::Relaxed);
+            let recovered = stage.store.recover_current();
+            stage.custody.validate()?;
+            self.owner_custody.validate(&self.root, &self._lock)?;
+            let recovery = recovered?.recovery;
             let previous = recovery
                 .wal_records
                 .get(ordinal as usize)
                 .ok_or_else(|| corrupt("learner staged record disappeared"))?;
-            if previous.epoch != record.epoch
+            let different = previous.epoch != record.epoch
                 || previous.kind != record.kind
-                || previous.payload != record.payload
-            {
+                || previous.payload != record.payload;
+            let count = stage.count;
+            // Physical prior-publication loss dominates either duplicate result.
+            // Only a checked healthy semantic refusal may clear this sentinel.
+            self.validate_ordinary_anchor()?;
+            if different {
+                self.failed.store(false, Ordering::Relaxed);
                 return Err(corrupt(
                     "learner duplicate record differs from durable history",
                 ));
             }
-            return Ok(stage.count);
+            self.failed.store(false, Ordering::Relaxed);
+            return Ok(count);
         }
         let digest = transfer::extend_digest(stage.digest, &record)?;
+        self.failed.store(true, Ordering::Relaxed);
         let result = stage.store.append_wal(WalAppend {
             pg: self.pg,
             epoch: record.epoch,
@@ -293,71 +246,17 @@ impl LearnerHistoryStore {
                 stage.previous_hash = wal.record_hash;
                 stage.digest = digest;
                 stage.count += 1;
-                Ok(stage.count)
+                stage.custody.validate()?;
+                let count = stage.count;
+                self.validate_ordinary_anchor()?;
+                self.failed.store(false, Ordering::Relaxed);
+                Ok(count)
             }
             Err(err) => {
                 self.failed.store(true, Ordering::Relaxed);
                 Err(err)
             }
         }
-    }
-
-    /// Publish only after replay validates every historical certificate. The
-    /// prior snapshot remains authoritative until the synced ACTIVE rename.
-    pub fn finish(&mut self, id: [u8; 32]) -> RsfResult<LogIndex> {
-        self.healthy()?;
-        self.require_ordinary_transfer()?;
-        if let Some(published) = &self.published
-            && published.id == id
-        {
-            let tail = published.cell.committed_tail();
-            self.reclaim_unreferenced()?;
-            return Ok(tail);
-        }
-        let stage = self
-            .stage
-            .as_ref()
-            .ok_or_else(|| invalid_input("no staged learner transfer"))?;
-        if stage.descriptor.id()? != id {
-            return Err(invalid_input("learner finish snapshot mismatch"));
-        }
-        if stage.count != stage.descriptor.records {
-            return Err(invalid_input("learner transfer is incomplete"));
-        }
-        let stage = self.stage.take().unwrap();
-        // Bind publication to bytes recovered from disk, including records that
-        // were acknowledged before this process or transfer attempt began. Keep
-        // the existing writer until validation takes ownership; reopening an
-        // intermediate writer would repeat namespace publication unnecessarily.
-        let recovery = stage.store.recover_current()?.recovery;
-        let stage = self.stage_from_recovery(stage.descriptor, stage.store, recovery)?;
-        let candidate = self.validate_complete(stage)?;
-        if let Some(previous) = &self.published {
-            let old = &previous.cell;
-            let new = &candidate.cell;
-            if old.initial_bootstrap != new.initial_bootstrap
-                || new.view() < old.view()
-                || !new.history.compatible(&old.history)
-                || !installation::preserves_committed(&new.cell, &old.cell)
-                || old
-                    .cell
-                    .client_table
-                    .iter()
-                    .any(|(key, value)| new.cell.client_table.get(key) != Some(value))
-            {
-                return Err(corrupt(
-                    "learner history conflicts with published commits, configurations, receipts or bootstrap",
-                ));
-            }
-        }
-        if let Err(err) = atomic_write(&self.root, "ACTIVE", &id) {
-            self.failed.store(true, Ordering::Relaxed);
-            return Err(err);
-        }
-        let tail = candidate.cell.committed_tail();
-        self.published = Some(candidate);
-        self.reclaim_unreferenced()?;
-        Ok(tail)
     }
 
     pub fn committed_entries(&self) -> RsfResult<Vec<VsrCommittedEntry>> {
@@ -423,6 +322,14 @@ impl LearnerHistoryStore {
     }
     fn healthy(&self) -> RsfResult<()> {
         self.check_failure()?;
+        self.owner_custody
+            .validate(&self.root, &self._lock)
+            .and_then(|()| {
+                self.stage
+                    .as_ref()
+                    .map_or(Ok(()), |stage| stage.custody.validate())
+            })
+            .inspect_err(|_| self.failed.store(true, Ordering::Relaxed))?;
         if self.published.is_some() {
             self.published_state_token()?;
         }
@@ -447,79 +354,6 @@ impl LearnerHistoryStore {
             ));
         }
         Ok(())
-    }
-    fn recover_stage(&self, descriptor: VsrHistoryDescriptor) -> RsfResult<Stage> {
-        let directory = self.directory(&descriptor.id()?).join("cell");
-        let (store, recovery) = SegmentStore::open_recovered(&directory, Default::default())?;
-        self.stage_from_recovery(descriptor, store, recovery.recovery)
-    }
-    fn stage_from_recovery(
-        &self,
-        descriptor: VsrHistoryDescriptor,
-        store: SegmentStore,
-        recovery: rsf_storage::Recovery,
-    ) -> RsfResult<Stage> {
-        let mut digest = Digest::blake3_bytes(b"RSF history chain v1");
-        let mut previous_hash = [0; 32];
-        let count = recovery.wal_records.len() as u64;
-        if count > descriptor.records {
-            return Err(corrupt("learner history exceeds declared record count"));
-        }
-        for (position, record) in recovery.wal_records.iter().enumerate() {
-            if record.pg != self.pg || record.index.0 != position as u64 + 1 {
-                return Err(corrupt(
-                    "learner history has foreign or noncontiguous records",
-                ));
-            }
-            digest = transfer::extend_digest(
-                digest,
-                &VsrHistoryRecord {
-                    epoch: record.epoch,
-                    kind: record.kind,
-                    payload: record.payload.to_vec(),
-                },
-            )?;
-            previous_hash = record.record_hash;
-        }
-        Ok(Stage {
-            descriptor,
-            store,
-            count,
-            digest,
-            previous_hash,
-        })
-    }
-    fn validate_complete(&self, stage: Stage) -> RsfResult<Published> {
-        let Stage {
-            descriptor,
-            store,
-            count,
-            digest,
-            ..
-        } = stage;
-        if count != descriptor.records || digest != descriptor.digest {
-            return Err(corrupt("learner history count or digest mismatch"));
-        }
-        let path = store.root().to_path_buf();
-        drop(store);
-        let cell = DurableVsrCell::open(
-            &path,
-            self.pg,
-            descriptor.probe.view,
-            descriptor.probe.primary,
-            descriptor.probe.voters.clone(),
-        )?;
-        if cell.primary_probe()? != descriptor.probe || !cell.bootstrap_persisted {
-            return Err(corrupt(
-                "recovered learner history differs from source probe",
-            ));
-        }
-        Ok(Published {
-            bounded_flat: None,
-            id: descriptor.id()?,
-            descriptor,
-            cell,
-        })
     }
 }
 

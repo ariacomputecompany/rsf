@@ -77,7 +77,16 @@ impl LearnerHistoryStore {
         let id: [u8; 32] = active
             .try_into()
             .map_err(|_| corrupt("invalid active learner id"))?;
+        let owner_custody = custody::OwnerCustody::from_original(
+            root.clone(),
+            root_identity.clone(),
+            identity.clone(),
+            lock_guard.clone(),
+            Some(active_guard.clone()),
+        );
+        owner_custody.validate(&root, &lock)?;
         let mut owner = Self {
+            owner_custody,
             root,
             pg,
             local,
@@ -99,6 +108,7 @@ impl LearnerHistoryStore {
             return Err(corrupt("active learner descriptor identity mismatch"));
         }
         let opened = owner.open_prefix_stage(descriptor, limits, false)?;
+        opened.stage.custody.require_writer()?;
         let published = owner.complete_prefix(opened, false)?;
         identity.validate()?;
         lock_guard.validate()?;

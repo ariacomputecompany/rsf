@@ -259,6 +259,12 @@ pub(in crate::learner) fn open(
     // Policy is checked before even provisional empty metadata may be completed.
     let storage_limits = limits.storage()?;
     let admission = limits.admission()?;
+    let candidate = custody::CandidateCustody::capture(
+        directory
+            .parent()
+            .ok_or_else(|| corrupt("learner cell lacks candidate directory"))?,
+        &descriptor,
+    )?;
     if initialize {
         // Caller-owned provisional empty transfer, including a cold ACK0.
         // Caller validates the exact current authority/selection before this path; it permits
@@ -266,6 +272,7 @@ pub(in crate::learner) fn open(
         // publication authority is inferred. Nonempty data stays strict.
         SegmentStore::complete_unbound_empty_initialization(directory)?;
     }
+    candidate.validate()?;
     let flat = guard::Flat::capture(directory)?;
     let mut options = SegmentStoreOptions::default();
     options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
@@ -314,8 +321,10 @@ pub(in crate::learner) fn open(
     }
     flat.validate()?;
     store.validate_owned_custody(&custody)?;
+    candidate.validate()?;
     Ok(OpenedPrefix {
         stage: Stage {
+            custody: candidate,
             descriptor,
             store,
             count,
@@ -341,12 +350,15 @@ pub(in crate::learner) fn complete_replayed(
         return Err(corrupt("bounded learner history count or digest mismatch"));
     }
     let Stage {
-        descriptor, store, ..
+        descriptor,
+        store,
+        custody: mut candidate,
+        ..
     } = stage;
     let path = store.root().to_path_buf();
     flat.validate()?;
     store.validate_owned_custody(custody)?;
-    let writer_lock = io::lock(&path.join(".vsr-writer.lock"), create_lock)?;
+    let writer_lock = candidate.acquire_writer(create_lock)?;
     let lock_guard = guard::owned_lock(&path.join(".vsr-writer.lock"), &writer_lock)?;
     flat.validate()?;
     store.validate_owned_custody(custody)?;
@@ -367,6 +379,7 @@ pub(in crate::learner) fn complete_replayed(
         pg,
         replayed,
         |_, _, store| {
+            candidate.validate()?;
             flat.validate()?;
             lock_guard.validate()?;
             store.validate_owned_custody(custody)
@@ -383,7 +396,9 @@ pub(in crate::learner) fn complete_replayed(
     }
     flat.validate_cell(&cell)?;
     cell.store.validate_owned_custody(custody)?;
+    candidate.validate_cell(&cell)?;
     Ok(Published {
+        custody: candidate,
         bounded_flat: Some(flat.clone()),
         id: descriptor.id()?,
         descriptor,

@@ -90,6 +90,7 @@ impl LearnerHistoryStore {
             .replace(rejected.candidate)
             .expect("old actual publication remains owned until handoff");
         // Only the exact prepared inode/bytes changes ACTIVE expectation.
+        self.owner_custody.published(active.clone());
         namespace.published(self, id, active)?;
         namespace.permit_retirement(self, retired.id)?;
         drop(retired);
