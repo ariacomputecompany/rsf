@@ -11,6 +11,7 @@ pub struct ObservedControlGenesisDelivery {
     key: Box<Key>,
     reporters: Vec<NodeId>,
 }
+#[derive(Clone)]
 struct Key {
     anchor: ControlBootstrap,
     operation: OperationId,
@@ -190,4 +191,152 @@ fn hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     digest.update(domain);
     digest.update(bytes);
     digest.finalize().into()
+}
+
+#[derive(Debug)]
+pub(in crate::replication) enum InitialSourceFailure {
+    Ownership(String),
+    Physical(rsf_core::RsfError),
+}
+impl From<rsf_core::RsfError> for InitialSourceFailure {
+    fn from(error: rsf_core::RsfError) -> Self {
+        Self::Physical(error)
+    }
+}
+impl From<&str> for InitialSourceFailure {
+    fn from(reason: &str) -> Self {
+        Self::Ownership(reason.into())
+    }
+}
+impl From<String> for InitialSourceFailure {
+    fn from(reason: String) -> Self {
+        Self::Ownership(reason)
+    }
+}
+/// Private validated copy of an actual opaque delivery key. This is not a DTO.
+#[derive(Debug)]
+pub(in crate::replication) struct InitialGenesisSource {
+    key: Key,
+}
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GenesisSourceKey")
+            .field("anchor", &self.anchor)
+            .field("operation", &self.operation)
+            .field("view", &self.view)
+            .field("primary", &self.primary)
+            .finish_non_exhaustive()
+    }
+}
+impl ObservedControlGenesisDelivery {
+    pub(in crate::replication) fn initial_source(
+        &self,
+        anchor: &ControlBootstrap,
+        genesis: &ControlCatalog,
+        cell: &DurableVsrCell,
+        local: NodeId,
+    ) -> Result<InitialGenesisSource, InitialSourceFailure> {
+        validate_initial_key(&self.key, anchor, genesis, cell, local)?;
+        if self.reporters.len() < cell.quorum()
+            || self.reporters.windows(2).any(|pair| pair[0] >= pair[1])
+            || self
+                .reporters
+                .iter()
+                .any(|node| !self.key.lineage.voters.contains(node))
+        {
+            return Err("initial source lacks actual original delivery majority".into());
+        }
+        Ok(InitialGenesisSource {
+            key: (*self.key).clone(),
+        })
+    }
+}
+impl InitialGenesisSource {
+    pub(in crate::replication) fn anchor(&self) -> &ControlBootstrap {
+        &self.key.anchor
+    }
+    pub(in crate::replication) fn validate(
+        &self,
+        anchor: &ControlBootstrap,
+        genesis: &ControlCatalog,
+        cell: &DurableVsrCell,
+        local: NodeId,
+    ) -> Result<(), InitialSourceFailure> {
+        validate_initial_key(&self.key, anchor, genesis, cell, local)
+    }
+    /// Invoke only after bounded kernel export has admitted its complete cut.
+    pub(in crate::replication) fn validate_export(
+        &self,
+        anchor: &ControlBootstrap,
+        genesis: &ControlCatalog,
+        cell: &DurableVsrCell,
+        local: NodeId,
+        export: &rsf_vsr::VsrVoterPrefixExport,
+    ) -> Result<(), InitialSourceFailure> {
+        self.validate(anchor, genesis, cell, local)?;
+        let descriptor = export.descriptor();
+        let prepare = cell
+            .prepared(LogIndex(1))
+            .ok_or("initial Genesis prepare disappeared")?;
+        if descriptor.probe.pg != anchor.control_pg
+            || export.through() != LogIndex(1)
+            || descriptor.probe.primary != self.key.primary
+            || descriptor.probe.view != self.key.view
+            || descriptor.probe.voters != self.key.lineage.voters
+            || hash(b"RSF Genesis delivery prepare v1", &prepare.encode()?) != self.key.prepare
+        {
+            return Err("initial export differs from actual historical Genesis delivery".into());
+        }
+        self.validate(anchor, genesis, cell, local)
+    }
+}
+fn validate_initial_key(
+    key: &Key,
+    anchor: &ControlBootstrap,
+    genesis: &ControlCatalog,
+    cell: &DurableVsrCell,
+    local: NodeId,
+) -> Result<(), InitialSourceFailure> {
+    // Cheap identity/custody checks precede every payload-sized encoding. The
+    // commit was verified when this opaque key was minted; unchanged original
+    // custody binds that same certificate without cloning the whole history.
+    if key.anchor != *anchor || key.stamp != cell.recovery_state_token()? {
+        return Err("initial source belongs to a different or changed control owner".into());
+    }
+    if cell.primary_probe()?.primary != local {
+        return Err("initial source requires actual current control primary".into());
+    }
+    let actual = cell.membership_lineage()?;
+    let configured = genesis
+        .group(anchor.control_pg)
+        .ok_or("configured control group absent")?;
+    if actual.pg != anchor.control_pg
+        || actual.bootstrap != configured.lineage.bootstrap
+        || actual.plan != configured.lineage.plan
+        || actual.voters != configured.voters
+    {
+        return Err("initial source requires original configured control membership".into());
+    }
+    if key.lineage != actual {
+        return Err("initial source lineage changed".into());
+    }
+    let prepare = cell
+        .prepared(LogIndex(1))
+        .ok_or("initial source lost Genesis prepare")?;
+    let VsrOperation::ReplicatedCommand { operation_id, .. } = &prepare.operation else {
+        return Err("initial Genesis is not a replicated command".into());
+    };
+    if *operation_id != key.operation
+        || prepare.pg != anchor.control_pg
+        || prepare.index != LogIndex(1)
+        || prepare.view != key.view
+        || prepare.primary != key.primary
+        || cell.committed_operation(LogIndex(1)) != Some(&prepare.operation)
+    {
+        return Err("initial source lost its exact committed Genesis operation".into());
+    }
+    if key.stamp != cell.recovery_state_token()? {
+        return Err("initial source custody changed while validating".into());
+    }
+    Ok(())
 }

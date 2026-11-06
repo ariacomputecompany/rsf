@@ -5,6 +5,16 @@ use std::io::Read;
 // Existing RSFD1 (45) + RSFV1 (73 + at most 4096 u64 voter IDs).
 pub(in crate::learner) const DESCRIPTOR_BYTES: usize = 45 + 73 + 8 * 4096;
 
+pub(in crate::learner) fn create_directory(path: &Path) -> RsfResult<()> {
+    match fs::create_dir(path) {
+        Ok(()) => sync_directory(path.parent().ok_or_else(|| corrupt("stage lacks parent"))?)?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(io_error(error)),
+    }
+    guard::directory(path)?;
+    Ok(())
+}
+
 pub(in crate::learner) fn normalized(path: &Path) -> RsfResult<PathBuf> {
     let mut root = PathBuf::new();
     for component in path.components() {

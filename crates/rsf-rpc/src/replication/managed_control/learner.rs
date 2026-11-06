@@ -50,6 +50,7 @@ pub(in crate::replication) struct ControlLearner {
     owner: LearnerHistoryStore,
     policy: ControlLearnerPolicy,
     context: Option<Context>,
+    initial_origin: Option<rsf_vsr::VsrInitialSelection>,
 }
 impl ControlLearner {
     // The only constructor accepts trusted policy before opening the actual
@@ -72,9 +73,116 @@ impl ControlLearner {
                 owner,
                 policy,
                 context: None,
+                initial_origin: None,
             },
             state,
         ))
+    }
+    pub(super) fn open_initial(
+        path: &Path,
+        local: NodeId,
+        policy: initial::ControlInitialPolicy,
+        selection: rsf_vsr::VsrInitialSelection,
+        source: NodeId,
+    ) -> RsfResult<(Self, PublishedControlState)> {
+        let policy = ControlLearnerPolicy {
+            anchor: policy.anchor,
+            genesis: policy.genesis,
+            source,
+            limits: policy.limits,
+        };
+        policy
+            .validate_local(local)
+            .map_err(|e| RsfError::new(ErrorCode::InvalidInput, e))?;
+        let (mut owner, state) = Self::open(path, local, policy)?;
+        owner.initial_origin = Some(selection);
+        Ok((owner, state))
+    }
+    pub(super) fn from_initial(
+        publication: rsf_vsr::VsrInitialPublication,
+        policy: initial::ControlInitialPolicy,
+    ) -> RsfResult<(Self, PublishedControlState)> {
+        let source = publication.source();
+        let initial_origin = Some(publication.selection());
+        let owner = publication.into_published();
+        let policy = ControlLearnerPolicy {
+            anchor: policy.anchor,
+            genesis: policy.genesis,
+            source,
+            limits: policy.limits,
+        };
+        policy
+            .validate_local(owner.local())
+            .map_err(|e| RsfError::new(ErrorCode::InvalidInput, e))?;
+        let state = PublishedControlState::recover(&policy.anchor, &owner)?;
+        Ok((
+            Self {
+                owner,
+                policy,
+                context: None,
+                initial_origin,
+            },
+            state,
+        ))
+    }
+    pub(super) fn initial_retry(
+        &self,
+        sender: NodeId,
+        cluster: [u8; 32],
+        payload: &[u8],
+        persist_present: bool,
+    ) -> io::Result<Vec<u8>> {
+        use initial::wire::{self, Reply, Request};
+        let origin = self
+            .initial_origin
+            .ok_or_else(|| invalid("adopted control learner has no initial transfer origin"))?;
+        let policy = initial::ControlInitialPolicy {
+            anchor: self.policy.anchor.clone(),
+            genesis: self.policy.genesis.clone(),
+            limits: self.policy.limits,
+        };
+        policy.authorize(sender, self.local())?;
+        let id = wire::policy_id(cluster, self.local(), &policy);
+        let request = wire::decode_request(payload, id, policy.limits)?;
+        let state = self.observation().map_err(rsf)?;
+        let current = self
+            .owner
+            .published_history_id()
+            .map_err(rsf)?
+            .ok_or_else(|| invalid("published initial owner lost ACTIVE"))?;
+        let reply = match request {
+            Request::Status => Reply::Initialized {
+                origin,
+                current,
+                tail: state.committed_tail(),
+            },
+            Request::Finish(selection) if persist_present && selection == origin => {
+                if current == origin.history_id() {
+                    Reply::Published {
+                        origin,
+                        current,
+                        tail: state.committed_tail(),
+                    }
+                } else {
+                    Reply::Initialized {
+                        origin,
+                        current,
+                        tail: state.committed_tail(),
+                    }
+                }
+            }
+            Request::Finish(_) if !persist_present => {
+                return Err(invalid(
+                    "initial control mutation requires native restriction persistence",
+                ));
+            }
+            _ => Reply::Conflict(initial::ControlInitialState::Published {
+                selection: origin,
+                source: self.policy.source,
+            }),
+        };
+        state.validate_live(&self.owner).map_err(rsf)?;
+        wire::encode_reply(payload, id, &reply)
     }
     pub(in crate::replication) fn placement_group(&self) -> PlacementGroupId {
         self.policy.anchor.control_pg

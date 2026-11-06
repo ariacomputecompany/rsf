@@ -1,0 +1,354 @@
+{
+  "status": "implemented; full VSR/storage/control-state pass; RPC transport qualification remains incomplete",
+  "source_sha256": "1f5aa7ffbcbbd460184bf9765d20608b7443b9dfe1d95b66145b6b012c3672e3",
+  "changes": [
+    "Renew recovered learner data before progress ACK and legacy cold published-owner return; preserve original writer and physical custody.",
+    "Use immutable actual-writer readback for duplicate APPEND; retain sticky failure after physical damage.",
+    "Integrate initial control learner transfer with restrictive callback ordering and same-owner publication handoff; create missing cell only in trusted fresh factory. Native persistence integration remains separate."
+  ],
+  "focused_progress_evidence": {
+    "red": {
+      "directory": "artifacts/ordinary-learner-progress-qualification-20261106/observation-ordinary-progress-red-v1",
+      "session_parent_reported": 59562,
+      "source": "342f9c617991fc045cf1a4c908fd1b797ca930244587053966e446de59f1c40b",
+      "actual_cargo_exit": 101,
+      "actual_discovery_exit": 0,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: FAILED. 1 passed; 8 failed; 0 ignored; 0 measured; 346 filtered out; finished in 1.17s"
+      ],
+      "outcomes": [
+        {
+          "test": "learner::tests::progress::duplicate::ordinary_duplicate_exact_and_semantic_mismatch_keep_healthy_owner_and_bytes",
+          "status": "ok",
+          "category": "preservation",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::duplicate::ordinary_duplicate_mid_call_manifest_replacement_never_adopts_new_custody",
+          "status": "FAILED",
+          "category": "duplicate_physical",
+          "classification": "duplicate_physical_ack"
+        },
+        {
+          "test": "learner::tests::progress::duplicate::ordinary_duplicate_torn_tail_refuses_without_repair_and_restoration_stays_fenced",
+          "status": "FAILED",
+          "category": "duplicate_physical",
+          "classification": "duplicate_physical_ack"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_after_real_renewal_loss_refuses_count_and_restoration_stays_fenced",
+          "status": "FAILED",
+          "category": "renewal_boundary",
+          "classification": "renewal_boundary_absent"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_after_real_renewal_unwind_fences_without_ack",
+          "status": "FAILED",
+          "category": "renewal_boundary",
+          "classification": "renewal_boundary_absent"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_changed_tail_between_real_barriers_never_repairs",
+          "status": "FAILED",
+          "category": "renewal_boundary",
+          "classification": "renewal_boundary_absent"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_renews_before_count_then_continues_exact_history",
+          "status": "FAILED",
+          "category": "renewal_boundary",
+          "classification": "renewal_boundary_absent"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_published_open_renews_legacy_data_before_owner_escape",
+          "status": "FAILED",
+          "category": "renewal_boundary",
+          "classification": "renewal_boundary_absent"
+        },
+        {
+          "test": "learner::tests::progress::renewal::strict_cold_published_open_renews_legacy_data_before_owner_escape",
+          "status": "FAILED",
+          "category": "renewal_boundary",
+          "classification": "renewal_boundary_absent"
+        }
+      ],
+      "source_and_controls_unchanged": true,
+      "trace_and_raw_capture_hashes_verified": true,
+      "hashes": {
+        "execution.json": "5c27a2193b04eab7f1808bc20b174c25a0dd7dfeef4de9e36b77473e92cb9ab0",
+        "trace.fozzy": "8f859615e172b4af972015854ccbda04bd39e50b6abcfa18d42efaca7e677fc2",
+        "cargo.stdout": "c4f29770db8c515855fde175ca55ab91b38be8cf7655c37dfa2b177b1a13d1ef",
+        "cargo.stderr": "361d84592cfbc78ea3af01f04684f0aa1e1d2496ff69d6a55611dfd0b083d7eb",
+        "cargo-process.json": "08307468877bb7c0a23412f828e8a670317f38bc72c29ae00bc3c2f9979dc062",
+        "discovery.stdout": "4913250046891bef67e1aad9e7360ddbbef4748f6bbad65d60efd2e87122e846",
+        "discovery.stderr": "8e2bdd8f7cb335ddc8a07a2bac8855dddf264c18ce22bebf3cb2b12787257c70",
+        "discovery-process.json": "316a2dc307fb43b2b4e9170b5cf06f5666d06a7ed534145885063bd96881b80e"
+      }
+    },
+    "green": {
+      "directory": "artifacts/ordinary-learner-progress-qualification-20261106/observation-ordinary-progress-green-v1",
+      "session_parent_reported": 70796,
+      "source": "da48da08d775d8849d161b795380d4f64f376f2305044aad0418382baea01c9b",
+      "actual_cargo_exit": 0,
+      "actual_discovery_exit": 0,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 346 filtered out; finished in 1.47s"
+      ],
+      "outcomes": [
+        {
+          "test": "learner::tests::progress::duplicate::ordinary_duplicate_exact_and_semantic_mismatch_keep_healthy_owner_and_bytes",
+          "status": "ok",
+          "category": "preservation",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::duplicate::ordinary_duplicate_mid_call_manifest_replacement_never_adopts_new_custody",
+          "status": "ok",
+          "category": "duplicate_physical",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::duplicate::ordinary_duplicate_torn_tail_refuses_without_repair_and_restoration_stays_fenced",
+          "status": "ok",
+          "category": "duplicate_physical",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_after_real_renewal_loss_refuses_count_and_restoration_stays_fenced",
+          "status": "ok",
+          "category": "renewal_boundary",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_after_real_renewal_unwind_fences_without_ack",
+          "status": "ok",
+          "category": "renewal_boundary",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_changed_tail_between_real_barriers_never_repairs",
+          "status": "ok",
+          "category": "renewal_boundary",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_begin_renews_before_count_then_continues_exact_history",
+          "status": "ok",
+          "category": "renewal_boundary",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::renewal::ordinary_cold_published_open_renews_legacy_data_before_owner_escape",
+          "status": "ok",
+          "category": "renewal_boundary",
+          "classification": "pass"
+        },
+        {
+          "test": "learner::tests::progress::renewal::strict_cold_published_open_renews_legacy_data_before_owner_escape",
+          "status": "ok",
+          "category": "renewal_boundary",
+          "classification": "pass"
+        }
+      ],
+      "source_and_controls_unchanged": true,
+      "trace_and_raw_capture_hashes_verified": true,
+      "hashes": {
+        "execution.json": "80bd20d5facf389d4f060eda8a062e6448d961dcc9f3ba09d8ccef4f68cd8ca8",
+        "trace.fozzy": "88e9a97876d3a911c6d46293e71cfe63bf919d8ca1147bcfc2efbf3ec0dffbd1",
+        "cargo.stdout": "e40696dc53e9ff7423b98630a335574f4d2173468604654fd8ad7bc3332fe7e2",
+        "cargo.stderr": "5a321d6f89b56d7e0a89c12445b39b8e18a49f13012d1bb66e33509ee77b3645",
+        "cargo-process.json": "a870fb2082430b2993a2b482ff39637c5f9e6d74fc5a3ecacc67e056c56b138f",
+        "discovery.stdout": "4913250046891bef67e1aad9e7360ddbbef4748f6bbad65d60efd2e87122e846",
+        "discovery.stderr": "5af3c14c5c79f5350bbc6affc9446e39dc7956076a26aaf0c0a7662b323de775",
+        "discovery-process.json": "5810bae946035d4aff6d0c370e6c27e20091f6afbe2dcaa572f4f0ecd76a145a"
+      }
+    }
+  },
+  "full_suites": {
+    "vsr": {
+      "directory": "artifacts/initial-green-qualification-20261106/observation-initial-progress-v1-rsf-vsr",
+      "actual_tests_passed": true,
+      "summaries": [
+        "test result: ok. 372 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 275.14s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "compiled_census_matches": true,
+      "required_names_valid": true,
+      "source_and_controls_unchanged": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "dfd46c538fd4f36c857c29114fcbd25ee6c7abd2654bf837bac9a0e327f0b984",
+        "trace.fozzy": "eff50fa1f5d4ce5c9b40860f2c7830cdb1fa2ce73c29bbdafa3ec7c7c8422b3e",
+        "cargo.stdout": "88efb6e9a95cd799e7935568050012a9014240aaacdafefb2a8be1c1112cfe24",
+        "cargo.stderr": "dee609fda8507836807e686cd98b5ecb24ddd293ff6793709987dd9b81878de8",
+        "cargo-process.json": "932f53bbb52e89d005f85d53781fbaa16d83b04877544b34cb7c2ca38cc6bedb"
+      },
+      "failed_tests": []
+    },
+    "rpc": {
+      "directory": "artifacts/initial-green-qualification-20261106/observation-initial-progress-v1-rsf-rpc",
+      "actual_tests_passed": false,
+      "summaries": [
+        "test result: FAILED. 156 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 124.95s"
+      ],
+      "compiled_census_matches": true,
+      "required_names_valid": false,
+      "source_and_controls_unchanged": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "7eca64b88a8679801053a6ba423128720dfa2dad3384abd412573e84bfa9e4a8",
+        "trace.fozzy": "133c53306a1eb3da4879bd7ed450baffe842b99841fa1f652781e29813f45c4c",
+        "cargo.stdout": "d3990fbc1410aa3b2fb3a1d45b5b646f2bae75e2f170c5b783b18810cf73f44d",
+        "cargo.stderr": "7f838f87b719d6c6513784478c6a064af2398fb87a0e95705cefc8dd0e0e653b",
+        "cargo-process.json": "6b3a05935120482fe26d0e8df446a8d2b9597cfe51246ed04550c1e67084a02e"
+      },
+      "failed_tests": [
+        "replication::tests::managed_control::initial::real_tls_current_primary_two_relays_historical_genesis_one_after_original_source_loss",
+        "replication::tests::membership_decision::membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote",
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox"
+      ]
+    },
+    "storage": {
+      "directory": "artifacts/ordinary-learner-progress-qualification-20261106/full-storage-control/observation-initial-progress-full-v1-rsf-storage",
+      "actual_tests_passed": true,
+      "summaries": [
+        "test result: ok. 180 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.15s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "compiled_census_matches": true,
+      "required_names_valid": true,
+      "source_and_controls_unchanged": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "e76c21a31549367dd6787a12f8b681d7691f885c17d8c0b150cfb876390f4f6d",
+        "trace.fozzy": "4c983ddf6dc94dc49c25cea3a6d338198bfac8fa96f2c0eeb987140b4718f707",
+        "cargo.stdout": "ff47cde17df937d3c9e63f043a08b443956cebf35aab828de44e49383bf9add7",
+        "cargo.stderr": "89b8a5c10ed8689b2e582e18703782a6dfb9bf9e7cdd4d0f6f630cb50eccabd4",
+        "cargo-process.json": "41afcdaa2d0ef68077018ca23418118c6981f6188a2339212a5ef71d7209cda5"
+      },
+      "failed_tests": []
+    },
+    "control_state": {
+      "directory": "artifacts/ordinary-learner-progress-qualification-20261106/full-storage-control/observation-initial-progress-full-v1-rsf-control-state",
+      "actual_tests_passed": true,
+      "summaries": [
+        "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.68s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "compiled_census_matches": true,
+      "required_names_valid": true,
+      "source_and_controls_unchanged": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "2b0908e1b8abb2b30e67e97f6d14bf39626e23abdbbf2bab533d90c48ff08c34",
+        "trace.fozzy": "d9e74c73bc036dd74ae73c1f5733c3128c1dcfed92700721812dd0a5d5d1b3d0",
+        "cargo.stdout": "42ad0479fe6920a497a8acb3686ef4f30730598429d1c00fe14e21be01bed5a9",
+        "cargo.stderr": "b46d5006a9cf41f88c460677a2e7c89ea943cdb5044b7b684522636c0c83cd7c",
+        "cargo-process.json": "b96c67bf3782984fe244d966f228c105ba9cca38d56923d227259e8397f6c135"
+      },
+      "failed_tests": []
+    }
+  },
+  "rpc_failures": [
+    [
+      "replication::tests::managed_control::initial::real_tls_current_primary_two_relays_historical_genesis_one_after_original_source_loss",
+      "\nthread 'replication::tests::managed_control::initial::real_tls_current_primary_two_relays_historical_genesis_one_after_original_source_loss' (16175133) panicked at crates/rsf-rpc/src/replication/tests/managed_control/initial.rs:183:10:\ncalled `Result::unwrap()` on an `Err` value: Os { code: 35, kind: WouldBlock, message: \"Resource temporarily unavailable\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n"
+    ],
+    [
+      "replication::tests::membership_decision::membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote",
+      "\nthread '<unnamed>' (16182863) panicked at crates/rsf-rpc/src/replication/tests/membership_decision.rs:411:14:\ncalled `Result::unwrap()` on an `Err` value: Custom { kind: TimedOut, error: \"peer RPC deadline expired\" }\n\nthread 'replication::tests::membership_decision::membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote' (16182416) panicked at crates/rsf-rpc/src/replication/tests/membership_decision.rs:435:10:\ncalled `Result::unwrap()` on an `Err` value: VsrTransportError { replica: NodeId(1), reason: \"membership promise quorum unavailable: 2: Connection reset by peer (os error 54); 3: Connection refused (os error 61)\" }\n\n"
+    ],
+    [
+      "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox",
+      "\nthread 'replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox' (16183966) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/partial_stage.rs:96:13:\ncomplete inbox must resume staged-only prefix: Resource temporarily unavailable (os error 35)\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-44672-1794006144084076000-0\n\n\n"
+    ]
+  ],
+  "checks": {
+    "fmt_session": 46459,
+    "fmt_exit": 0,
+    "clippy_session": 58721,
+    "clippy_exit": 0,
+    "initial_integration_corrections": {
+      "failed_clippy_sessions": [
+        29498,
+        71691,
+        57836
+      ],
+      "patches": {
+        "artifacts/initial-progress-root-integration-20261106/accepted-tail-import-correction.patch": "d38964de4cb9f07d7b96b056c8ffc64a5c0839f252549ebf9939a8049834768f",
+        "artifacts/initial-progress-root-integration-20261106/clippy-correction-2.patch": "d021605167b2b2254672db92d447295be5caf6e131f179f385309c397f10f1a0",
+        "artifacts/initial-progress-root-integration-20261106/clippy-correction.patch": "c185008b58107c638da87288e086b94125aa275a7c0278288e62e5f266041f25"
+      },
+      "formatting_patch": "artifacts/initial-progress-root-integration-20261106/clippy-formatting.patch",
+      "description": "Box same owned Stage/Published; move them out without reopening. Private hook naming/type alias, direct same-policy options initialization and correct public test import; no lint suppression or assertion/deadline changes."
+    }
+  },
+  "initial_required_results": {
+    "vsr": {
+      "passed": 17,
+      "failed": 0
+    },
+    "rpc": {
+      "passed": 12,
+      "failed": 1
+    }
+  },
+  "production_qualified": false,
+  "full_baseline_passed": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "limits": [
+    "Six old missing-renewal-boundary failures establish absent boundaries, not an end-to-end failed-sync data-loss reproduction.",
+    "Two old duplicate operations actually returned Ok(4) after their physical mutations; later no-repair assertions were not reached on old code.",
+    "The unchanged nine tests pass on corrected source, including actual post-barrier physical loss/unwind and restoration fencing.",
+    "Storage simulated sync-error evidence remains separate compositional coverage; no kernel EIO or power-loss simulation claim.",
+    "Test elapsed time is a single local observation, not a performance comparison or STAGE timeout resolution.",
+    "Initial receiver and actual TLS tests use an explicit mock restriction ledger; they do not establish native persistence or voter admission.",
+    "RPC failed once under original controls; no passing rerun replaces this observation. Earlier 12 STAGE setup failures remain preserved though they did not recur here.",
+    "Storage/private simulated failure evidence and VSR post-barrier physical fault evidence are compositional, not a kernel EIO or machine-power-loss simulation."
+  ]
+}

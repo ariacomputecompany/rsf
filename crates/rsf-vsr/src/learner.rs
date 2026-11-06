@@ -5,7 +5,13 @@ mod custody;
 mod ordinary;
 mod replay;
 pub use replay::PublishedVsrReplay;
+mod initial;
 mod prefix;
+pub use initial::{
+    InitialLearnerHistoryStore, VsrInitialBegin, VsrInitialCursor, VsrInitialError,
+    VsrInitialPolicy, VsrInitialPublication, VsrInitialRestriction, VsrInitialSelection,
+    VsrInitialState, VsrInitialStatus, VsrInitialTransition,
+};
 pub use prefix::VsrImportPreview;
 pub(crate) mod promotion;
 pub use custody::VsrLearnerStateToken;
@@ -207,10 +213,25 @@ impl LearnerHistoryStore {
         }
         if ordinal < stage.count {
             self.failed.store(true, Ordering::Relaxed);
-            let recovered = stage.store.recover_current();
+            let expected = stage.store.capture_owned_custody()?;
             stage.custody.validate()?;
             self.owner_custody.validate(&self.root, &self._lock)?;
-            let recovery = recovered?.recovery;
+            #[cfg(test)]
+            prefix::observation::at(
+                prefix::observation::Boundary::BeforeOrdinaryDuplicate,
+                stage.store.root(),
+            );
+            let recovered = stage.store.recover_owned_immutable_bounded(
+                &expected,
+                ordinary::ordinary_limits(stage.descriptor.records)?,
+                |_| Ok(()),
+            );
+            stage.store.validate_owned_custody(&expected)?;
+            stage.custody.validate()?;
+            self.owner_custody.validate(&self.root, &self._lock)?;
+            let count = stage.count;
+            self.validate_ordinary_anchor()?;
+            let recovery = recovered.map_err(prefix::stage::storage_error)?.recovery;
             let previous = recovery
                 .wal_records
                 .get(ordinal as usize)
@@ -218,10 +239,7 @@ impl LearnerHistoryStore {
             let different = previous.epoch != record.epoch
                 || previous.kind != record.kind
                 || previous.payload != record.payload;
-            let count = stage.count;
-            // Physical prior-publication loss dominates either duplicate result.
             // Only a checked healthy semantic refusal may clear this sentinel.
-            self.validate_ordinary_anchor()?;
             if different {
                 self.failed.store(false, Ordering::Relaxed);
                 return Err(corrupt(

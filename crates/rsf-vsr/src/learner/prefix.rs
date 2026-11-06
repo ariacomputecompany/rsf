@@ -14,6 +14,7 @@ mod context;
 mod finish;
 mod namespace;
 pub(in crate::learner) use context::{Continuation, PrefixContext, Rejected};
+pub(in crate::learner) use namespace::Directory;
 
 impl LearnerHistoryStore {
     /// Historical data under this actual non-voting owner. No current source
@@ -174,4 +175,4 @@ impl LearnerHistoryStore {
 mod tests;
 
 #[cfg(test)]
-mod observation;
+pub(in crate::learner) mod observation;

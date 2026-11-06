@@ -4,7 +4,7 @@ use super::*;
 use rsf_control_state::{ControlOutcome, IntentId, MembershipIntent};
 use rsf_vsr::{VsrDecision, VsrOperation, VsrStateToken};
 
-mod genesis;
+pub(in crate::replication) mod genesis;
 pub(in crate::replication) mod identity;
 pub(in crate::replication) mod observation;
 mod progress;

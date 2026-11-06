@@ -40,10 +40,15 @@ Diagnose and fix failures under the original deadlines, workloads, retries and
 concurrency, then requalify the final source through all 25 domains. Preserve
 earlier failed traces; scoped recovery fixes do not establish a clean baseline.
 
-Initial-learner and native-identity packages still require integration and
-runtime qualification. The native-identity draft needs
+The integrated initial-learner path still needs complete RPC qualification: its
+historical-Genesis relay Start request timed out in the full RPC run. Full VSR
+(372 tests), storage (180) and control-state (24) passed; RPC passed 156 and failed
+3 under unchanged controls. Evidence is preserved in
+`docs/initial-learner-progress-qualification-2026-11-06.json`. Diagnose the initial
+transfer deadline, membership lost-reply deadline and partial-stage deadline
+without changing the tests. Native-identity persistence still needs integration,
 its retained-file readback correction and actual red/green execution. The prepared
-initial sender is likewise an unqualified draft.
+initial sender remains an unqualified draft.
 
 Managed control initiation, authenticated commit-delivery confirmation, new-voter
 retention and receiver/client admission remain unfinished. Local policy or passing
@@ -59,14 +64,10 @@ open.
 - Resolve the remaining STAGE deadline failures, then obtain a fresh full
   baseline certificate. Preserve original deadlines,
   retry counts, concurrency and every failed attempt.
-- Renew recovered learner data before cold/resumed progress acknowledgments and
-  legacy cold published-owner admission. Replace ordinary duplicate APPEND's
-  repair-capable readback with immutable validation of the actual retained writer.
-  Keep live physical failures fenced and qualify cold recovery separately.
-- Integrate and qualify initial-learner/native-identity paths. Compose the private
-  initial owner context with the qualified ordinary namespace disposal before
-  combining those drafts; finite WAL reads alone do not bound the complete
-  transfer lifecycle.
+- Finish initial-learner RPC deadline qualification and integrate native-identity
+  persistence, provisional voter creation and the sender. Preserve the integrated
+  original owner context and bounded namespace disposal; finite WAL reads alone
+  do not bound the complete transfer lifecycle.
 - Investigate responsive corrupt accepted minorities with the five-driver
   diagnostic; qualify unfenced old-voter enrollment without treating missing
   acknowledged input as repairable.

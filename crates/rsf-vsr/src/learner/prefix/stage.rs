@@ -22,6 +22,8 @@ pub(in crate::learner) fn renew(
     #[cfg(test)]
     observation::at(observation::Boundary::AfterClosedRenewal, store.root());
     store.sync_owned_active_segment(custody)?;
+    #[cfg(test)]
+    observation::at(observation::Boundary::AfterActiveRenewal, store.root());
     store.validate_owned_custody(custody)
 }
 pub(in crate::learner) fn validate_record(
@@ -209,7 +211,7 @@ impl LearnerHistoryStore {
         create_lock: bool,
     ) -> RsfResult<Published> {
         let OpenedPrefix {
-            stage,
+            mut stage,
             recovery,
             custody,
             flat,
@@ -221,6 +223,12 @@ impl LearnerHistoryStore {
         flat.validate()?;
         stage.store.validate_owned_custody(&custody)?;
         validate_replayed(&stage.descriptor, &replayed)?;
+        // This is strict cold admission, not a hot token read. Legacy ACTIVE
+        // bytes have no persisted proof that an earlier data sync succeeded.
+        flat.validate()?;
+        let renewed = self.renew_recovered_stage(&mut stage, &custody);
+        flat.validate()?;
+        renewed?;
         complete_replayed(
             self.pg,
             stage,

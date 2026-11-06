@@ -9,6 +9,10 @@ pub use membership::{PeerMembershipRecoveryTiming, PeerMembershipRecoveryUpdate}
 mod history;
 mod learner;
 pub use history::status::HistoryBeginRequired;
+pub use managed_control::initial::{
+    ControlInitialBinding, ControlInitialPolicy, ControlInitialSource, ControlInitialSourceError,
+    ControlInitialState, ControlInitialTransition,
+};
 pub use managed_control::learner::ControlLearnerPolicy;
 mod installation;
 mod managed_control;
@@ -382,7 +386,9 @@ impl PeerReplicaServer {
             cells.contains_key(pg)
                 || learner.placement_group() != *pg
                 || learner.local() != local
-                || !peers.contains_key(&learner.source())
+                || learner
+                    .configured_source()
+                    .is_some_and(|source| !peers.contains_key(&source))
         }) {
             return Err("learner requires a mapped remote source, matching identity, and no voting cell for its group".into());
         }
@@ -465,6 +471,16 @@ impl PeerReplicaServer {
         apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
         materializer_present: bool,
     ) -> io::Result<()> {
+        self.serve_io_with_initial(socket, apply, materializer_present, None)
+    }
+
+    fn serve_io_with_initial(
+        &mut self,
+        socket: TcpStream,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+        materializer_present: bool,
+        persist: Option<&mut managed_control::initial::Persist<'_>>,
+    ) -> io::Result<()> {
         let mut stream = StreamOwned::new(
             ServerConnection::new(Arc::clone(&self.identity.server))
                 .map_err(|err| invalid(err.to_string()))?,
@@ -487,6 +503,8 @@ impl PeerReplicaServer {
         self.pending_contact = None;
         let response = if let Err(error) = self.guard_membership_recovery(kind, payload) {
             Err(error)
+        } else if kind == CONTROL_INITIAL {
+            self.dispatch_initial_control(sender, payload, persist)
         } else if kind == CONTROL_COMMITTED {
             self.dispatch_control_committed(sender, payload)
         } else if kind == MEMBERSHIP_STAGE {

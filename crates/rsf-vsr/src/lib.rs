@@ -20,7 +20,10 @@ pub use history::VsrMembershipLineage;
 mod learner;
 mod transfer;
 pub use learner::{
-    LearnerHistoryStore, PublishedVsrReplay, VsrImportPreview, VsrLearnerStateToken,
+    InitialLearnerHistoryStore, LearnerHistoryStore, PublishedVsrReplay, VsrImportPreview,
+    VsrInitialBegin, VsrInitialCursor, VsrInitialError, VsrInitialPolicy, VsrInitialPublication,
+    VsrInitialRestriction, VsrInitialSelection, VsrInitialState, VsrInitialStatus,
+    VsrInitialTransition, VsrLearnerStateToken,
 };
 pub use transfer::{
     HISTORY_BATCH_TARGET_BYTES, MAX_HISTORY_BATCH_RECORDS, VsrHistoryBatch, VsrHistoryDescriptor,

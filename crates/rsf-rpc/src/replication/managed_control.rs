@@ -4,6 +4,7 @@ use rsf_control_state::{
     ControlBootstrap, ControlCatalog, ControlCommand, ControlState, PublishedControlState,
 };
 mod application;
+pub(super) mod initial;
 pub(super) mod learner;
 pub(super) mod writer;
 

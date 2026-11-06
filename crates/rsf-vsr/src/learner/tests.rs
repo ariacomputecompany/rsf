@@ -361,3 +361,5 @@ fn torn_staged_record_resumes_from_durable_boundary_and_superseded_snapshots_are
 
 #[path = "replay_tests.rs"]
 mod published_replay;
+
+mod progress;

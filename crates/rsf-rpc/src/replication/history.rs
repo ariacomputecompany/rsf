@@ -106,11 +106,12 @@ impl PeerReplicaServer {
             None => PlacementGroupId(u64_at(payload, 0)?),
         };
         let reserved = self.is_control_group(pg);
-        if self
-            .learners
-            .get(&pg)
-            .is_some_and(|owner| matches!(owner, learner::LearnerOwner::Control(_)))
-            != reserved
+        if self.learners.get(&pg).is_some_and(|owner| {
+            matches!(
+                owner,
+                learner::LearnerOwner::Control(_) | learner::LearnerOwner::InitialControl(_)
+            )
+        }) != reserved
         {
             return Err(invalid(
                 "control learner owner differs from immutable binding",
@@ -120,7 +121,12 @@ impl PeerReplicaServer {
             .learners
             .get_mut(&pg)
             .ok_or_else(|| invalid("placement group is not configured as a learner"))?;
-        if sender != learner.source() {
+        if matches!(learner, learner::LearnerOwner::InitialControl(_)) {
+            return Err(invalid(
+                "initial control requires its distinct bounded native-persisted protocol",
+            ));
+        }
+        if Some(sender) != learner.configured_source() {
             return Err(invalid(
                 "sender is not this learner's configured history source",
             ));
@@ -132,6 +138,9 @@ impl PeerReplicaServer {
                 }
                 learner::LearnerOwner::Control(owner) => {
                     owner.begin(sender, descriptor).map(LogIndex)
+                }
+                learner::LearnerOwner::InitialControl(_) => {
+                    unreachable!("initial history rejected")
                 }
             };
         }
@@ -154,11 +163,17 @@ impl PeerReplicaServer {
                     learner::LearnerOwner::Control(owner) => {
                         owner.append(sender, id, ordinal, encoded).map(LogIndex)
                     }
+                    learner::LearnerOwner::InitialControl(_) => {
+                        unreachable!("initial history rejected")
+                    }
                 }
             }
             HISTORY_FINISH if payload.len() == 40 => {
                 let tail = match learner {
                     learner::LearnerOwner::Application(owner) => owner.finish(id).map_err(rsf)?,
+                    learner::LearnerOwner::InitialControl(_) => {
+                        unreachable!("initial history rejected")
+                    }
                     learner::LearnerOwner::Control(owner) => {
                         let (tail, state) = owner.finish(sender, id)?;
                         let binding = self

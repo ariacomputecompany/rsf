@@ -99,7 +99,7 @@ impl LearnerHistoryStore {
                 .owner_custody
                 .validate(&learner.root, &learner._lock)?;
             let expected = store.capture_owned_custody()?;
-            let stage =
+            let mut stage =
                 learner.stage_from_recovery(descriptor, store, &recovered.recovery, custody)?;
             let replayed = learner.replay_ordinary(&stage, &recovered.recovery);
             stage.store.validate_owned_custody(&expected)?;
@@ -107,13 +107,10 @@ impl LearnerHistoryStore {
             learner
                 .owner_custody
                 .validate(&learner.root, &learner._lock)?;
-            let published = learner.complete_ordinary(
-                stage,
-                recovered.recovery,
-                replayed?,
-                false,
-                &expected,
-            )?;
+            let replayed = replayed?;
+            learner.renew_recovered_stage(&mut stage, &expected)?;
+            let published =
+                learner.complete_ordinary(stage, recovered.recovery, replayed, false, &expected)?;
             exact.validate()?;
             learner
                 .owner_custody
@@ -236,7 +233,35 @@ impl LearnerHistoryStore {
             Default::default(),
         )?;
         custody.validate()?;
-        self.stage_from_recovery(descriptor, store, &recovery.recovery, custody)
+        let expected = store.capture_owned_custody()?;
+        let folded = self.stage_from_recovery(descriptor, store, &recovery.recovery, custody);
+        self.validate_ordinary_anchor()?;
+        let mut stage = folded?;
+        self.renew_recovered_stage(&mut stage, &expected)?;
+        Ok(stage)
+    }
+
+    // Recovered visible bytes may follow an unsuccessful earlier data sync.
+    // Renew the original writer before a progress ACK or cold publication owner
+    // escapes. This does not run on healthy warm tokens or duplicate replies.
+    pub(in crate::learner) fn renew_recovered_stage(
+        &self,
+        stage: &mut Stage,
+        expected: &rsf_storage::SegmentStoreCustody,
+    ) -> RsfResult<()> {
+        self.validate_ordinary_anchor()?;
+        stage.custody.validate()?;
+        stage.store.validate_owned_custody(expected)?;
+        let renewed = prefix::stage::renew(&mut stage.store, expected);
+        // Attempt the original store check even on failure. A sync error has
+        // already fenced that writer; preserve its first error after checking
+        // independent original namespace/anchor custody, rather than replacing
+        // it with the consequent storage writer fence.
+        let physical = stage.store.validate_owned_custody(expected);
+        stage.custody.validate()?;
+        self.validate_ordinary_anchor()?;
+        renewed?;
+        physical
     }
     fn stage_from_recovery(
         &self,
@@ -356,7 +381,7 @@ fn optional(path: &Path, maximum: usize) -> RsfResult<Option<(Vec<u8>, guard::Ex
         Err(error) => Err(io_error(error)),
     }
 }
-fn ordinary_limits(records: u64) -> RsfResult<rsf_storage::SegmentReadLimits> {
+pub(super) fn ordinary_limits(records: u64) -> RsfResult<rsf_storage::SegmentReadLimits> {
     let max_record_bytes = rsf_storage::wal_record_disk_bytes(MAX_HISTORY_RECORD_BYTES as u64)?;
     let max_encoded_bytes = records
         .checked_mul(max_record_bytes)

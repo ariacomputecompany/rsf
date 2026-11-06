@@ -5,17 +5,19 @@ use std::{
     rc::Rc,
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Boundary {
+pub(in crate::learner) enum Boundary {
     BeforeAppend,
     AfterClosedRenewal,
+    AfterActiveRenewal,
+    BeforeOrdinaryDuplicate,
     BeforeHandoff,
 }
 type Fault = Box<dyn FnOnce(&Path)>;
 type PendingFault = (Boundary, Fault, Rc<Cell<usize>>);
 thread_local! { static PENDING: RefCell<Option<PendingFault>> = const { RefCell::new(None) }; }
-pub(super) struct Watch(Rc<Cell<usize>>);
+pub(in crate::learner) struct Watch(Rc<Cell<usize>>);
 impl Watch {
-    pub(super) fn calls(&self) -> usize {
+    pub(in crate::learner) fn calls(&self) -> usize {
         self.0.get()
     }
 }
@@ -26,7 +28,7 @@ impl Drop for Watch {
         });
     }
 }
-pub(super) fn fault(boundary: Boundary, fault: impl FnOnce(&Path) + 'static) -> Watch {
+pub(in crate::learner) fn fault(boundary: Boundary, fault: impl FnOnce(&Path) + 'static) -> Watch {
     let calls = Rc::new(Cell::new(0));
     PENDING.with(|pending| {
         assert!(pending.borrow().is_none());
@@ -34,7 +36,7 @@ pub(super) fn fault(boundary: Boundary, fault: impl FnOnce(&Path) + 'static) -> 
     });
     Watch(calls)
 }
-pub(super) fn at(boundary: Boundary, path: &Path) {
+pub(in crate::learner) fn at(boundary: Boundary, path: &Path) {
     let fault = PENDING.with(|pending| {
         let mut pending = pending.borrow_mut();
         if pending.as_ref().is_some_and(|(at, _, _)| *at == boundary) {
