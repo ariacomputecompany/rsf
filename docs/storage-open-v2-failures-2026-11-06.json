@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "date": "2026-11-06",
+  "commit": "2a84a7edb7bd33e9338e0de4c5c76c4c3ff7f005",
+  "source_sha256": "1b116d23cb06b59c6a8a4feefbee745625666f80a56031809c54fbb0442a6c43",
+  "scope": "Completed failing domains from the still-running full V2 baseline; not a terminal full-run report.",
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "domains": {
+    "membership-peer": {
+      "trace_sha256": "80b24aeedd04672cc592293b344a4a0fc7464a98d834d54a6a4e02e8fe60be49",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-vsr",
+        "-p",
+        "rsf-rpc",
+        "-p",
+        "rsf-protocol"
+      ],
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.15s",
+        "test result: FAILED. 136 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.44s"
+      ],
+      "failed_tests": [
+        "replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry",
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits"
+      ],
+      "failure_output": "failures:\n\n---- replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry stdout ----\npublication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31088-1793985176880207000-0\n\nthread 'replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry' (10877878) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31088-1793985176880207000-0 replica=2 elapsed=1.602119542s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }\n\n---- replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits stdout ----\npublication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31088-1793985170485462000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31088-1793985170485462000-0 replica=2 elapsed=598.557667ms\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31088-1793985170485462000-0 replica=3 elapsed=462.841333ms\n\nthread '<unnamed>' (10880119) panicked at crates/rsf-rpc/src/replication/tests/membership_publication/recovery.rs:67:34:\ncalled `Result::unwrap()` on an `Err` value: \"unexpected end of file\"\n\nthread '<unnamed>' (10880118) panicked at crates/rsf-rpc/src/replication/tests/membership_publication/recovery.rs:88:13:\nnode 2 did not recover publication majority\n\nthread 'replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits' (10875770) panicked at crates/rsf-rpc/src/replication/tests/membership_publication/recovery.rs:108:23:\ncalled `Result::unwrap()` on an `Err` value: Any { .. }\npreserved publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-31088-1793985170485462000-0\n\n\nfailures:\n    replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits\n    replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry\n\ntest result: FAILED. 136 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.44s",
+      "stdout_sha256": "e12368c21ef8003c34b196a039347472230acd4cba6f63a5befeb8139448870e",
+      "stderr_sha256": "a355869c2f6ac9bdd682cf2bcb229c7f7ef67ec5824cd32f755c67a9ed7ceb05"
+    },
+    "membership-staging": {
+      "trace_sha256": "d8f9bd28c032a9df51b33e5f3348cb58f720293a7919d8caa4f24f604e3ad9f8",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-vsr",
+        "-p",
+        "rsf-rpc",
+        "-p",
+        "rsf-protocol"
+      ],
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.68s",
+        "test result: FAILED. 137 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 69.77s"
+      ],
+      "failed_tests": [
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss"
+      ],
+      "failure_output": "failures:\n\n---- replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss stdout ----\npublication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-55655-1793985239194778000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-55655-1793985239194778000-0 replica=2 elapsed=597.881542ms\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-55655-1793985239194778000-0 replica=3 elapsed=528.641167ms\npublication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-55655-1793985254842340000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-55655-1793985254842340000-0 replica=2 elapsed=515.426042ms\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss' (10899469) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-55655-1793985254842340000-0 replica=3 elapsed=1.602156958s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n\n\nfailures:\n    replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss\n\ntest result: FAILED. 137 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 69.77s",
+      "stdout_sha256": "734589a3a294128ed7e6840b6315cfadea8d2559ed7b49f013e2f871662462c9",
+      "stderr_sha256": "87d1b7288534031f1d112618dd5b4b3b60ebb597044cdbe07cbb2dd935e8459c"
+    }
+  },
+  "next_actions": [
+    "Finish the immutable-source baseline and preserve its complete terminal evidence.",
+    "Reproduce the recovery listener EOF defect using real closed sockets, then qualify typed connection-error handling without changing majority or timing assertions.",
+    "Measure the remaining STAGE phases on the original concurrent workload; do not relax deadlines, retries or concurrency."
+  ]
+}

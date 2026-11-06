@@ -28,13 +28,14 @@ Current release status: **not production qualified**. Linux is the only producti
 target. Verification is local and releases use ordinary pushes to remote `main`;
 no CI/CD is authorized.
 
-The latest full attempt passed all 25 runtime domains and 1,602 workspace tests,
-but its final named-evidence gate refused a test result split by inherited child
-stdout. That refusal remains recorded in
-`docs/storage-open-qualification-2026-11-06.json`. Child diagnostics are now isolated
-onto stderr, and the scoped 157-test storage run has intact named results. A fresh
-complete certificate on this source remains required; aggregate passes do not
-replace that gate.
+The current full V2 baseline has real failures at the original STAGE deadlines
+in membership-peer and membership-staging, plus a recovery fixture that terminates
+its listener on a connection EOF. Completed failing-domain evidence is recorded in
+`docs/storage-open-v2-failures-2026-11-06.json`; the remaining domains are still
+running on unchanged source. The storage-open optimization is insufficient to close
+timing qualification. Preserve these failures while qualifying targeted corrections.
+The earlier V1 named-evidence refusal and child-output correction remain recorded in
+`docs/storage-open-qualification-2026-11-06.json`.
 
 Pending namespace-disposal, initial-learner and native-identity packages still
 require integration and runtime qualification. The native-identity draft needs
@@ -52,8 +53,9 @@ open.
 
 ### Next implementation: durable creation, autonomous choice and control admission
 
-- Obtain the fresh full baseline certificate after child-output isolation on the
-  storage-open correction; preserve original STAGE deadlines and all failed evidence.
+- Resolve the remaining STAGE deadline failures and recovery-fixture EOF handling,
+  then obtain a fresh full baseline certificate. Preserve original deadlines,
+  retry counts, concurrency and every failed attempt.
 - Integrate and qualify initial-learner/native-identity paths and bounded namespace
   disposal with its provisional-retention contract. Compose the private initial
   owner context with disposal before combining those drafts; finite WAL reads
