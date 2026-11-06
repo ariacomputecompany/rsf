@@ -1,4 +1,5 @@
 mod recovery;
+mod stage;
 use super::disk;
 use super::state::{DecodedState, State, decode_state, encode_state, validate_transition};
 use super::*;

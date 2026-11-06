@@ -800,6 +800,21 @@ bounded_control_names = [
     'protocol_open_preserves_each_missing_metadata_prefix_and_never_reappends_on_reopen',
     'protocol_open_keeps_placement_before_corrupt_policy_failure_and_refuses_repeatedly',
     'protocol_open_reused_receipts_still_reject_duplicate_physical_commit_records',
+    'real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox',
+    'real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox',
+    'real_tls_partial_stage_refuses_missing_authority',
+    'real_tls_partial_stage_refuses_short_authority',
+    'real_tls_partial_stage_refuses_corrupt_authority',
+    'real_tls_partial_stage_refuses_corrupt_staged_prefix',
+    'real_tls_stage_refuses_short_accepted_despite_complete_inbox',
+    'real_tls_stage_refuses_missing_chosen_despite_complete_inbox',
+    'staged_source_supplier_error_preserves_healthy_owner_and_resolution_is_read_only',
+    'staged_source_supplier_swap_success_and_error_fence_original_owner_after_restoration',
+    'staged_source_supplier_unwind_fences_original_owner_without_durable_choice',
+    'absent_stage_source_pins_authority_across_supplier_success_and_error',
+    'stage_source_requires_original_namespace_lock_for_every_supplier_path',
+    'staged_source_rejects_real_maintenance_and_nonwal_frames_before_supplier',
+    'complete_stage_source_cannot_bypass_original_namespace_owner',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

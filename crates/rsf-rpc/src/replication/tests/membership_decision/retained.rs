@@ -326,3 +326,6 @@ mod inbox_race;
 
 #[path = "prechoice.rs"]
 mod prechoice;
+
+#[path = "partial_stage.rs"]
+mod partial_stage;

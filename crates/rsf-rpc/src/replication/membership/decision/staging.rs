@@ -262,28 +262,23 @@ impl PeerReplicaServer {
         }
         self.control_membership_mutation(pg, Some(chosen.proposal()))
             .map_err(invalid)?;
-        let retained = if let Some(store) = self.membership_decisions.get(&pg) {
-            if store.proposal() != chosen.proposal() {
-                return Err(invalid("membership staging differs from retained proposal"));
-            }
-            store
-                .retained_approval(chosen.input_id())
-                .map_err(|e| invalid(e.message))?
-        } else {
-            None
-        };
-        let approval = if let Some(approval) = retained {
-            // An acceptor may have complete B without learning its certificate.
-            // A new coordinator can supply that certificate without the old
-            // uploader's inbox; stage_chosen_membership retains/validates it.
-            approval
-        } else {
+        let supplied = || {
             self.membership_inputs
                 .get(&pg)
-                .ok_or_else(|| invalid("membership authority inbox is not configured"))?
+                .ok_or_else(|| {
+                    rsf_core::RsfError::new(
+                        rsf_core::ErrorCode::InvalidInput,
+                        "membership authority inbox is not configured",
+                    )
+                })?
                 .retained_approval(sender, chosen.input_id())
-                .map_err(|e| invalid(e.message))?
         };
+        let approval = if let Some(store) = self.membership_decisions.get(&pg) {
+            store.stage_approval(&chosen, supplied)
+        } else {
+            supplied()
+        }
+        .map_err(|e| invalid(e.message))?;
         self.stage_chosen_membership(chosen, approval, apply)
             .map_err(invalid)?
             .encode()

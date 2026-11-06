@@ -1,0 +1,179 @@
+{
+  "date": "2026-11-06",
+  "source_sha256": "1cd773561d641d555dd609e43ae62b13938bfba2a3e9a64b18e0f6f2ed468388",
+  "checkpoint_sha256": "589072540cd1356f7f449ab47c9497a0376adeb60235657764d3e328b74b93bd",
+  "summary_sha256": "bc4601a8e65773a1c5cd887def8eeffa2f4271d934527d68d8aefe96860ac0ff",
+  "source_unchanged": true,
+  "all_pass": false,
+  "passed_domains": [
+    "storage",
+    "vsr",
+    "control-state",
+    "membership",
+    "membership-decision",
+    "membership-staging",
+    "membership-activation",
+    "protocol",
+    "peer-rpc",
+    "kv-transactions",
+    "sql",
+    "authentication",
+    "tenancy",
+    "daemon",
+    "native-membership",
+    "automatic-client",
+    "sql-stream",
+    "daemon-stress",
+    "release-stress",
+    "object-blob",
+    "recovery",
+    "policy",
+    "end-to-end"
+  ],
+  "failed_domains": [
+    "membership-peer",
+    "workspace"
+  ],
+  "failures": {
+    "membership-peer": {
+      "trace_sha256": "87521ddeec91f2bf879ceb466d3bd742fd08c68d70c56cd8d3445caa97f3c99b",
+      "processes": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit_code": 101,
+          "test_summaries": [
+            "test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.14s",
+            "test result: FAILED. 135 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 70.31s"
+          ],
+          "failed_tests": [
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers",
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner",
+            "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers": [
+              "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995797720381000-0\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers' (13452220) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995797720381000-0 replica=2 elapsed=3.48125ms: VsrTransportError { replica: NodeId(2), reason: \"peer rejected request: membership input is incomplete\" }\n"
+            ],
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner": [
+              "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995799791230000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995799791230000-0 replica=2 elapsed=562.20275ms\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995799791230000-0 replica=3 elapsed=579.622166ms\n\nthread 'replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner' (13452872) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:248:14:\ncalled `Result::unwrap()` on an `Err` value: VsrTransportError { replica: NodeId(2), reason: \"membership publication lacks a distinct new majority: 1: Connection refused (os error 61); 3: Resource temporarily unavailable (os error 35)\" }\npreserved publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995799791230000-0\n"
+            ],
+            "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits": [
+              "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995807920024000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995807920024000-0 replica=2 elapsed=488.720833ms\n\nthread 'replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits' (13455602) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-87368-1793995807920024000-0 replica=3 elapsed=1.601636625s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n\n"
+            ]
+          }
+        }
+      ],
+      "trace_validation": {
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      }
+    },
+    "workspace": {
+      "trace_sha256": "1e633b5a2bdd2acb6dba19fba2456c4b07b9d496d996a10c4207921586262c18",
+      "processes": [
+        {
+          "command": [
+            "sh",
+            "scripts/capture-host-process.sh",
+            "/Users/deepsaint/Desktop/rsf/artifacts/verification.owned-recovery-20261106-v1/workspace/attempt-0001/workspace.process.log",
+            "cargo",
+            "test",
+            "--workspace"
+          ],
+          "exit_code": 101,
+          "test_summaries": [
+            "test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s",
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s",
+            "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.51s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s",
+            "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.83s",
+            "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.05s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: FAILED. 137 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 82.31s"
+          ],
+          "failed_tests": [
+            "replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry"
+          ],
+          "failure_blocks": {
+            "replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry": [
+              "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-15793-1793997635793011000-0\n\nthread 'replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry' (14079498) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-15793-1793997635793011000-0 replica=2 elapsed=1.601744417s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }\n\n"
+            ]
+          }
+        }
+      ],
+      "trace_validation": {
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      }
+    }
+  },
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "limits": [
+    "All 25 domains attempted on one immutable source; 23 passed, 2 failed.",
+    "Workspace stopped at RPC failure and did not reach daemon tests. Separate daemon and debug/release stress domains passed.",
+    "Failed trace replay preserves failure; local ci validates trace, not workload success.",
+    "No rerun or instrumented success can erase these failures."
+  ]
+}

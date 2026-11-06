@@ -97,6 +97,14 @@ pub(in crate::membership) fn read_records(
         return Err(corrupt("membership input identity or authority mismatch"));
     }
     let recovered = SegmentStore::recover_existing(dir.join("records"))?;
+    let records = decode_records(&input, &recovered)?;
+    Ok((input, records))
+}
+
+pub(super) fn decode_records(
+    input: &VsrMembershipInput,
+    recovered: &rsf_storage::SegmentStoreRecovery,
+) -> RsfResult<Vec<VsrHistoryRecord>> {
     let mut records = Vec::new();
     for (position, record) in recovered.recovery.wal_records.iter().enumerate() {
         if record.index != LogIndex(position as u64 + 1)
@@ -115,7 +123,7 @@ pub(in crate::membership) fn read_records(
             return Err(corrupt("membership input exceeds descriptor"));
         }
     }
-    Ok((input, records))
+    Ok(records)
 }
 pub(in crate::membership) fn append_records(
     root: &Path,

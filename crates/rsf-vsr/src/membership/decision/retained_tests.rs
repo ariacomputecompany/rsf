@@ -206,3 +206,6 @@ mod chosen_reuse;
 
 #[path = "stage_performance_tests.rs"]
 mod stage_performance;
+
+#[path = "stage_source_tests.rs"]
+mod stage_source;
