@@ -96,7 +96,10 @@ fn sync_routes(
 fn sync_directory(path: &Path) -> io::Result<()> {
     #[cfg(test)]
     SYNC_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
-    File::open(path)?.sync_all()
+    File::open(path)?.sync_all()?;
+    #[cfg(test)]
+    store_open_observation::after_success(path)?;
+    Ok(())
 }
 
 // Test-only observation, never a production trust/cache decision.
@@ -111,3 +114,6 @@ pub(crate) fn sync_attempts() -> usize {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod store_open_observation;

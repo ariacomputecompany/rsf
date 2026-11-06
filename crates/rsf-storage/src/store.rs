@@ -133,7 +133,11 @@ impl SegmentStore {
         options: SegmentStoreOptions,
     ) -> RsfResult<(Self, SegmentStoreRecovery)> {
         let root = root.as_ref().to_path_buf();
-        crate::create_dir_all_synced(root.join(SEGMENT_DIR))
+        // This is allocation only. A fresh read_or_create_manifest publishes
+        // the full route before creating its segment/manifest. The final
+        // SegmentLog open publishes resolved + lexical file ancestry before
+        // this writer or recovery escapes; existing is not trusted as durable.
+        fs::create_dir_all(root.join(SEGMENT_DIR))
             .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
 
         let gate = store_gate(&root)?;
@@ -141,12 +145,22 @@ impl SegmentStore {
         let _guard = lock_gate(&opening_gate)?;
         let lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
         let manifest = read_or_create_manifest(&root)?;
-        let recovery = recover_manifest(&root, &manifest)?;
         let active_descriptor = manifest.active_segment()?;
-        let active = SegmentLog::open_after_external_recovery(
-            root.join(SEGMENT_DIR).join(&active_descriptor.file_name),
-            options.log_options,
-        )?;
+        let active_path = root.join(SEGMENT_DIR).join(&active_descriptor.file_name);
+        if fs::symlink_metadata(&active_path)
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+            .file_type()
+            .is_symlink()
+        {
+            // A permitted final-file alias may publish a foreign target parent
+            // instead of the resolved store directory. Retain that directory's
+            // whole route before recovery. Otherwise the validated simple file
+            // name has the same resolved parent as segments under caller custody.
+            crate::create_dir_all_synced(root.join(SEGMENT_DIR))
+                .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+        }
+        let recovery = recover_manifest(&root, &manifest)?;
+        let active = SegmentLog::open_after_external_recovery(active_path, options.log_options)?;
         let cursor = Some(WalCursor {
             tails: recovery.recovery.pg_tails.clone(),
             stamp: segment_stamp(&root, &manifest)?,

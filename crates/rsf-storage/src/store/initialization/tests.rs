@@ -417,6 +417,9 @@ fn killed_factory_owner_releases_custody_and_preserves_resumable_physical_state(
                 ])
                 .env("RSF_EMPTY_FACTORY_CHILD_ROOT", fixture.root())
                 .env("RSF_EMPTY_FACTORY_CHILD_BOUNDARY", index.to_string())
+                // Keep child harness output in diagnostics: inherited stdout
+                // can split an unrelated parent test's name/result line.
+                .stdout(std::io::stderr())
                 .spawn()
                 .unwrap(),
         );

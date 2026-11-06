@@ -2022,3 +2022,6 @@ mod segment_publication_tests;
 
 #[cfg(test)]
 mod recovery_publication_tests;
+
+#[cfg(all(test, unix))]
+mod store_open_publication_tests;

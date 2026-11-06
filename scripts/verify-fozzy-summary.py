@@ -746,6 +746,11 @@ bounded_control_names = [
     'validator_unwind_leaves_live_owner_fenced_and_cold_prior_publication_intact',
     'writer_checks_actual_control_primary_and_fresh_target_before_new_append',
     'writer_never_returns_cached_observation_after_live_control_custody_loss',
+    'fresh_and_existing_store_open_use_two_and_one_complete_publication_routes',
+    'fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route',
+    'existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte',
+    'torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix',
+    'double_alias_store_renews_resolved_directory_before_recovery_and_final_target_routes',
 ]
 bounded_control_evidence = {
     name: any(test_passed(line, name) for line in workspace_stdout.splitlines())
