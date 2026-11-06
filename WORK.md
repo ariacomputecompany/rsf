@@ -28,15 +28,15 @@ Current release status: **not production qualified**. Linux is the only producti
 target. Verification is local and releases use ordinary pushes to remote `main`;
 no CI/CD is authorized.
 
-The latest complete baseline passed 22 domains and failed membership-staging,
-membership-activation and workspace. Terminal evidence is preserved in
-`docs/fresh-publication-baseline-terminal-2026-11-06.json`. Remaining failures
-include STAGE/publication deadlines and four cache/security socket timeouts.
-The fresh-store publication correction retains its scoped fault/concurrency
-evidence in `docs/fresh-publication-qualification-2026-11-06.json`; it does not
-establish a clean full baseline. Diagnose and fix these failures under the
-original deadlines, workloads, retries and concurrency, then requalify the final
-source through all 25 domains. Preserve earlier failed traces.
+A clean full baseline remains missing. The latest complete baseline failed
+membership-peer and workspace; terminal evidence is preserved in
+`docs/owned-recovery-baseline-terminal-2026-11-06.json`. The current full RPC
+suite still has a STAGE deadline failure, recorded in
+`docs/stage-copy-owned-recovery-qualification-2026-11-06.json`. Workspace stopped
+at RPC, so its later daemon/cache/security coverage still needs requalification.
+Diagnose and fix failures under the original deadlines, workloads, retries and
+concurrency, then requalify the final source through all 25 domains. Preserve
+earlier failed traces; scoped recovery fixes do not establish a clean baseline.
 
 Initial-learner and native-identity packages still require integration and
 runtime qualification. The native-identity draft needs
