@@ -787,6 +787,8 @@ bounded_control_names = [
     'successful_replacement_reaches_three_validated_stores_with_original_owners_still_locked',
     'three_slot_existing_resume_preflights_every_candidate_before_cleanup_and_then_succeeds',
     'real_owned_rotation_name_failure_is_strictly_refused_then_explicitly_cancelled_by_current_active',
+    'recovered_admin_retains_the_original_writer_and_exact_replayed_generation',
+    'recovered_admin_refuses_framed_invalid_domain_event_without_rewriting_wal',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

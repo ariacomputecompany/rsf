@@ -237,7 +237,9 @@ impl AdminPlane {
 
     pub fn recover(path: impl AsRef<Path>) -> RsfResult<Self> {
         let path = path.as_ref();
-        let recovery = SegmentStore::recover(path)?;
+        let (store, recovery) = SegmentStore::open_recovered(path, Default::default())?;
+        #[cfg(test)]
+        tests::recovery_observation::after_open();
         let mut admin = Self::empty_for_recovery();
         for record in recovery.recovery.wal_records.iter().filter(|record| {
             record.pg == ADMIN_PG
@@ -247,7 +249,7 @@ impl AdminPlane {
             let event = AdminEvent::decode(&record.payload)?;
             admin.apply_event(event)?;
         }
-        admin.store = Some(SegmentStore::open(path)?);
+        admin.store = Some(store);
         if !admin.token_verifier_initialized() {
             return Err(corrupt("admin log is missing invite token verifier"));
         }
@@ -1551,6 +1553,7 @@ fn corrupt(message: impl Into<String>) -> RsfError {
 
 #[cfg(test)]
 mod tests {
+    pub(crate) mod recovery_observation;
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
