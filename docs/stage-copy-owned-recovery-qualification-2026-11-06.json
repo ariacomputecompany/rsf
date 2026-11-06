@@ -1,0 +1,128 @@
+{
+  "date": "2026-11-06",
+  "source_sha256": "58288035e23821f86fb084e0e6a5a38554b728e3f4a4f22bd15e14ea850fd935",
+  "change": "Reuse the actual opening recovery and retain its original physical custody through stage prefix validation and append; preserve final independent readbacks and all durability barriers.",
+  "runs": {
+    "stage-onepass-red-v1": {
+      "execution_sha256": "28464ce4692776715f42cd0ab6287748041ca942c2d7e92f43d0a4cf69083762",
+      "source": "fd34f9dee12f6c99cc344a1c0cecb4692d105f706346d49a68f87b06528bbe6f",
+      "actual_exit": 101,
+      "test_summaries": [
+        "test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 316 filtered out; finished in 0.79s"
+      ],
+      "failed_tests": [
+        "membership::decision::disk::onepass_tests::stage_copy_rejects_same_byte_manifest_replacement_after_actual_open",
+        "membership::decision::disk::onepass_tests::stage_copy_uses_original_opened_generation_without_repairing_replacement"
+      ],
+      "observation_valid": true,
+      "actual_tests_passed": false,
+      "source_unchanged": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "failure_blocks": {
+        "membership::decision::disk::onepass_tests::stage_copy_rejects_same_byte_manifest_replacement_after_actual_open": [
+          "\nthread 'membership::decision::disk::onepass_tests::stage_copy_rejects_same_byte_manifest_replacement_after_actual_open' (14475931) panicked at crates/rsf-vsr/src/membership/decision/disk/onepass_tests.rs:216:24:\nowned stage copy must reject a substituted same-byte manifest: ()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+        ],
+        "membership::decision::disk::onepass_tests::stage_copy_uses_original_opened_generation_without_repairing_replacement": [
+          "\nthread 'membership::decision::disk::onepass_tests::stage_copy_uses_original_opened_generation_without_repairing_replacement' (14475933) panicked at crates/rsf-vsr/src/membership/decision/disk/onepass_tests.rs:104:5:\nassertion `left == right` failed: owned stage copy must not repair a substituted foreign generation\n  left: [82, 83, 70, 49, 1, 0, 2, 0, 233, 0, 0, 0, 0, 0, 0, 0, 35, 195, 219, 171, 215, 1, 122, 75, 87, 65, 76, 49, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 236, 205, 230, 111, 207, 200, 248, 5, 48, 148, 35, 90, 199, 40, 154, 110, 179, 30, 111, 93, 17, 195, 186, 227, 93, 82, 1, 139, 254, 177, 18, 70, 80, 96, 226, 112, 79, 175, 33, 195, 109, 48, 179, 109, 240, 146, 212, 229, 65, 188, 178, 235, 150, 97, 229, 98, 3, 14, 46, 98, 245, 92, 185, 100, 0, 0, 0, 0, 0, 0, 0, 82, 83, 70, 66, 49, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 79, 0, 0, 0, 82, 83, 70, 72, 49, 3, 1, 0, 0, 0, 0, 0, 0, 0, 61, 0, 0, 0, 86, 83, 82, 66, 49, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0]\n right: [82, 83, 70, 49, 1, 0, 2, 0, 233, 0, 0, 0, 0, 0, 0, 0, 35, 195, 219, 171, 215, 1, 122, 75, 87, 65, 76, 49, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 236, 205, 230, 111, 207, 200, 248, 5, 48, 148, 35, 90, 199, 40, 154, 110, 179, 30, 111, 93, 17, 195, 186, 227, 93, 82, 1, 139, 254, 177, 18, 70, 80, 96, 226, 112, 79, 175, 33, 195, 109, 48, 179, 109, 240, 146, 212, 229, 65, 188, 178, 235, 150, 97, 229, 98, 3, 14, 46, 98, 245, 92, 185, 100, 0, 0, 0, 0, 0, 0, 0, 82, 83, 70, 66, 49, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 79, 0, 0, 0, 82, 83, 70, 72, 49, 3, 1, 0, 0, 0, 0, 0, 0, 0, 61, 0, 0, 0, 86, 83, 82, 66, 49, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 82, 83, 70]\n\n"
+        ]
+      }
+    },
+    "stage-onepass-green-v1": {
+      "execution_sha256": "57857102f661898f47142fb1319091fc5d167ace8fe410332c1424b039873309",
+      "source": "58288035e23821f86fb084e0e6a5a38554b728e3f4a4f22bd15e14ea850fd935",
+      "actual_exit": 0,
+      "test_summaries": [
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 316 filtered out; finished in 0.75s"
+      ],
+      "failed_tests": [],
+      "observation_valid": true,
+      "actual_tests_passed": true,
+      "source_unchanged": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "failure_blocks": {}
+    },
+    "stage-onepass-full-v1-vsr": {
+      "execution_sha256": "54a842885295e8b22a02486329b59a636a1717f0666f2fff969c77311314f05b",
+      "source": "58288035e23821f86fb084e0e6a5a38554b728e3f4a4f22bd15e14ea850fd935",
+      "actual_exit": 0,
+      "test_summaries": [
+        "test result: ok. 320 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 128.25s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "observation_valid": true,
+      "actual_tests_passed": true,
+      "source_unchanged": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "failure_blocks": {}
+    },
+    "stage-onepass-full-v1-rpc": {
+      "execution_sha256": "acd3f215213e9f2824fa139c52fe7a705b36372bebf0994fb9bc1e22a86e8ea0",
+      "source": "58288035e23821f86fb084e0e6a5a38554b728e3f4a4f22bd15e14ea850fd935",
+      "actual_exit": 101,
+      "test_summaries": [
+        "test result: FAILED. 145 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.55s"
+      ],
+      "failed_tests": [
+        "replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry"
+      ],
+      "observation_valid": false,
+      "actual_tests_passed": false,
+      "source_unchanged": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "failure_blocks": {
+        "replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-75035-1793998990578939000-0\n\nthread 'replication::tests::membership_publication::startup_validation::real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry' (14597269) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-75035-1793998990578939000-0 replica=2 elapsed=1.60313125s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }\n\n"
+        ]
+      }
+    }
+  },
+  "required_tests": [
+    "membership::decision::disk::onepass_tests::stage_copy_uses_original_opened_generation_without_repairing_replacement",
+    "membership::decision::disk::onepass_tests::stage_copy_reuses_actual_open_recovery_for_empty_partial_and_complete_prefixes",
+    "membership::decision::disk::onepass_tests::stage_copy_open_recovery_keeps_corrupt_prefix_refusal_and_sticky_failure",
+    "membership::decision::disk::onepass_tests::stage_copy_rejects_same_byte_manifest_replacement_after_actual_open"
+  ],
+  "strict_clippy_exit": 0,
+  "format_check_exit": 0,
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "full_pass": false,
+  "limits": [
+    "Real oldAPI RED: two passes/two intended physical failures. Same four pass after fix.",
+    "Full VSR320pass. Full RPC145pass1STAGEtimeout, preserved here; no baseline or latency clearance.",
+    "Review v1 opening-custody recapture flaw was fixed before integration; original stamp is carried through handoff.",
+    "Only formatting and a test-hook type alias differ from reviewed frozen v2.",
+    "Original timing observations230valid9rejected; no failed-fixture timing attribution or speedup claim.",
+    "No deadline, retry, workload, concurrency or postwrite durability/validation barrier changed."
+  ]
+}

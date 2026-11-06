@@ -815,6 +815,10 @@ bounded_control_names = [
     'stage_source_requires_original_namespace_lock_for_every_supplier_path',
     'staged_source_rejects_real_maintenance_and_nonwal_frames_before_supplier',
     'complete_stage_source_cannot_bypass_original_namespace_owner',
+    'stage_copy_uses_original_opened_generation_without_repairing_replacement',
+    'stage_copy_reuses_actual_open_recovery_for_empty_partial_and_complete_prefixes',
+    'stage_copy_open_recovery_keeps_corrupt_prefix_refusal_and_sticky_failure',
+    'stage_copy_rejects_same_byte_manifest_replacement_after_actual_open',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

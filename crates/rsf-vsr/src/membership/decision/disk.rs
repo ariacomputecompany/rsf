@@ -19,7 +19,14 @@ pub(in crate::membership) fn create_input(
 
 // The returned Full-sync writer has crossed the same publication boundary as
 // create_input. A stage can keep it for the ensuing copy instead of reopening.
-fn create_input_store(root: &Path, input: &VsrMembershipInput) -> RsfResult<SegmentStore> {
+fn create_input_store(
+    root: &Path,
+    input: &VsrMembershipInput,
+) -> RsfResult<(
+    SegmentStore,
+    rsf_storage::SegmentStoreRecovery,
+    rsf_storage::SegmentStoreCustody,
+)> {
     let id = input.id()?;
     let dir = input_directory(root, id, true)?;
     sync(root)?;
@@ -53,9 +60,11 @@ fn create_input_store(root: &Path, input: &VsrMembershipInput) -> RsfResult<Segm
     }
     let mut options = SegmentStoreOptions::default();
     options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
-    let store = SegmentStore::open_with_options(dir.join("records"), options)?;
+    let (store, recovery) = SegmentStore::open_recovered(dir.join("records"), options)?;
+    let custody = store.capture_owned_custody()?;
     sync_input_publication(root, id)?;
-    Ok(store)
+    store.validate_owned_custody(&custody)?;
+    Ok((store, recovery, custody))
 }
 /// Complete directory publication before input custody can be acknowledged.
 /// Seeing a final descriptor or manifest after restart does not prove that its
@@ -89,6 +98,14 @@ pub(in crate::membership) fn read_records(
     root: &Path,
     id: [u8; 32],
 ) -> RsfResult<(VsrMembershipInput, Vec<VsrHistoryRecord>)> {
+    let input = read_descriptor(root, id)?;
+    let dir = directory(root, id);
+    let recovered = SegmentStore::recover_existing(dir.join("records"))?;
+    let records = decode_records(&input, &recovered)?;
+    Ok((input, records))
+}
+
+fn read_descriptor(root: &Path, id: [u8; 32]) -> RsfResult<VsrMembershipInput> {
     let dir = input_directory(root, id, false)?;
     regular_file(&dir.join("DESCRIPTOR"), false)?;
     records_route(&dir.join("records"), false)?;
@@ -96,9 +113,7 @@ pub(in crate::membership) fn read_records(
     if input.id()? != id {
         return Err(corrupt("membership input identity or authority mismatch"));
     }
-    let recovered = SegmentStore::recover_existing(dir.join("records"))?;
-    let records = decode_records(&input, &recovered)?;
-    Ok((input, records))
+    Ok(input)
 }
 
 pub(super) fn decode_records(
@@ -199,6 +214,8 @@ pub(in crate::membership) fn create_and_retain_records(
 ) -> RsfResult<()> {
     let id = validate_copy_source(*failed, input, records)?;
     let store = copy_with_failure(failed, || create_input_store(root, input))?;
+    #[cfg(test)]
+    onepass_tests::after_open(root);
     retain_records_with_store(root, failed, id, input, records, Some(store))
 }
 
@@ -242,11 +259,26 @@ fn retain_records_with_store(
     id: [u8; 32],
     input: &VsrMembershipInput,
     records: &[VsrHistoryRecord],
-    store: Option<SegmentStore>,
+    store: Option<(
+        SegmentStore,
+        rsf_storage::SegmentStoreRecovery,
+        rsf_storage::SegmentStoreCustody,
+    )>,
 ) -> RsfResult<()> {
     // Existing recovery can repair an unsealed tail or create lock sidecars;
     // it is a physical operation even when the caller will reject its input.
-    let (stored, prefix) = copy_with_failure(failed, || read_records(root, id))?;
+    let (stored, prefix) = copy_with_failure(failed, || match &store {
+        Some((store, recovered, custody)) => {
+            // These records were recovered by this actual writer's open. Never
+            // reopen a replaced name (which could repair somebody else's tail).
+            store.validate_owned_custody(custody)?;
+            let input = read_descriptor(root, id)?;
+            let prefix = decode_records(&input, recovered)?;
+            store.validate_owned_custody(custody)?;
+            Ok((input, prefix))
+        }
+        None => read_records(root, id),
+    })?;
     if stored != *input || records.get(..prefix.len()) != Some(prefix.as_slice()) {
         return Err(corrupt(
             "membership copy changes the retained descriptor or prefix",
@@ -259,7 +291,10 @@ fn retain_records_with_store(
         let mut options = SegmentStoreOptions::default();
         options.log_options.sync_policy = rsf_storage::SyncPolicy::Full;
         let mut store = match store {
-            Some(store) => store,
+            Some((store, _, custody)) => {
+                store.validate_owned_custody(&custody)?;
+                store
+            }
             None => SegmentStore::open_with_options(directory(root, id).join("records"), options)?,
         };
         append_history_suffix(
@@ -352,3 +387,7 @@ pub(in crate::membership) fn records_route(root: &Path, initializing: bool) -> R
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "disk/onepass_tests.rs"]
+mod onepass_tests;
