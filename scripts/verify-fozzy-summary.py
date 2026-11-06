@@ -819,6 +819,9 @@ bounded_control_names = [
     'stage_copy_reuses_actual_open_recovery_for_empty_partial_and_complete_prefixes',
     'stage_copy_open_recovery_keeps_corrupt_prefix_refusal_and_sticky_failure',
     'stage_copy_rejects_same_byte_manifest_replacement_after_actual_open',
+    'decision_copy_retains_opening_manifest_custody_and_fences_after_restoration',
+    'decision_copy_resumes_staged_prefixes_and_preserves_cold_choice',
+    'decision_copy_never_repairs_corrupt_acknowledged_input',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

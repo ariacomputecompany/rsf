@@ -64,6 +64,8 @@ fn create_input_store(
     let custody = store.capture_owned_custody()?;
     sync_input_publication(root, id)?;
     store.validate_owned_custody(&custody)?;
+    #[cfg(test)]
+    decision_open_hook::after_open(root);
     Ok((store, recovery, custody))
 }
 /// Complete directory publication before input custody can be acknowledged.
@@ -391,3 +393,7 @@ pub(in crate::membership) fn records_route(root: &Path, initializing: bool) -> R
 #[cfg(test)]
 #[path = "disk/onepass_tests.rs"]
 mod onepass_tests;
+
+#[cfg(test)]
+#[path = "disk/decision_open_hook.rs"]
+pub(in crate::membership) mod decision_open_hook;

@@ -209,3 +209,6 @@ mod stage_performance;
 
 #[path = "stage_source_tests.rs"]
 mod stage_source;
+
+#[path = "decision_onepass_tests.rs"]
+mod decision_onepass;

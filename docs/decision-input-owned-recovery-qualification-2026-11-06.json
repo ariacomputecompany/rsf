@@ -1,0 +1,217 @@
+{
+  "date": "2026-11-06",
+  "source_sha256": "c042a3ec740c7509ec3de41adc48f4764c3917bddc6ec77cd6fa31706e6fc371",
+  "change": "Decision input copying retains its original opening writer, recovery and physical custody instead of dropping and reopening it. Factory errors now also fence the owner. Final independent readback, decision ordering and all durability barriers are preserved.",
+  "runs": {
+    "observation-decision-copy-red-v1": {
+      "artifact": "artifacts/decision-retain-onepass-review-20261106/qualification/observation-decision-copy-red-v1/execution.json",
+      "sha256": "57e656f4d3524433c4dfcab697077704f983829d7ecf7d6bebacdf54973078f1",
+      "source_before": "df20cb135364bba79aad3f821441893fdce5c41c87c723369055e28755913134",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 320 filtered out; finished in 2.21s"
+      ],
+      "failed_tests": [
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_retains_opening_manifest_custody_and_fences_after_restoration"
+      ],
+      "failure_blocks": {
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_retains_opening_manifest_custody_and_fences_after_restoration": [
+          "\nthread 'membership::decision::store::tests::retained::decision_onepass::decision_copy_retains_opening_manifest_custody_and_fences_after_restoration' (14757138) panicked at crates/rsf-vsr/src/membership/decision/decision_onepass_tests.rs:42:24:\ndecision copy must reject a substituted same-byte opening manifest: ()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n"
+        ]
+      },
+      "observation_valid": true,
+      "actual_tests_passed": false,
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "full_discovery_census_equal": null,
+      "required_test_outcomes": {
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_retains_opening_manifest_custody_and_fences_after_restoration": [
+          "FAILED"
+        ],
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_resumes_staged_prefixes_and_preserves_cold_choice": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_never_repairs_corrupt_acknowledged_input": [
+          "ok"
+        ]
+      },
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    },
+    "observation-decision-copy-green-v1": {
+      "artifact": "artifacts/decision-retain-formatted-green-20261106/qualification/observation-decision-copy-green-v1/execution.json",
+      "sha256": "2dbae12ae01dd95967b34bd1bc95c4ee97112ff842b93deef88d8ecddeef9489",
+      "source_before": "c042a3ec740c7509ec3de41adc48f4764c3917bddc6ec77cd6fa31706e6fc371",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 320 filtered out; finished in 2.10s"
+      ],
+      "failed_tests": [],
+      "failure_blocks": {},
+      "observation_valid": true,
+      "actual_tests_passed": true,
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "full_discovery_census_equal": null,
+      "required_test_outcomes": {
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_retains_opening_manifest_custody_and_fences_after_restoration": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_resumes_staged_prefixes_and_preserves_cold_choice": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_never_repairs_corrupt_acknowledged_input": [
+          "ok"
+        ]
+      },
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    },
+    "observation-decision-copy-full-v1-vsr": {
+      "artifact": "artifacts/decision-retain-formatted-green-20261106/qualification/observation-decision-copy-full-v1-vsr/execution.json",
+      "sha256": "e5efdd8d5a06a78ac4398c6956dcd0ce95c393a96fa3d0ccbdc19c35b8ad9faa",
+      "source_before": "c042a3ec740c7509ec3de41adc48f4764c3917bddc6ec77cd6fa31706e6fc371",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 323 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 119.92s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "failure_blocks": {},
+      "observation_valid": true,
+      "actual_tests_passed": true,
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "full_discovery_census_equal": true,
+      "required_test_outcomes": {
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_retains_opening_manifest_custody_and_fences_after_restoration": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_resumes_staged_prefixes_and_preserves_cold_choice": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::decision_onepass::decision_copy_never_repairs_corrupt_acknowledged_input": [
+          "ok"
+        ],
+        "membership::decision::disk::onepass_tests::stage_copy_uses_original_opened_generation_without_repairing_replacement": [
+          "ok"
+        ],
+        "membership::decision::disk::onepass_tests::stage_copy_reuses_actual_open_recovery_for_empty_partial_and_complete_prefixes": [
+          "ok"
+        ],
+        "membership::decision::disk::onepass_tests::stage_copy_open_recovery_keeps_corrupt_prefix_refusal_and_sticky_failure": [
+          "ok"
+        ],
+        "membership::decision::disk::onepass_tests::stage_copy_rejects_same_byte_manifest_replacement_after_actual_open": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::staged_source_supplier_error_preserves_healthy_owner_and_resolution_is_read_only": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::staged_source_supplier_swap_success_and_error_fence_original_owner_after_restoration": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::staged_source_supplier_unwind_fences_original_owner_without_durable_choice": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::absent_stage_source_pins_authority_across_supplier_success_and_error": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::stage_source_requires_original_namespace_lock_for_every_supplier_path": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::staged_source_rejects_real_maintenance_and_nonwal_frames_before_supplier": [
+          "ok"
+        ],
+        "membership::decision::store::tests::retained::stage_source::complete_stage_source_cannot_bypass_original_namespace_owner": [
+          "ok"
+        ]
+      },
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    },
+    "observation-decision-copy-full-v1-rpc": {
+      "artifact": "artifacts/decision-retain-formatted-green-20261106/qualification/observation-decision-copy-full-v1-rpc/execution.json",
+      "sha256": "4c30fb4cc61ca08fe8f864a1a1de3a4363bd4fdc2588fe43a68b45685a0b033c",
+      "source_before": "c042a3ec740c7509ec3de41adc48f4764c3917bddc6ec77cd6fa31706e6fc371",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 146 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 77.38s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "failure_blocks": {},
+      "observation_valid": true,
+      "actual_tests_passed": true,
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "full_discovery_census_equal": true,
+      "required_test_outcomes": {
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_missing_authority": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_short_authority": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_corrupt_authority": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_corrupt_staged_prefix": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_refuses_short_accepted_despite_complete_inbox": [
+          "ok"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_refuses_missing_chosen_despite_complete_inbox": [
+          "ok"
+        ]
+      },
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    }
+  },
+  "format_check_exit": 0,
+  "strict_clippy_exit": 0,
+  "affected_full_suites_passed": true,
+  "complete_baseline_passed": false,
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "limits": [
+    "Old implementation genuinely failed the manifest replacement assertion; fixed implementation passes all three new tests.",
+    "Full VSR323 and RPC146 pass with unchanged deadlines, retries, workloads and concurrency. This is not the full 25-domain baseline.",
+    "Previous failed baseline and STAGE observations remain preserved. Diagnostic run before this fix was RPC140pass6fail, with45 rejected interleaved records excluded.",
+    "Only three observed failed decision-copy paths directly benefit; no universal latency or opening-barrier resolution is claimed.",
+    "No Linux VM, kernel or power-loss qualification is claimed."
+  ]
+}

@@ -466,8 +466,7 @@ impl MembershipDecisionStore {
         } else if self.state.staged.is_some_and(|(_, stored)| stored == id) {
             self.read_records(id)?;
         }
-        self.create_input(&input)?;
-        disk::retain_records(&self.root, &mut self.failed, &input, &records)?;
+        disk::create_and_retain_records(&self.root, &mut self.failed, &input, &records)?;
         after_copied();
         self.compare_retained_input(&input, &records)?;
         self.learn_verified_chosen(chosen)

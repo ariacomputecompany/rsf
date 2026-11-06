@@ -30,9 +30,10 @@ no CI/CD is authorized.
 
 A clean full baseline remains missing. The latest complete baseline failed
 membership-peer and workspace; terminal evidence is preserved in
-`docs/owned-recovery-baseline-terminal-2026-11-06.json`. The current full RPC
-suite still has a STAGE deadline failure, recorded in
-`docs/stage-copy-owned-recovery-qualification-2026-11-06.json`. Workspace stopped
+`docs/owned-recovery-baseline-terminal-2026-11-06.json`. The subsequent decision-input writer fix passes full VSR (323 tests) and RPC
+(146 tests), recorded in
+`docs/decision-input-owned-recovery-qualification-2026-11-06.json`. Earlier STAGE
+failures remain preserved; a fresh complete baseline is still required. Workspace stopped
 at RPC, so its later daemon/cache/security coverage still needs requalification.
 Diagnose and fix failures under the original deadlines, workloads, retries and
 concurrency, then requalify the final source through all 25 domains. Preserve
