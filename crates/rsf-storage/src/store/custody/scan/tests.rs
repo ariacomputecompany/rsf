@@ -829,3 +829,175 @@ fn bounded_owned_custody_rejects_lost_or_replaced_actual_held_sidecars() {
         }
     }
 }
+
+#[test]
+fn owned_full_recovery_reads_real_mixed_bytes_and_preserves_writer_custody() {
+    let path = root("owned-full-real");
+    let mut store = SegmentStore::open_with_options(&path, options(SyncPolicy::Data, 180)).unwrap();
+    store.append(b"raw frame").unwrap();
+    store
+        .append_maintenance(MaintenanceRecord::retention(
+            PlacementGroupId(1),
+            LogIndex(0),
+            b"retained note",
+        ))
+        .unwrap();
+    let first = append(&mut store, 1, b"first");
+    let other = append(&mut store, 2, b"other group");
+    let last = append(&mut store, 1, b"last");
+    assert!(store.segments().len() > 1);
+    let custody = store.capture_owned_custody().unwrap();
+    let before = inventory(&path);
+    let payloads = reader::payload_reads();
+    let syncs = sync_observation::watch(&path, None);
+    let recovered = store
+        .recover_owned_immutable_bounded(&custody, limits(), allow)
+        .unwrap();
+    assert_eq!(reader::payload_reads().0 - payloads.0, 5);
+    assert!(
+        syncs.events().is_empty(),
+        "readback must not append or renew data"
+    );
+    drop(syncs);
+    assert_eq!(recovered.recovery.wal_records, vec![first, other, last]);
+    assert_eq!(recovered.recovery.records.len(), 5);
+    assert_eq!(recovered.recovery.maintenance_records.len(), 1);
+    assert_eq!(inventory(&path), before);
+    store.validate_owned_custody(&custody).unwrap();
+    let (immutable, _) = SegmentStore::recover_immutable_bounded(&path, limits(), allow).unwrap();
+    assert_eq!(recovered, immutable);
+    let payloads = reader::payload_reads();
+    limit(
+        store
+            .recover_owned_immutable_bounded(
+                &custody,
+                SegmentReadLimits {
+                    max_records: 1,
+                    ..limits()
+                },
+                allow,
+            )
+            .unwrap_err(),
+        SegmentReadLimit::Records,
+        1,
+    );
+    assert_eq!(reader::payload_reads().0 - payloads.0, 1);
+    assert_eq!(inventory(&path), before);
+    store.validate_owned_custody(&custody).unwrap();
+    drop(store);
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn owned_full_recovery_rejects_replaced_owner_files_before_payload_reads() {
+    for damage in ["manifest", "segment", "manifest-lock", "segment-lock"] {
+        let path = root(damage);
+        let mut store = SegmentStore::open(&path).unwrap();
+        append(&mut store, 1, b"owned bytes");
+        let custody = store.capture_owned_custody().unwrap();
+        let segment = active(&store);
+        let target = match damage {
+            "manifest" => path.join(MANIFEST_FILE),
+            "segment" => segment.clone(),
+            "manifest-lock" => path.join(MANIFEST_FILE).with_extension("lock"),
+            _ => segment.with_extension("lock"),
+        };
+        let displaced = path.join("actual-held-inode");
+        fs::rename(&target, &displaced).unwrap();
+        fs::copy(&displaced, &target).unwrap();
+        let before = inventory(&path);
+        let payloads = reader::payload_reads();
+        let error = failure(
+            store
+                .recover_owned_immutable_bounded(&custody, limits(), allow)
+                .unwrap_err(),
+        );
+        assert_eq!(error.code, ErrorCode::CorruptionDetected);
+        assert_eq!(
+            reader::payload_reads(),
+            payloads,
+            "replacement must not become a new snapshot"
+        );
+        assert_eq!(
+            inventory(&path),
+            before,
+            "recovery must not repair or remove a replacement"
+        );
+        drop(store);
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+fn owned_full_recovery_original_custody_failure_overrides_admission_limit() {
+    let path = root("owned-full-admission");
+    let mut store = SegmentStore::open(&path).unwrap();
+    append(&mut store, 1, b"real frame");
+    let custody = store.capture_owned_custody().unwrap();
+    let segment = active(&store);
+    let mut called = false;
+    let error = failure(
+        store
+            .recover_owned_immutable_bounded(&custody, limits(), |_| {
+                assert!(!called);
+                called = true;
+                let held = path.join("original-active");
+                fs::rename(&segment, &held).unwrap();
+                fs::copy(&held, &segment).unwrap();
+                Err(SegmentReadLimit::CallerBytes)
+            })
+            .unwrap_err(),
+    );
+    assert!(called, "real parser must reach the admission boundary");
+    assert_eq!(error.code, ErrorCode::CorruptionDetected);
+    assert_eq!(
+        fs::read(&segment).unwrap(),
+        fs::read(path.join("original-active")).unwrap()
+    );
+    let before = inventory(&path);
+    assert_eq!(
+        store.validate_owned_custody(&custody).unwrap_err().code,
+        ErrorCode::CorruptionDetected
+    );
+    assert_eq!(inventory(&path), before);
+    drop(store);
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn owned_full_recovery_checks_actual_checksum_even_when_metadata_still_matches() {
+    let path = root("owned-full-checksum");
+    let mut store = SegmentStore::open(&path).unwrap();
+    append(&mut store, 1, b"physical checksum evidence");
+    let custody = store.capture_owned_custody().unwrap();
+    let segment = active(&store);
+    let modified = fs::metadata(&segment).unwrap().modified().unwrap();
+    let mut bytes = fs::read(&segment).unwrap();
+    *bytes.last_mut().unwrap() ^= 1;
+    fs::write(&segment, &bytes).unwrap();
+    // Deliberately bypass the metadata-only guard to prove that this operation
+    // parses disk bytes. This is not a guarantee against ongoing hostile writes.
+    OpenOptions::new()
+        .write(true)
+        .open(&segment)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    store.validate_owned_custody(&custody).unwrap();
+    let payloads = reader::payload_reads();
+    let error = failure(
+        store
+            .recover_owned_immutable_bounded(&custody, limits(), allow)
+            .unwrap_err(),
+    );
+    assert_eq!(error.code, ErrorCode::CorruptionDetected);
+    assert!(error.message.starts_with("checksum mismatch at offset 0"));
+    assert_eq!(reader::payload_reads().0 - payloads.0, 1);
+    assert_eq!(
+        fs::read(&segment).unwrap(),
+        bytes,
+        "checksum failure must not repair"
+    );
+    drop(store);
+    fs::remove_dir_all(path).unwrap();
+}

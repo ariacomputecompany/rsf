@@ -218,6 +218,13 @@ pub(crate) fn validate_active(
     Ok(())
 }
 
+// The writer and its original post-append custody stay together through all
+// publication callbacks. Consumers must not substitute a newly opened writer.
+pub(crate) struct PublishedGeneration {
+    pub store: SegmentStore,
+    pub custody: rsf_storage::SegmentStoreCustody,
+}
+
 pub(crate) fn publish(
     root: &Path,
     pg: PlacementGroupId,
@@ -226,7 +233,7 @@ pub(crate) fn publish(
     records: &[VsrHistoryRecord],
     hook: &mut impl FnMut(Boundary) -> RsfResult<()>,
     publication_started: &mut bool,
-) -> RsfResult<SegmentStore> {
+) -> RsfResult<PublishedGeneration> {
     crate::learner::promotion::validate_history(
         root,
         pg,
@@ -273,6 +280,12 @@ pub(crate) fn publish(
                 payload: &record.payload,
             }),
     )?;
+    let custody = store.capture_owned_custody()?;
+    let mut checked_hook = |boundary| {
+        let result = hook(boundary);
+        store.validate_owned_custody(&custody)?;
+        result
+    };
     let mut seal = b"VSS1".to_vec();
     seal.extend_from_slice(&pg.0.to_le_bytes());
     seal.extend_from_slice(&id);
@@ -281,7 +294,7 @@ pub(crate) fn publish(
     checksum(&mut seal);
     write_synced(&path.join(SEAL), &seal)?;
     sync(&path)?;
-    hook(Boundary::Staged)?;
+    checked_hook(Boundary::Staged)?;
     let owner = crate::learner::promotion::owner_digest(root)?;
     let mut pointer = if owner.is_some() { b"VSA2" } else { b"VSA1" }.to_vec();
     pointer.extend_from_slice(&pg.0.to_le_bytes());
@@ -297,12 +310,12 @@ pub(crate) fn publish(
     fs::rename(temporary, root.join(POINTER)).map_err(io_error)?;
     // Once rename may have occurred, any publication error fences this
     // handle until reopen resolves the authoritative pointer.
-    let publication = hook(Boundary::Renamed)
+    let publication = checked_hook(Boundary::Renamed)
         .and_then(|()| sync(root))
         .and_then(|()| mark_published(root, pg))
-        .and_then(|()| hook(Boundary::Published));
+        .and_then(|()| checked_hook(Boundary::Published));
     publication?;
-    Ok(store)
+    Ok(PublishedGeneration { store, custody })
 }
 
 impl DurableVsrCell {
@@ -427,12 +440,8 @@ impl DurableVsrCell {
             records,
             hook,
             &mut publication_started,
-        )
-        .and_then(|store| {
-            let custody = store.capture_owned_custody()?;
-            Ok((store, custody))
-        }) {
-            Ok(owned) => owned,
+        ) {
+            Ok(PublishedGeneration { store, custody }) => (store, custody),
             Err(error) => {
                 if publication_started {
                     *self

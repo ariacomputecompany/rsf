@@ -3,6 +3,7 @@
 use super::*;
 use crate::installation::publication;
 use crate::membership::staging::activation;
+mod handoff;
 mod identity;
 mod path;
 use identity::Identity;
@@ -96,8 +97,11 @@ impl LearnerHistoryStore {
         let root = path::target(target, &self.root)?;
         let writer_lock = path::lock(&root)?;
         identity.claim(&root)?;
-        hook(Boundary::Owned)?;
+        let target_custody = handoff::Target::capture(&root, &writer_lock, &identity)?;
+        let owned = hook(Boundary::Owned);
+        target_custody.validate()?;
         stage.validate_custody()?;
+        owned?;
         let needs_publication = match fs::symlink_metadata(root.join("VSR_ACTIVE")) {
             Ok(_) => false,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -108,39 +112,50 @@ impl LearnerHistoryStore {
             }
             Err(e) => return Err(io_error(e)),
         };
-        if needs_publication {
+        let cell = if needs_publication {
+            let limits = handoff::limits(&records)?;
             let mut started = false;
-            let store = publication::publish(
+            let generation = publication::publish(
                 &root,
                 self.pg,
                 SegmentStoreOptions::default(),
                 identity.plan,
                 &records,
                 &mut |boundary| {
-                    hook(match boundary {
+                    let result = hook(match boundary {
                         publication::Boundary::Staged => Boundary::Staged,
                         publication::Boundary::Renamed => Boundary::Renamed,
                         publication::Boundary::Published => Boundary::Published,
-                    })?;
-                    stage.validate_custody()
+                    });
+                    target_custody.validate()?;
+                    stage.validate_custody()?;
+                    result
                 },
                 &mut started,
             )?;
-            drop(store);
-        }
-        // Keep the same exclusive writer lock while the normal constructor
-        // validates authoritative replay and promotion provenance. Existing
-        // targets may contain later commits/views; never republish an old stage.
-        let bootstrap = decode_bootstrap(&published.cell.initial_bootstrap)?;
-        let cell = DurableVsrCell::open_locked(
-            &root,
-            self.pg,
-            bootstrap.view,
-            bootstrap.primary,
-            bootstrap.replicas,
-            SegmentStoreOptions::default(),
-            writer_lock,
-        )?;
+            handoff::open(
+                &root,
+                self.pg,
+                identity.plan,
+                generation,
+                limits,
+                writer_lock,
+            )?
+        } else {
+            // Existing targets may contain later commits/views. Resolve their
+            // actual current authority; never replay the old stage over them.
+            let bootstrap = decode_bootstrap(&published.cell.initial_bootstrap)?;
+            DurableVsrCell::open_locked(
+                &root,
+                self.pg,
+                bootstrap.view,
+                bootstrap.primary,
+                bootstrap.replicas,
+                SegmentStoreOptions::default(),
+                writer_lock,
+            )?
+        };
+        target_custody.validate()?;
         stage.validate_custody()?;
         if !cell.contains_replica(self.local) || !activation::retains_stage(&cell, stage) {
             return Err(corrupt(

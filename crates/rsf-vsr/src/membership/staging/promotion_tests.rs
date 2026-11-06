@@ -614,3 +614,195 @@ mod bounded_promotion_metadata;
 
 #[path = "promotion_tests/bounded_voter.rs"]
 mod bounded_voter;
+
+#[test]
+fn warm_promotion_retains_publication_boundaries_and_live_writer_exclusion() {
+    let path = root("promotion-warm-boundaries");
+    let r = ready(&path);
+    let target = path.join("voter-3");
+    let mut seen = Vec::new();
+    let cell =
+        r.f.learner
+            .promote_membership_with_hook(&target, &r.stages[2], &r.quorum, &mut |boundary| {
+                let name = match boundary {
+                    Boundary::Owned => "owned",
+                    Boundary::Staged => "staged",
+                    Boundary::Renamed => "renamed",
+                    Boundary::Published => "published",
+                };
+                seen.push(name);
+                if matches!(boundary, Boundary::Owned | Boundary::Staged) {
+                    assert!(!target.join("VSR_ACTIVE").exists());
+                } else {
+                    assert_eq!(fs::read(target.join("VSR_ACTIVE")).unwrap().len(), 140);
+                }
+                if matches!(boundary, Boundary::Published) {
+                    assert_eq!(fs::read(target.join("VSR_PUBLISHED")).unwrap().len(), 44);
+                    assert_eq!(
+                        DurableVsrCell::open_existing(&target, PlacementGroupId(1))
+                            .unwrap_err()
+                            .code,
+                        ErrorCode::QuorumUnavailable
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
+    assert_eq!(seen, ["owned", "staged", "renamed", "published"]);
+    assert_prefix(&cell);
+    assert_eq!(
+        DurableVsrCell::open_existing(&target, PlacementGroupId(1))
+            .unwrap_err()
+            .code,
+        ErrorCode::QuorumUnavailable
+    );
+    let prefix = cell.committed_prefix().unwrap();
+    drop(cell);
+    let cold = DurableVsrCell::open_existing(&target, PlacementGroupId(1)).unwrap();
+    assert_prefix(&cold);
+    assert_eq!(cold.committed_prefix().unwrap(), prefix);
+    drop(cold);
+    drop(r);
+    fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn warm_promotion_rechecks_actual_pointer_seal_and_owner_after_published_hook() {
+    for (name, missing) in [
+        ("VSR_ACTIVE", true),
+        ("VSR_ACTIVE", false),
+        ("VSR_SEAL", true),
+        ("VSR_SEAL", false),
+        ("VSR_PROMOTION", true),
+        ("VSR_PROMOTION", false),
+    ] {
+        let path = root("promotion-warm-metadata");
+        let r = ready(&path);
+        let target = path.join("voter-3");
+        let mut damaged = None;
+        let error =
+            r.f.learner
+                .promote_membership_with_hook(&target, &r.stages[2], &r.quorum, &mut |boundary| {
+                    if matches!(boundary, Boundary::Published) {
+                        assert!(damaged.is_none());
+                        let file = if name == "VSR_SEAL" {
+                            crate::installation::publication::active(&target, PlacementGroupId(1))?
+                                .path
+                                .join(name)
+                        } else {
+                            target.join(name)
+                        };
+                        if missing {
+                            fs::remove_file(&file).unwrap();
+                        } else {
+                            let mut bytes = fs::read(&file).unwrap();
+                            *bytes.last_mut().unwrap() ^= 1;
+                            fs::write(&file, bytes).unwrap();
+                        }
+                        damaged = Some((file.clone(), fs::read(&file).ok()));
+                    }
+                    Ok(())
+                })
+                .unwrap_err();
+        assert_eq!(
+            error.code,
+            ErrorCode::CorruptionDetected,
+            "{name}, missing={missing}: {error:?}"
+        );
+        let (file, bytes) = damaged.expect("real Published hook must execute");
+        assert_eq!(
+            fs::read(&file).ok(),
+            bytes,
+            "failure must not reconstruct metadata"
+        );
+        let cold_error = DurableVsrCell::open_existing(&target, PlacementGroupId(1)).unwrap_err();
+        assert_eq!(cold_error.code, ErrorCode::CorruptionDetected);
+        assert_eq!(fs::read(&file).ok(), bytes);
+        drop(r);
+        fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn warm_promotion_rejects_same_byte_owner_replacements_across_hooks() {
+    use std::os::unix::fs::MetadataExt;
+    for (at, name) in [
+        ("owned", "writer-lock"),
+        ("staged", "manifest"),
+        ("renamed", "segment"),
+        ("published", "manifest-lock"),
+        ("published", "segment-lock"),
+    ] {
+        let path = root("promotion-warm-owner");
+        let r = ready(&path);
+        let target = path.join("voter-3");
+        let mut replaced = None;
+        let error =
+            r.f.learner
+                .promote_membership_with_hook(&target, &r.stages[2], &r.quorum, &mut |boundary| {
+                    let current = match boundary {
+                        Boundary::Owned => "owned",
+                        Boundary::Staged => "staged",
+                        Boundary::Renamed => "renamed",
+                        Boundary::Published => "published",
+                    };
+                    if current == at {
+                        assert!(replaced.is_none());
+                        let file = if name == "writer-lock" {
+                            target.join(".vsr-writer.lock")
+                        } else {
+                            let generations = fs::read_dir(target.join("vsr-views"))
+                                .unwrap()
+                                .map(|entry| entry.unwrap().path())
+                                .collect::<Vec<_>>();
+                            assert_eq!(generations.len(), 1);
+                            let generation = &generations[0];
+                            if name == "manifest" {
+                                generation.join("MANIFEST")
+                            } else if name == "manifest-lock" {
+                                generation.join("MANIFEST.lock")
+                            } else {
+                                let segments = fs::read_dir(generation.join("segments"))
+                                    .unwrap()
+                                    .map(|entry| entry.unwrap().path())
+                                    .filter(|p| p.extension().is_some_and(|e| e == "segment"))
+                                    .collect::<Vec<_>>();
+                                assert_eq!(segments.len(), 1);
+                                if name == "segment" {
+                                    segments[0].clone()
+                                } else {
+                                    segments[0].with_extension("lock")
+                                }
+                            }
+                        };
+                        let old = path.join("actual-held-inode");
+                        fs::rename(&file, &old).unwrap();
+                        fs::copy(&old, &file).unwrap();
+                        assert_ne!(
+                            fs::metadata(&file).unwrap().ino(),
+                            fs::metadata(&old).unwrap().ino()
+                        );
+                        let bytes = fs::read(&old).unwrap();
+                        assert_eq!(fs::read(&file).unwrap(), bytes);
+                        replaced = Some((file, old, bytes));
+                    }
+                    Ok(())
+                })
+                .unwrap_err();
+        assert_eq!(
+            error.code,
+            ErrorCode::CorruptionDetected,
+            "{at}/{name}: {error:?}"
+        );
+        let (file, old, bytes) = replaced.expect("real boundary must execute");
+        assert_eq!(fs::read(file).unwrap(), bytes);
+        assert_eq!(
+            fs::read(old).unwrap(),
+            bytes,
+            "retained inode must not be repaired"
+        );
+        drop(r);
+        fs::remove_dir_all(path).unwrap();
+    }
+}

@@ -789,6 +789,13 @@ bounded_control_names = [
     'real_owned_rotation_name_failure_is_strictly_refused_then_explicitly_cancelled_by_current_active',
     'recovered_admin_retains_the_original_writer_and_exact_replayed_generation',
     'recovered_admin_refuses_framed_invalid_domain_event_without_rewriting_wal',
+    'owned_full_recovery_reads_real_mixed_bytes_and_preserves_writer_custody',
+    'owned_full_recovery_rejects_replaced_owner_files_before_payload_reads',
+    'owned_full_recovery_original_custody_failure_overrides_admission_limit',
+    'owned_full_recovery_checks_actual_checksum_even_when_metadata_still_matches',
+    'warm_promotion_retains_publication_boundaries_and_live_writer_exclusion',
+    'warm_promotion_rechecks_actual_pointer_seal_and_owner_after_published_hook',
+    'warm_promotion_rejects_same_byte_owner_replacements_across_hooks',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

@@ -31,22 +31,7 @@ impl SegmentStore {
             if !self.manifest.compacted_prefixes.is_empty() {
                 return Err(SegmentReadError::CompactedPrefixUnsupported);
             }
-            // Copy the caller's original stamps, never capture replacement paths.
-            let custody = SegmentReadCustody {
-                root: immutable::normalize_root(&self.root),
-                gate: self.gate.clone(),
-                root_identity: expected.root.clone(),
-                directory: expected.directory.clone(),
-                manifest: expected.manifest.clone(),
-                manifest_bytes: self.manifest.encode().into_bytes(),
-                segments: self
-                    .manifest
-                    .segments
-                    .iter()
-                    .zip(&expected.segments)
-                    .map(|(descriptor, (_, stamp))| (descriptor.file_name.clone(), stamp.clone()))
-                    .collect(),
-            };
+            let custody = self.owned_read_custody_locked(expected);
             scan_locked(
                 &self.manifest,
                 &custody,
@@ -61,6 +46,60 @@ impl SegmentStore {
         // Physical failure takes precedence over callback/cap outcomes.
         self.validate_owned_custody_locked(expected)?;
         result
+    }
+
+    /// Recover actual bounded bytes from this exact validated writer without
+    /// reopening it, adopting another owner, repairing a tail or syncing routes.
+    /// The caller retains exclusive namespace ownership for the entire handoff.
+    pub fn recover_owned_immutable_bounded(
+        &self,
+        expected: &SegmentStoreCustody,
+        limits: SegmentReadLimits,
+        admit: impl FnMut(u64) -> Result<(), SegmentReadLimit>,
+    ) -> Result<SegmentStoreRecovery, SegmentReadError> {
+        limits.validate()?;
+        self.ensure_writable()?;
+        let _guard = lock_gate(&self.gate)?;
+        manifest_budget(
+            &self.manifest,
+            limits.max_manifest_bytes,
+            SegmentReadCursor::default(),
+        )?;
+        self.validate_owned_custody_locked(expected)?;
+        let result = (|| {
+            if !self.manifest.compacted_prefixes.is_empty() {
+                return Err(SegmentReadError::CompactedPrefixUnsupported);
+            }
+            let custody = self.owned_read_custody_locked(expected);
+            let recovery = collect_locked(&self.manifest, &custody, limits, admit)?;
+            Ok(SegmentStoreRecovery {
+                segments: self.manifest.segments.clone(),
+                recovery,
+            })
+        })();
+        // Keep original physical custody authoritative, including on read/cap failure.
+        self.validate_owned_custody_locked(expected)?;
+        result
+    }
+
+    // Called only while the gate is held and original owner custody is valid.
+    fn owned_read_custody_locked(&self, expected: &SegmentStoreCustody) -> SegmentReadCustody {
+        // Copy original stamps; a newly captured replacement is never authority.
+        SegmentReadCustody {
+            root: immutable::normalize_root(&self.root),
+            gate: self.gate.clone(),
+            root_identity: expected.root.clone(),
+            directory: expected.directory.clone(),
+            manifest: expected.manifest.clone(),
+            manifest_bytes: self.manifest.encode().into_bytes(),
+            segments: self
+                .manifest
+                .segments
+                .iter()
+                .zip(&expected.segments)
+                .map(|(descriptor, (_, stamp))| (descriptor.file_name.clone(), stamp.clone()))
+                .collect(),
+        }
     }
 
     /// Complete bounded immutable recovery, using the same parser as generic
