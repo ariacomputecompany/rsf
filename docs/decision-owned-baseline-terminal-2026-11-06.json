@@ -1,0 +1,196 @@
+{
+  "date": "2026-11-06",
+  "source_sha256": "c042a3ec740c7509ec3de41adc48f4764c3917bddc6ec77cd6fa31706e6fc371",
+  "baseline_artifact": "artifacts/verification.decision-owned-recovery-20261106-v1",
+  "checkpoint_sha256": "372bd80899950ac5de81297a61a81dadffa8b2aa2482f2f164a34c7a7ee32beb",
+  "summary_sha256": "6a8784ba74b09b08eee11b1bc3b380fb1186e161a4abf40b0e8536e76ad3c332",
+  "source_unchanged": true,
+  "passed_domains": [
+    "storage",
+    "vsr",
+    "control-state",
+    "membership",
+    "membership-decision",
+    "membership-staging",
+    "membership-activation",
+    "protocol",
+    "kv-transactions",
+    "sql",
+    "authentication",
+    "tenancy",
+    "daemon",
+    "native-membership",
+    "automatic-client",
+    "sql-stream",
+    "daemon-stress",
+    "release-stress",
+    "object-blob",
+    "recovery",
+    "policy",
+    "end-to-end"
+  ],
+  "failed_domains": {
+    "membership-peer": {
+      "trace": "artifacts/verification.decision-owned-recovery-20261106-v1/membership-peer/attempt-0001/trace.fozzy",
+      "trace_sha256": "6e96b70f9aae009e5985c611eced88d281545457604324e4b127a0dab2900da6",
+      "failed_tests": [
+        "replication::tests::membership_publication::stage_custody::real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched",
+        "replication::tests::membership_publication::stage_custody::real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage"
+      ],
+      "test_summaries": [
+        "test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.71s",
+        "test result: FAILED. 144 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 77.10s"
+      ]
+    },
+    "peer-rpc": {
+      "trace": "artifacts/verification.decision-owned-recovery-20261106-v1/peer-rpc/attempt-0001/trace.fozzy",
+      "trace_sha256": "9f2fbdd0921d05817f6b888c1b3205832db4b9fb4c12df1168ddcc3a4ee5e2df",
+      "failed_tests": [
+        "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner",
+        "replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views"
+      ],
+      "test_summaries": [
+        "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: FAILED. 144 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.49s"
+      ]
+    },
+    "workspace": {
+      "trace": "artifacts/verification.decision-owned-recovery-20261106-v1/workspace/attempt-0001/trace.fozzy",
+      "trace_sha256": "0964018781a532e23a98077c9156aaac36192018c008a3efe877a671aeec90a0",
+      "failed_tests": [
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox"
+      ],
+      "test_summaries": [
+        "test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s",
+        "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.45s",
+        "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s",
+        "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.60s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s",
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s",
+        "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.22s",
+        "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.39s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: FAILED. 145 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 98.65s"
+      ]
+    }
+  },
+  "failed_trace_validation": {
+    "membership-peer": {
+      "trace_sha256": "6e96b70f9aae009e5985c611eced88d281545457604324e4b127a0dab2900da6",
+      "phases": {
+        "verify": {
+          "exit_code": 0,
+          "stdout_sha256": "20267fed46cfb69d8e140775fcda90a6ac47d702d82d239034af77703fb3d81b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "exit_code": 1,
+          "stdout_sha256": "3690ec18743aaf934a7316a4f5c5105e72212b67255711dfdc3c80e18991265e",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "exit_code": 0,
+          "stdout_sha256": "d8df19a08948f640fe39ee2180929dc1188e5f47f3c46624b86cf62e912af84b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    "peer-rpc": {
+      "trace_sha256": "9f2fbdd0921d05817f6b888c1b3205832db4b9fb4c12df1168ddcc3a4ee5e2df",
+      "phases": {
+        "verify": {
+          "exit_code": 0,
+          "stdout_sha256": "d06d5542a1126628aa85c7072b5921b7165055935738a0c3d7b4aef4ac32e2f3",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "exit_code": 1,
+          "stdout_sha256": "962ec36aaa12b31a87a445c6e90966c738720b09194bd5e6a2cdfec056a35d25",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "exit_code": 0,
+          "stdout_sha256": "62ddd558a5853587e87a3895a452f479b1316fd1e024c635a1442eb40e597d15",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    "workspace": {
+      "trace_sha256": "0964018781a532e23a98077c9156aaac36192018c008a3efe877a671aeec90a0",
+      "phases": {
+        "verify": {
+          "exit_code": 0,
+          "stdout_sha256": "035f5dcc22e022e97be505283494a8f74e400066bc3ee3eb589873179884bd66",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "exit_code": 1,
+          "stdout_sha256": "4edc919ca0a60a43a5e1869ae157cd31249bbcc68f6da280255267f006abb0c1",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "exit_code": 0,
+          "stdout_sha256": "b625142f92ea5c8d2320517b29d064b43c39ff7ea862e76ba4e5e08b76947b81",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    }
+  },
+  "complete_baseline_passed": false,
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "limits": [
+    "22 domains passed and 3 failed under unchanged workload/deadlines/concurrency. All 25 domains were attempted once.",
+    "All five failed RPC test invocations reported Resource temporarily unavailable (os error 35). Opening-stage latency remains under investigation.",
+    "Workspace stopped at RPC (145 passed, 1 failed); later workspace binaries were not exercised by that command.",
+    "Failed trace integrity and local parity pass; replay returns failure, faithfully preserving the original failure. This is not a passing test result.",
+    "Passing domains include their recorded host run and trace checks; this Darwin host does not qualify Linux or machine power loss."
+  ]
+}

@@ -28,13 +28,14 @@ Current release status: **not production qualified**. Linux is the only producti
 target. Verification is local and releases use ordinary pushes to remote `main`;
 no CI/CD is authorized.
 
-A clean full baseline remains missing. The latest complete baseline failed
-membership-peer and workspace; terminal evidence is preserved in
-`docs/owned-recovery-baseline-terminal-2026-11-06.json`. The subsequent decision-input writer fix passes full VSR (323 tests) and RPC
+A clean full baseline remains missing. The latest complete baseline passed 22
+of 25 domains and failed membership-peer, peer-rpc and workspace; terminal
+evidence is preserved in `docs/decision-owned-baseline-terminal-2026-11-06.json`.
+The decision-input writer fix passes standalone full VSR (323 tests) and RPC
 (146 tests), recorded in
-`docs/decision-input-owned-recovery-qualification-2026-11-06.json`. Earlier STAGE
-failures remain preserved; a fresh complete baseline is still required. Workspace stopped
-at RPC, so its later daemon/cache/security coverage still needs requalification.
+`docs/decision-input-owned-recovery-qualification-2026-11-06.json`, but STAGE
+failures remain in the broader baseline. Workspace stopped at RPC, so its later
+binaries still need requalification.
 Diagnose and fix failures under the original deadlines, workloads, retries and
 concurrency, then requalify the final source through all 25 domains. Preserve
 earlier failed traces; scoped recovery fixes do not establish a clean baseline.
