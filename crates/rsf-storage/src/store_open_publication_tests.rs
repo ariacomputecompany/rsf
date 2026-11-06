@@ -90,9 +90,17 @@ fn repeated_route(route: &[PathBuf], cycles: usize) -> Vec<PathBuf> {
 fn complete_routes(events: &[Event], target: &Path, cycles: usize) {
     assert_eq!(paths(events), repeated_route(&route(target), cycles));
 }
+fn fresh_schedule(target: &Path) -> Vec<PathBuf> {
+    let mut paths = route(target);
+    paths.push(paths[0].clone());
+    paths
+}
+fn complete_fresh(events: &[Event], target: &Path) {
+    assert_eq!(paths(events), fresh_schedule(target));
+}
 fn phases(events: &[Event], target: &Path, fresh: bool) {
     let one = route(target).len();
-    let final_start = if fresh { events.len() - one } else { 0 };
+    let final_start = if fresh { one } else { 0 };
     let manifest = fs::read(target.join("MANIFEST")).unwrap();
     for (index, event) in events.iter().enumerate() {
         if index < final_start {
@@ -265,7 +273,7 @@ fn uncertainty(error: &rsf_core::RsfError) {
         "{error:?}"
     );
 }
-fn discovered_cycles() -> (usize, usize, usize) {
+fn discovered_schedule() -> (usize, usize, usize) {
     let fixture = Root::new("discover");
     let target = fixture.target();
     let (store, recovery, fresh) = open_observed(&target);
@@ -276,15 +284,15 @@ fn discovered_cycles() -> (usize, usize, usize) {
     phases(&existing, &target, false);
     drop(store);
     let count = route(&target).len();
-    assert_eq!(fresh.len() % count, 0);
+    assert_eq!(fresh.len(), count + 1);
     assert_eq!(existing.len() % count, 0);
-    complete_routes(&fresh, &target, fresh.len() / count);
+    complete_fresh(&fresh, &target);
     complete_routes(&existing, &target, existing.len() / count);
-    (fresh.len() / count, existing.len() / count, count)
+    (fresh.len(), existing.len() / count, count)
 }
 
 #[test]
-fn fresh_and_existing_store_open_use_two_and_one_complete_publication_routes() {
+fn fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route() {
     for alias in [false, true] {
         let fixture = Root::new("route-budget");
         let target = if alias {
@@ -323,22 +331,23 @@ fn fresh_and_existing_store_open_use_two_and_one_complete_publication_routes() {
             vec![record, next]
         );
         // Observe both actual opens and complete WAL equality before the
-        // budget assertion, so original-source red records both 3N and 2N.
+        // budget assertion: current source records fresh 2N and existing N;
+        // the proposed fresh contract requires N plus its final parent barrier.
         let one = route(&target).len();
         assert_eq!(
             (fresh.len(), existing.len()),
-            (2 * one, one),
-            "fresh/existing successful full-route sync counts; one route has {one} actual directories"
+            (one + 1, one),
+            "fresh/existing successful directory sync counts; full route has {one} entries, fresh adds only its final parent"
         );
-        complete_routes(&fresh, &target, 2);
+        complete_fresh(&fresh, &target);
         complete_routes(&existing, &target, 1);
     }
 }
 
 #[test]
 fn fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route() {
-    let (fresh_cycles, existing_cycles, depth) = discovered_cycles();
-    for fail_at in 0..fresh_cycles * depth {
+    let (fresh_count, existing_cycles, depth) = discovered_schedule();
+    for fail_at in 0..fresh_count {
         let fixture = Root::new("fresh-uncertainty");
         let target = fixture.target();
         let watch = observed::watch(&target, Some(fail_at));
@@ -349,12 +358,9 @@ fn fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retrie
         assert_eq!(events.len(), fail_at + 1);
         let actual_route = route(&target);
         assert_eq!(actual_route.len(), depth);
-        assert_eq!(
-            paths(&events),
-            repeated_route(&actual_route, fresh_cycles)[..=fail_at]
-        );
+        assert_eq!(paths(&events), fresh_schedule(&target)[..=fail_at]);
         let has_manifest = target.join("MANIFEST").is_file();
-        let final_route = fail_at >= (fresh_cycles - 1) * depth;
+        let final_route = fail_at == depth;
         assert_eq!(has_manifest, final_route);
         assert_eq!(events.last().unwrap().manifest.is_some(), has_manifest);
         if has_manifest {
@@ -369,15 +375,11 @@ fn fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retrie
             released_locks(&target);
         }
         let (mut store, recovered, retry) = open_observed(&target);
-        complete_routes(
-            &retry,
-            &target,
-            if has_manifest {
-                existing_cycles
-            } else {
-                fresh_cycles
-            },
-        );
+        if has_manifest {
+            complete_routes(&retry, &target, existing_cycles);
+        } else {
+            complete_fresh(&retry, &target);
+        }
         phases(&retry, &target, !has_manifest);
         assert!(recovered.recovery.wal_records.is_empty());
         let record = append(&mut store, b"retry is a real usable writer");
@@ -394,7 +396,7 @@ fn fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retrie
 
 #[test]
 fn existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte() {
-    let (_, existing_cycles, depth) = discovered_cycles();
+    let (_, existing_cycles, depth) = discovered_schedule();
     for fail_at in 0..existing_cycles * depth {
         let fixture = Root::new("existing-uncertainty");
         let target = fixture.target();
@@ -431,7 +433,7 @@ fn existing_store_open_uncertainty_releases_original_locks_and_preserves_every_a
 #[test]
 fn torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix()
  {
-    let (_, existing_cycles, depth) = discovered_cycles();
+    let (_, existing_cycles, depth) = discovered_schedule();
     for position in 0..depth {
         let fixture = Root::new("torn-before-final-route");
         let target = fixture.target();
@@ -579,3 +581,5 @@ fn double_alias_store_renews_resolved_directory_before_recovery_and_final_target
     assert_eq!(fs::read_link(&target).unwrap(), physical_store);
     assert_eq!(fs::read_link(&prefix.segment).unwrap(), foreign);
 }
+
+mod fresh_custody;

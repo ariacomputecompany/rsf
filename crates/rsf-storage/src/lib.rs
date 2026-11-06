@@ -130,6 +130,32 @@ impl SegmentLog {
         Self::open_locked(path, lock, options)
     }
 
+    #[cfg(unix)]
+    pub(crate) fn open_after_fresh_recovery(
+        path: PathBuf,
+        options: SegmentLogOptions,
+        publication: durable_directory::FreshPublication,
+        manifest_lock: &SegmentLock,
+        manifest_path: &Path,
+    ) -> RsfResult<Self> {
+        publication
+            .validate_routes()
+            .map_err(|e| storage_error(StorageIoOperation::Sync, e))?;
+        let lock = SegmentLock::acquire(&path)?;
+        #[cfg(test)]
+        durable_directory::fresh_publication::observation::at(
+            durable_directory::fresh_publication::observation::Phase::BeforeFileOpen,
+        )
+        .map_err(|e| storage_error(StorageIoOperation::Sync, e))?;
+        Self::open_locked_with_file_publication(path, lock, options, |path, file, lock| {
+            manifest_lock.validate_named(manifest_path)?;
+            lock.validate_named(path)?;
+            publication.finish(path, file)?;
+            manifest_lock.validate_named(manifest_path)?;
+            lock.validate_named(path)
+        })
+    }
+
     fn open_locked(
         path: PathBuf,
         lock: SegmentLock,
@@ -149,6 +175,15 @@ impl SegmentLog {
         options: SegmentLogOptions,
         publish: impl FnOnce(&Path) -> io::Result<()>,
     ) -> RsfResult<Self> {
+        Self::open_locked_with_file_publication(path, lock, options, |path, _, _| publish(path))
+    }
+
+    fn open_locked_with_file_publication(
+        path: PathBuf,
+        lock: SegmentLock,
+        options: SegmentLogOptions,
+        publish: impl FnOnce(&Path, &File, &SegmentLock) -> io::Result<()>,
+    ) -> RsfResult<Self> {
         let file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -158,7 +193,7 @@ impl SegmentLog {
         // Existing-file retries also need this barrier: a visible segment name
         // can remain after an interrupted creation. Failure drops file and lock;
         // no writable handle escapes before the name is durably published.
-        publish(&path).map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
+        publish(&path, &file, &lock).map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
 
         Ok(Self {
             path,
@@ -462,6 +497,28 @@ impl Drop for SegmentLockOwner {
 }
 
 impl SegmentLock {
+    #[cfg(unix)]
+    fn validate_named(&self, segment_path: &Path) -> io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let registry = lock_registry()
+            .lock()
+            .map_err(|_| io::Error::other("segment lock registry is poisoned"))?;
+        let owner = registry
+            .get(&self.path)
+            .ok_or_else(|| io::Error::other("original segment lock is missing"))?;
+        let held = owner._file.metadata()?;
+        let named = std::fs::metadata(segment_path.with_extension("lock"))?;
+        if !held.is_file()
+            || !named.is_file()
+            || (held.dev(), held.ino()) != (named.dev(), named.ino())
+        {
+            return Err(io::Error::other(
+                "fresh store publication lost original lock custody",
+            ));
+        }
+        Ok(())
+    }
+
     fn acquire(segment_path: &Path) -> RsfResult<Self> {
         let lock_path = segment_path.with_extension("lock");
         if let Some(parent) = lock_path

@@ -117,3 +117,19 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod store_open_observation;
+
+#[cfg(unix)]
+pub(crate) mod fresh_publication;
+#[cfg(unix)]
+pub(crate) use fresh_publication::FreshPublication;
+
+#[cfg(unix)]
+fn sync_held_directory(path: &Path, file: &File) -> io::Result<()> {
+    #[cfg(test)]
+    SYNC_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
+    file.sync_all()?;
+    #[cfg(test)]
+    store_open_observation::after_success(path)?;
+    let _ = path;
+    Ok(())
+}

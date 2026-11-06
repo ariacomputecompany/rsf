@@ -33,9 +33,11 @@ its overall gate on STAGE deadlines and a recovery-fixture EOF panic. Terminal
 evidence is preserved in `docs/storage-open-v2-terminal-2026-11-06.json`.
 The fixture correction has a genuine closed-socket RED/GREEN and a passing
 484-test concurrent suite, recorded in `docs/recovery-eof-qualification-2026-11-06.json`.
-STAGE timing remains unresolved: the storage-open optimization and later passing
-samples do not override the original deadline failures. A fresh complete baseline
-is required after the timing correction.
+The fresh-store publication correction has passing storage fault tests and the
+original 484-test concurrent suite, recorded in
+`docs/fresh-publication-qualification-2026-11-06.json`. STAGE timing still requires
+a fresh complete baseline; scoped passing samples do not override the original
+deadline failures.
 
 Pending namespace-disposal, initial-learner and native-identity packages still
 require integration and runtime qualification. The native-identity draft needs

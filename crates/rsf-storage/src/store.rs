@@ -133,10 +133,10 @@ impl SegmentStore {
         options: SegmentStoreOptions,
     ) -> RsfResult<(Self, SegmentStoreRecovery)> {
         let root = root.as_ref().to_path_buf();
-        // This is allocation only. A fresh read_or_create_manifest publishes
-        // the full route before creating its segment/manifest. The final
-        // SegmentLog open publishes resolved + lexical file ancestry before
-        // this writer or recovery escapes; existing is not trusted as durable.
+        // This is allocation only. A fresh manifest publishes the full route
+        // before creating its segment. Unix retains that invocation's original
+        // directories and segment through final parent publication. Existing
+        // stores renew both ancestry routes before a writer or recovery escapes.
         fs::create_dir_all(root.join(SEGMENT_DIR))
             .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
 
@@ -144,7 +144,29 @@ impl SegmentStore {
         let opening_gate = gate.clone();
         let _guard = lock_gate(&opening_gate)?;
         let lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
+        #[cfg(unix)]
+        let (manifest, publication) = read_or_create_manifest_with(
+            &root,
+            |path| {
+                crate::durable_directory::FreshPublication::publish_routes(path)
+                    .map_err(|e| storage_error(StorageIoOperation::Sync, e))
+            },
+            |publication, path, file| {
+                publication
+                    .bind_created_segment(path, file)
+                    .map_err(|e| storage_error(StorageIoOperation::Sync, e))
+            },
+        )?;
+        #[cfg(not(unix))]
         let manifest = read_or_create_manifest(&root)?;
+        #[cfg(unix)]
+        if let Some(publication) = &publication {
+            publication
+                .validate_routes()
+                .map_err(|e| storage_error(StorageIoOperation::Sync, e))?;
+            lock.validate_named(&root.join(MANIFEST_FILE))
+                .map_err(|e| storage_error(StorageIoOperation::Lock, e))?;
+        }
         let active_descriptor = manifest.active_segment()?;
         let active_path = root.join(SEGMENT_DIR).join(&active_descriptor.file_name);
         if fs::symlink_metadata(&active_path)
@@ -160,6 +182,18 @@ impl SegmentStore {
                 .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
         }
         let recovery = recover_manifest(&root, &manifest)?;
+        #[cfg(unix)]
+        let active = match publication {
+            Some(publication) => SegmentLog::open_after_fresh_recovery(
+                active_path,
+                options.log_options,
+                publication,
+                &lock,
+                &root.join(MANIFEST_FILE),
+            )?,
+            None => SegmentLog::open_after_external_recovery(active_path, options.log_options)?,
+        };
+        #[cfg(not(unix))]
         let active = SegmentLog::open_after_external_recovery(active_path, options.log_options)?;
         let cursor = Some(WalCursor {
             tails: recovery.recovery.pg_tails.clone(),
@@ -1060,9 +1094,30 @@ fn parse_manifest_u64(value: &str, label: &str) -> RsfResult<u64> {
 }
 
 fn read_or_create_manifest(root: &Path) -> RsfResult<SegmentManifest> {
+    read_or_create_manifest_with(
+        root,
+        |path| {
+            crate::create_dir_all_synced(path)
+                .map_err(|e| storage_error(StorageIoOperation::Open, e))
+        },
+        |_, _, file| {
+            drop(file);
+            Ok(())
+        },
+    )
+    .map(|(manifest, _)| manifest)
+}
+
+// Both creating callers share the exact format, ordering and residue checks.
+// Only open_recovered asks to retain its invocation's publication proof.
+fn read_or_create_manifest_with<P>(
+    root: &Path,
+    publish: impl FnOnce(&Path) -> RsfResult<P>,
+    created: impl FnOnce(&mut P, &Path, File) -> RsfResult<()>,
+) -> RsfResult<(SegmentManifest, Option<P>)> {
     let path = root.join(MANIFEST_FILE);
     match fs::read(&path) {
-        Ok(bytes) => SegmentManifest::decode(&bytes),
+        Ok(bytes) => SegmentManifest::decode(&bytes).map(|manifest| (manifest, None)),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             // A caller may have allocated the root immediately before opening.
             // Persist that root's link before the initial manifest can be used.
@@ -1071,8 +1126,7 @@ fn read_or_create_manifest(root: &Path) -> RsfResult<SegmentManifest> {
                 .filter(|p| !p.as_os_str().is_empty())
                 .unwrap_or(Path::new("."));
             sync_dir(parent)?;
-            crate::create_dir_all_synced(root.join(SEGMENT_DIR))
-                .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+            let mut publication = publish(&root.join(SEGMENT_DIR))?;
             if fs::read_dir(root.join(SEGMENT_DIR))
                 .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
                 .next()
@@ -1084,15 +1138,20 @@ fn read_or_create_manifest(root: &Path) -> RsfResult<SegmentManifest> {
                 ));
             }
             let manifest = SegmentManifest::initial();
-            create_durable_segment(root, &manifest.active_segment()?.file_name)?;
+            let name = &manifest.active_segment()?.file_name;
+            let file = create_durable_segment_retained(root, name)?;
+            created(&mut publication, &root.join(SEGMENT_DIR).join(name), file)?;
             write_manifest(root, &manifest)?;
-            Ok(manifest)
+            Ok((manifest, Some(publication)))
         }
         Err(err) => Err(storage_error(StorageIoOperation::Recover, err)),
     }
 }
 
 fn create_durable_segment(root: &Path, name: &str) -> RsfResult<()> {
+    create_durable_segment_retained(root, name).map(drop)
+}
+fn create_durable_segment_retained(root: &Path, name: &str) -> RsfResult<File> {
     let directory = root.join(SEGMENT_DIR);
     let file = OpenOptions::new()
         .create_new(true)
@@ -1101,7 +1160,8 @@ fn create_durable_segment(root: &Path, name: &str) -> RsfResult<()> {
         .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
     file.sync_all()
         .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
-    sync_dir(&directory)
+    sync_dir(&directory)?;
+    Ok(file)
 }
 
 fn recover_manifest(root: &Path, manifest: &SegmentManifest) -> RsfResult<SegmentStoreRecovery> {
