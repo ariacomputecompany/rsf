@@ -5,6 +5,8 @@ use super::*;
 use std::io::Read;
 use std::sync::Arc;
 mod append;
+mod discard;
+pub use discard::{SegmentDiscardInventory, SegmentDiscardRemainder};
 mod immutable;
 pub(in crate::store) use append::OwnedAppend;
 pub use append::OwnedWalGroup;

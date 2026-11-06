@@ -371,3 +371,22 @@ mod factory {
 
 #[cfg(all(test, unix))]
 mod tests;
+
+// Test-only wrapper over the actual initializer and its existing durability
+// boundaries. It performs no independent factory-format construction.
+#[cfg(all(test, unix))]
+pub(in crate::store) fn test_interrupt_factory(root: &Path, at: usize) -> RsfResult<()> {
+    let mut position = 0;
+    factory::resume_with_hook(root, |_| {
+        let current = position;
+        position += 1;
+        if current == at {
+            Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "injected actual initializer boundary interruption (test only)",
+            ))
+        } else {
+            Ok(())
+        }
+    })
+}

@@ -7,9 +7,10 @@ use std::time::{Instant, SystemTime};
 mod coordination;
 mod custody;
 pub use custody::{
-    OwnedWalGroup, SegmentReadCursor, SegmentReadCustody, SegmentReadError, SegmentReadLimit,
-    SegmentReadLimits, SegmentScanControl, SegmentScanOutcome, SegmentStoreCustody,
-    append_only_manifest_byte_bound, wal_record_disk_bytes,
+    OwnedWalGroup, SegmentDiscardInventory, SegmentDiscardRemainder, SegmentReadCursor,
+    SegmentReadCustody, SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScanControl,
+    SegmentScanOutcome, SegmentStoreCustody, append_only_manifest_byte_bound,
+    wal_record_disk_bytes,
 };
 mod group;
 mod initialization;
@@ -933,6 +934,20 @@ impl SegmentManifest {
                     format!("manifest active segment {} is missing", self.active_id),
                 )
             })
+    }
+
+    // Shared pure construction for owned rotation and recognized discard residue.
+    // It performs no filesystem I/O and grants no ownership from an empty path.
+    fn next_rotation(&self) -> RsfResult<(Self, SegmentDescriptor)> {
+        let id = self.next_id()?;
+        let descriptor = SegmentDescriptor {
+            id,
+            file_name: segment_file_name(id),
+        };
+        let mut manifest = self.clone();
+        manifest.segments.push(descriptor.clone());
+        manifest.active_id = id;
+        Ok((manifest, descriptor))
     }
 
     fn next_id(&self) -> RsfResult<u64> {

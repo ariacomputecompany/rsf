@@ -38,7 +38,7 @@ establish a clean full baseline. Diagnose and fix these failures under the
 original deadlines, workloads, retries and concurrency, then requalify the final
 source through all 25 domains. Preserve earlier failed traces.
 
-Pending namespace-disposal, initial-learner and native-identity packages still
+Ordinary namespace-disposal, initial-learner and native-identity packages still
 require integration and runtime qualification. The native-identity draft needs
 its retained-file readback correction and actual red/green execution. The prepared
 initial sender is likewise an unqualified draft.

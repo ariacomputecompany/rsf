@@ -24,14 +24,8 @@ pub(super) fn rotate(
     store: &mut SegmentStore,
     cursor: &mut WalCursor,
 ) -> RsfResult<()> {
-    let next = store.manifest.next_id()?;
-    let descriptor = SegmentDescriptor {
-        id: next,
-        file_name: segment_file_name(next),
-    };
-    let mut manifest = store.manifest.clone();
-    manifest.segments.push(descriptor.clone());
-    manifest.active_id = next;
+    let (manifest, descriptor) = store.manifest.next_rotation()?;
+    let next = descriptor.id;
     let segment_path = store.root.join(SEGMENT_DIR).join(&descriptor.file_name);
 
     // Before its manifest is published, every qualified rotation writer leaves
@@ -214,6 +208,13 @@ fn manifest_temporary(path: &Path, bytes: &[u8]) -> RsfResult<PreparedFile> {
         }
         Err(error) => return Err(custody_io(error)),
     };
+    #[cfg(test)]
+    super::super::discard::observation::rotation_after_open(
+        &mut file,
+        path,
+        bytes,
+        previous.len(),
+    )?;
     let before = file_stamp(&file.metadata().map_err(custody_io)?)?;
     if before.bytes != previous.len() as u64 || regular_file(path)? != before {
         return Err(custody_error(

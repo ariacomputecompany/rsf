@@ -25,12 +25,12 @@ use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
-    CompactionReport, OwnedWalGroup, QuarantineReport, SegmentDescriptor, SegmentReadCursor,
-    SegmentReadCustody, SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScan,
-    SegmentScanControl, SegmentScanFilter, SegmentScanOutcome, SegmentStore, SegmentStoreBenchmark,
-    SegmentStoreCustody, SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision,
-    TruncateReport, WalGroupEntry, WalGroupRecord, append_only_manifest_byte_bound,
-    wal_record_disk_bytes,
+    CompactionReport, OwnedWalGroup, QuarantineReport, SegmentDescriptor, SegmentDiscardInventory,
+    SegmentDiscardRemainder, SegmentReadCursor, SegmentReadCustody, SegmentReadError,
+    SegmentReadLimit, SegmentReadLimits, SegmentScan, SegmentScanControl, SegmentScanFilter,
+    SegmentScanOutcome, SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody,
+    SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision, TruncateReport, WalGroupEntry,
+    WalGroupRecord, append_only_manifest_byte_bound, wal_record_disk_bytes,
 };
 
 fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {

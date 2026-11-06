@@ -107,7 +107,7 @@ impl SegmentReadCursor {
     }
 }
 impl SegmentReadLimits {
-    pub(super) fn validate(self) -> RsfResult<()> {
+    pub(in crate::store::custody) fn validate(self) -> RsfResult<()> {
         if self.max_manifest_bytes == 0
             || self.max_records == 0
             || self.max_encoded_bytes == 0
