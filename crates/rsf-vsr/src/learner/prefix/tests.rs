@@ -693,10 +693,15 @@ fn learner_publication_guard_rejects_replaced_zero_byte_held_lock() {
         } else {
             fixture.root.join("four/.learner.lock")
         };
-        fs::rename(&lock, lock.with_extension("held")).unwrap();
+        let held = lock.with_extension("held");
+        fs::rename(&lock, &held).unwrap();
         fs::write(&lock, []).unwrap();
         assert!(fixture.four.finish_prefix(id, assert_semantics).is_err());
         assert_eq!(fs::read(fixture.root.join("four/ACTIVE")).unwrap(), active);
+        fs::remove_file(&lock).unwrap();
+        fs::rename(&held, &lock).unwrap();
+        // Restoring the exact original inode cannot revive an owner that
+        // already observed loss of either its outer or inner held lock.
         assert!(
             fixture
                 .four
@@ -775,7 +780,7 @@ fn active_segment_lock(cell: &Path) -> PathBuf {
 }
 
 #[test]
-fn cold_ack_zero_resumes_only_provisional_empty_sidecar_while_warm_and_nonempty_loss_reject() {
+fn cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy() {
     for mode in [0, 1, 2, 3] {
         let mut fixture = Fixture::new("sidecar-boundary");
         let export = fixture.advance();
@@ -852,13 +857,27 @@ fn cold_ack_zero_resumes_only_provisional_empty_sidecar_while_warm_and_nonempty_
             let mut cold = cold.unwrap();
             let resume = cold.begin_prefix(export.descriptor().clone(), limits());
             if mode == 0 {
-                assert_eq!(
-                    resume.unwrap(),
-                    0,
-                    "prior ACK0 is only provisional copy progress"
+                assert!(
+                    resume.is_err(),
+                    "ordinary strict existing resume does not complete a missing sidecar"
                 );
-                assert!(sidecar.is_file());
+                assert!(!sidecar.exists());
                 assert_eq!(fs::read(cell.join("MANIFEST")).unwrap(), manifest);
+                drop(cold);
+                let mut cold = LearnerHistoryStore::open_published_existing(
+                    fixture.root.join("four"),
+                    PlacementGroupId(1),
+                    NodeId(4),
+                    NodeId(0),
+                    limits(),
+                )
+                .unwrap();
+                let active_descriptor = cold.published.as_ref().unwrap().descriptor.clone();
+                cold.begin_prefix(active_descriptor, limits()).unwrap();
+                assert!(
+                    !cold.directory(&id).exists(),
+                    "explicit ACTIVE begin retires provisional B before a fresh factory"
+                );
                 copy_voter(&fixture.source, &export, &mut cold);
                 cold.finish_prefix(id, assert_semantics).unwrap();
             } else {
@@ -918,3 +937,12 @@ mod active_retry;
 mod owned_handoff;
 
 mod owned_policy;
+
+#[cfg(unix)]
+mod discard;
+
+#[cfg(unix)]
+mod discard_contract;
+
+#[cfg(unix)]
+mod discard_caller;

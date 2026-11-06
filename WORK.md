@@ -38,8 +38,8 @@ establish a clean full baseline. Diagnose and fix these failures under the
 original deadlines, workloads, retries and concurrency, then requalify the final
 source through all 25 domains. Preserve earlier failed traces.
 
-Ordinary namespace-disposal, initial-learner and native-identity packages still
-require integration and runtime qualification. The native-identity draft needs
+Initial-learner and native-identity packages still require integration and
+runtime qualification. The native-identity draft needs
 its retained-file readback correction and actual red/green execution. The prepared
 initial sender is likewise an unqualified draft.
 
@@ -57,10 +57,10 @@ open.
 - Resolve the remaining STAGE deadline failures, then obtain a fresh full
   baseline certificate. Preserve original deadlines,
   retry counts, concurrency and every failed attempt.
-- Integrate and qualify initial-learner/native-identity paths and bounded namespace
-  disposal with its provisional-retention contract. Compose the private initial
-  owner context with disposal before combining those drafts; finite WAL reads
-  alone do not bound the complete transfer lifecycle.
+- Integrate and qualify initial-learner/native-identity paths. Compose the private
+  initial owner context with the qualified ordinary namespace disposal before
+  combining those drafts; finite WAL reads alone do not bound the complete
+  transfer lifecycle.
 - Investigate responsive corrupt accepted minorities with the five-driver
   diagnostic; qualify unfenced old-voter enrollment without treating missing
   acknowledged input as repairable.

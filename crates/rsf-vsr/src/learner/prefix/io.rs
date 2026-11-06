@@ -112,15 +112,6 @@ pub(in crate::learner) fn lock(
     }
     Ok(lock)
 }
-pub(in crate::learner) fn create_directory(path: &Path) -> RsfResult<()> {
-    match fs::create_dir(path) {
-        Ok(()) => sync_directory(path.parent().ok_or_else(|| corrupt("stage lacks parent"))?)?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(io_error(error)),
-    }
-    guard::directory(path)?;
-    Ok(())
-}
 pub(in crate::learner) fn retain_descriptor(directory: &Path, bytes: &[u8]) -> RsfResult<()> {
     match fs::symlink_metadata(directory.join("DESCRIPTOR")) {
         Ok(_) => guard::Exact::capture(&directory.join("DESCRIPTOR"), bytes).map(|_| ()),
@@ -145,10 +136,17 @@ pub(in crate::learner) struct PreparedPublication {
     exact: guard::Exact,
 }
 impl PreparedPublication {
+    pub(super) fn temporary_guard(&self) -> guard::Exact {
+        self.exact.clone()
+    }
     pub(in crate::learner) fn publish(self) -> RsfResult<()> {
+        self.publish_guarded().map(|_| ())
+    }
+    pub(super) fn publish_guarded(self) -> RsfResult<guard::Exact> {
         self.exact.validate()?;
-        fs::rename(self.temporary, self.target).map_err(io_error)?;
-        sync_directory(&self.directory)
+        fs::rename(self.temporary, &self.target).map_err(io_error)?;
+        sync_directory(&self.directory)?;
+        self.exact.relocated(self.target)
     }
 }
 pub(in crate::learner) fn publish(directory: &Path, name: &str, bytes: &[u8]) -> RsfResult<()> {
@@ -159,11 +157,31 @@ pub(in crate::learner) fn prepare_publication(
     name: &str,
     bytes: &[u8],
 ) -> RsfResult<PreparedPublication> {
+    prepare(directory, name, bytes, true)
+}
+pub(super) fn prepare_new_publication(
+    directory: &Path,
+    name: &str,
+    bytes: &[u8],
+) -> RsfResult<PreparedPublication> {
+    prepare(directory, name, bytes, false)
+}
+fn prepare(
+    directory: &Path,
+    name: &str,
+    bytes: &[u8],
+    replace_temporary: bool,
+) -> RsfResult<PreparedPublication> {
     guard::directory(directory)?;
     let temporary = directory.join(format!(".{name}.tmp"));
     match fs::symlink_metadata(&temporary) {
         Ok(metadata) => {
             guard::file_stamp(&metadata)?;
+            if !replace_temporary {
+                return Err(corrupt(
+                    "bounded publication temporary appeared outside owned preparation",
+                ));
+            }
             // A regular unpublished temporary is replaceable under this lock.
             // Never truncate through an alias or overwrite a published name.
             fs::remove_file(&temporary).map_err(io_error)?;

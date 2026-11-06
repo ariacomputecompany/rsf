@@ -16,7 +16,7 @@ pub(in crate::learner) struct Stamp {
     bytes: u64,
     modified: SystemTime,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::learner) struct Exact {
     path: PathBuf,
     stamp: Stamp,
@@ -35,6 +35,13 @@ impl Exact {
         };
         exact.validate()?;
         Ok(exact)
+    }
+    // A caller-owned rename changes only this original file's name. Never
+    // recapture a replacement after publishing an authoritative pointer.
+    pub(super) fn relocated(mut self, path: PathBuf) -> RsfResult<Self> {
+        self.path = path;
+        self.validate()?;
+        Ok(self)
     }
     pub(in crate::learner) fn validate(&self) -> RsfResult<()> {
         if file_stamp(&fs::symlink_metadata(&self.path).map_err(io_error)?)? != self.stamp {
@@ -78,6 +85,37 @@ pub(in crate::learner) struct PublicationGuard {
     candidate: VsrStateToken,
 }
 impl PublicationGuard {
+    // Extend an already captured prior publication while the caller's failure
+    // sentinel is armed. Prior files/locks are retained, never recaptured.
+    pub(super) fn with_candidate(
+        mut self,
+        owner: &LearnerHistoryStore,
+        candidate: &Published,
+    ) -> RsfResult<Self> {
+        let previous = owner
+            .published
+            .as_ref()
+            .ok_or_else(|| corrupt("bounded prior publication disappeared"))?;
+        self.validate(owner, previous)?;
+        let path = owner.directory(&candidate.id);
+        self.directories.push((path.clone(), directory(&path)?));
+        self.directories
+            .push((path.join("cell"), directory(&path.join("cell"))?));
+        self.files.push(Exact::capture(
+            &path.join("DESCRIPTOR"),
+            &candidate.descriptor.encode()?,
+        )?);
+        self.files.push(owned_lock(
+            &path.join("cell/.vsr-writer.lock"),
+            &candidate.cell._writer_lock,
+        )?);
+        if let Some(flat) = &candidate.bounded_flat {
+            flat.validate_cell(&candidate.cell)?;
+        }
+        self.candidate = candidate.cell.recovery_state_token()?;
+        self.validate(owner, candidate)?;
+        Ok(self)
+    }
     pub(in crate::learner) fn capture(
         owner: &LearnerHistoryStore,
         candidate: &Published,
@@ -194,6 +232,14 @@ pub(in crate::learner) fn file_stamp(metadata: &fs::Metadata) -> RsfResult<Stamp
         bytes: metadata.len(),
         modified: metadata.modified().map_err(io_error)?,
     })
+}
+pub(super) fn same_directory(metadata: &fs::Metadata, expected: &Identity) -> RsfResult<()> {
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || identity(metadata)? != *expected {
+        return Err(corrupt(
+            "bounded learner directory descriptor differs from original",
+        ));
+    }
+    Ok(())
 }
 fn identity(metadata: &fs::Metadata) -> RsfResult<Identity> {
     #[cfg(unix)]

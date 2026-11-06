@@ -1,0 +1,499 @@
+{
+  "scope": "Bounded ordinary learner transfer cleanup, retained semantic-refusal ownership, strict existing continuation and original held-lock fencing. Initial transfer/native admission remain separate.",
+  "source": "7d6064323fbb92c38c4da6161aa8b395ceaec2dacd1de3adada0375e361f7cb7",
+  "observations": {
+    "ordinary-red-v1": {
+      "execution_sha256": "367ce9bbf6155b9d2791bc530c469a18d02a29541286960977cde4d149d29abe",
+      "source": "150aa0c92b6aee6b1b0a31d27fc39691ad44b1dee51d89dddc990d0b26e0b8ab",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: FAILED. 26 passed; 9 failed; 0 ignored; 0 measured; 264 filtered out; finished in 5.35s"
+      ],
+      "failed_tests": [
+        "learner::prefix::tests::cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy",
+        "learner::prefix::tests::discard::actual_caller_unlink_denial_keeps_prior_publication_and_fences_after_permission_restore",
+        "learner::prefix::tests::discard::bounded_cold_existing_factory_is_not_repaired_into_cursor_and_explicit_active_begin_cancels_it",
+        "learner::prefix::tests::discard::healthy_semantic_refusal_keeps_actual_completed_writer_and_exact_duplicate_append",
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion",
+        "learner::prefix::tests::discard::malformed_last_candidate_and_over_capacity_refuse_before_retiring_a_healthy_stage",
+        "learner::prefix::tests::discard::import_callback_namespace_mutation_dominates_ok_or_semantic_error_without_publication",
+        "learner::prefix::tests::discard::smaller_byte_policy_cannot_delete_a_live_stage_to_fit_the_active_history",
+        "learner::prefix::tests::discard::rejected_owner_original_sidecar_loss_blocks_abandonment_and_restored_inode_does_not_clear_failure"
+      ],
+      "required_test_outcomes": {
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::malformed_last_candidate_and_over_capacity_refuse_before_retiring_a_healthy_stage": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::bounded_cold_existing_factory_is_not_repaired_into_cursor_and_explicit_active_begin_cancels_it": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::healthy_semantic_refusal_keeps_actual_completed_writer_and_exact_duplicate_append": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::rejected_owner_original_sidecar_loss_blocks_abandonment_and_restored_inode_does_not_clear_failure": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::import_callback_namespace_mutation_dominates_ok_or_semantic_error_without_publication": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::cold_lost_finish_reply_recollects_actual_successor_without_republication_or_old_history_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::read_only_capacity_refusal_keeps_live_stage_and_allows_exact_policy_retry": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::smaller_byte_policy_cannot_delete_a_live_stage_to_fit_the_active_history": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::actual_caller_unlink_denial_keeps_prior_publication_and_fences_after_permission_restore": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy": [
+          "FAILED"
+        ]
+      },
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "trace_sha256": "4dfa044a8e9c9018b0c6837f1a2382f2abd7bd2f177df7ab67fad8fa66a9cd73",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      }
+    },
+    "ordinary-green-v1": {
+      "execution_sha256": "531357c80ef07f3479eca3b79c633fa3f141c3a6a1c60dedaa2cd1289c2a4bea",
+      "source": "886aa1c656c71a7fa34cb9041026779429e689f1cbacf94770bfb42cf19c83b3",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.74s",
+        "test result: FAILED. 303 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 107.01s"
+      ],
+      "failed_tests": [
+        "learner::prefix::tests::discard_caller::successful_replacement_reaches_three_validated_stores_with_original_owners_still_locked",
+        "learner::prefix::tests::learner_publication_guard_rejects_replaced_zero_byte_held_lock",
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion"
+      ],
+      "required_test_outcomes": {
+        "store::custody::discard::tests::discard_is_read_only_bounded_inventory_then_two_phase_without_recovery_or_lock_creation": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_accepts_actual_factory_and_owned_rotation_interruption_prefixes_without_parsing_wal": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_exact_segment_budget_excludes_metadata_and_limits_refuse_without_mutation": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_declared_name_and_temporary_metadata_caps_remain_independent_of_segment_data": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::every_discard_unlink_rmdir_and_sync_boundary_failure_preserves_recognizable_cold_remainder": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_barriers_keep_manifest_last_and_factory_temporary_before_its_required_segment": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_callback_error_still_observes_physical_loss_and_never_deletes_through_replacement": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_clean_callback_refusal_precedes_effects_and_callback_unwind_returns_no_capability": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_rejects_foreign_aliased_hardlinked_nonempty_sidecars_and_rotation_residue_before_effects": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_rejects_root_replacement_or_new_name_after_inventory_without_adopting_it": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_remainder_refuses_surviving_auxiliary_and_reappeared_removed_children": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::missing_declared_files_are_discard_only_while_manifestless_sidecars_and_auxiliaries_reject": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::actual_unlink_permission_failure_returns_no_remainder_and_leaves_anchor_and_children": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard::malformed_last_candidate_and_over_capacity_refuse_before_retiring_a_healthy_stage": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::bounded_cold_existing_factory_is_not_repaired_into_cursor_and_explicit_active_begin_cancels_it": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::healthy_semantic_refusal_keeps_actual_completed_writer_and_exact_duplicate_append": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::rejected_owner_original_sidecar_loss_blocks_abandonment_and_restored_inode_does_not_clear_failure": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::import_callback_namespace_mutation_dominates_ok_or_semantic_error_without_publication": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::cold_lost_finish_reply_recollects_actual_successor_without_republication_or_old_history_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::read_only_capacity_refusal_keeps_live_stage_and_allows_exact_policy_retry": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::smaller_byte_policy_cannot_delete_a_live_stage_to_fit_the_active_history": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::actual_caller_unlink_denial_keeps_prior_publication_and_fences_after_permission_restore": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::every_actual_caller_disposal_boundary_reopens_the_exact_current_publication_and_completes_cancel": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::actual_successor_pointer_barrier_precedes_old_descriptor_and_candidate_removal": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::interrupted_replacement_retains_rejected_b_and_requires_explicit_cancel_of_cold_factory_c": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::bounded_ordinary_api_does_not_claim_cold_detection_of_whole_unrecorded_stage_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::successful_replacement_reaches_three_validated_stores_with_original_owners_still_locked": [
+          "FAILED"
+        ],
+        "learner::prefix::tests::discard_caller::three_slot_existing_resume_preflights_every_candidate_before_cleanup_and_then_succeeds": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::real_owned_rotation_name_failure_is_strictly_refused_then_explicitly_cancelled_by_current_active": [
+          "ok"
+        ]
+      },
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "trace_sha256": "674fec25401dead0b2f4c45d7a62fc998ae9a7700245d26b76bad6f2dc7b5763",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      }
+    },
+    "ordinary-green-v2": {
+      "execution_sha256": "bfdb2414bac37fd97e3fca0bb61421343f8c4b722dcccbf184338a795a372980",
+      "source": "877e2cceece562ad89d0a256a43eca1fa1d96bc63bd1e87f030d85b148ccbbdc",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.53s",
+        "test result: FAILED. 305 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 107.67s"
+      ],
+      "failed_tests": [
+        "learner::prefix::tests::learner_publication_guard_rejects_replaced_zero_byte_held_lock"
+      ],
+      "required_test_outcomes": {
+        "store::custody::discard::tests::discard_is_read_only_bounded_inventory_then_two_phase_without_recovery_or_lock_creation": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_accepts_actual_factory_and_owned_rotation_interruption_prefixes_without_parsing_wal": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_exact_segment_budget_excludes_metadata_and_limits_refuse_without_mutation": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_declared_name_and_temporary_metadata_caps_remain_independent_of_segment_data": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::every_discard_unlink_rmdir_and_sync_boundary_failure_preserves_recognizable_cold_remainder": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_barriers_keep_manifest_last_and_factory_temporary_before_its_required_segment": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_callback_error_still_observes_physical_loss_and_never_deletes_through_replacement": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_clean_callback_refusal_precedes_effects_and_callback_unwind_returns_no_capability": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_rejects_foreign_aliased_hardlinked_nonempty_sidecars_and_rotation_residue_before_effects": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_rejects_root_replacement_or_new_name_after_inventory_without_adopting_it": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_remainder_refuses_surviving_auxiliary_and_reappeared_removed_children": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::missing_declared_files_are_discard_only_while_manifestless_sidecars_and_auxiliaries_reject": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::actual_unlink_permission_failure_returns_no_remainder_and_leaves_anchor_and_children": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::malformed_last_candidate_and_over_capacity_refuse_before_retiring_a_healthy_stage": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::bounded_cold_existing_factory_is_not_repaired_into_cursor_and_explicit_active_begin_cancels_it": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::healthy_semantic_refusal_keeps_actual_completed_writer_and_exact_duplicate_append": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::rejected_owner_original_sidecar_loss_blocks_abandonment_and_restored_inode_does_not_clear_failure": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::import_callback_namespace_mutation_dominates_ok_or_semantic_error_without_publication": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::cold_lost_finish_reply_recollects_actual_successor_without_republication_or_old_history_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::read_only_capacity_refusal_keeps_live_stage_and_allows_exact_policy_retry": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::smaller_byte_policy_cannot_delete_a_live_stage_to_fit_the_active_history": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::actual_caller_unlink_denial_keeps_prior_publication_and_fences_after_permission_restore": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::every_actual_caller_disposal_boundary_reopens_the_exact_current_publication_and_completes_cancel": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::actual_successor_pointer_barrier_precedes_old_descriptor_and_candidate_removal": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::interrupted_replacement_retains_rejected_b_and_requires_explicit_cancel_of_cold_factory_c": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::bounded_ordinary_api_does_not_claim_cold_detection_of_whole_unrecorded_stage_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::successful_replacement_reaches_three_validated_stores_with_original_owners_still_locked": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::three_slot_existing_resume_preflights_every_candidate_before_cleanup_and_then_succeeds": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::real_owned_rotation_name_failure_is_strictly_refused_then_explicitly_cancelled_by_current_active": [
+          "ok"
+        ]
+      },
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "trace_sha256": "f00ccb1002cdce83c0a2eb9c6eaa1ccd8e8b57304e04bca8ee298a1fa6e4ee7f",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      }
+    },
+    "ordinary-latch-prefix-v1": {
+      "execution_sha256": "ac3203913aec51fe94f3a15401f0b7098de5dbc210e79a00a9f460a7c4be8395",
+      "source": "7d6064323fbb92c38c4da6161aa8b395ceaec2dacd1de3adada0375e361f7cb7",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 264 filtered out; finished in 19.27s"
+      ],
+      "failed_tests": [],
+      "required_test_outcomes": {
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::malformed_last_candidate_and_over_capacity_refuse_before_retiring_a_healthy_stage": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::bounded_cold_existing_factory_is_not_repaired_into_cursor_and_explicit_active_begin_cancels_it": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::healthy_semantic_refusal_keeps_actual_completed_writer_and_exact_duplicate_append": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::rejected_owner_original_sidecar_loss_blocks_abandonment_and_restored_inode_does_not_clear_failure": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::import_callback_namespace_mutation_dominates_ok_or_semantic_error_without_publication": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::cold_lost_finish_reply_recollects_actual_successor_without_republication_or_old_history_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::read_only_capacity_refusal_keeps_live_stage_and_allows_exact_policy_retry": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::smaller_byte_policy_cannot_delete_a_live_stage_to_fit_the_active_history": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::actual_caller_unlink_denial_keeps_prior_publication_and_fences_after_permission_restore": [
+          "ok"
+        ],
+        "learner::prefix::tests::cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy": [
+          "ok"
+        ]
+      },
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "trace_sha256": "d080388a7451464d2c87df4a58ec2b6300facccdc00101990e107650f36fee4a",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    },
+    "ordinary-green-v3": {
+      "execution_sha256": "2661a46f91122c5730b9776ff9f205f9f9547ac9f65bfab40854e972240b59c6",
+      "source": "7d6064323fbb92c38c4da6161aa8b395ceaec2dacd1de3adada0375e361f7cb7",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.41s",
+        "test result: ok. 306 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 106.88s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "required_test_outcomes": {
+        "store::custody::discard::tests::discard_is_read_only_bounded_inventory_then_two_phase_without_recovery_or_lock_creation": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_accepts_actual_factory_and_owned_rotation_interruption_prefixes_without_parsing_wal": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_exact_segment_budget_excludes_metadata_and_limits_refuse_without_mutation": [
+          "ok"
+        ],
+        "store::custody::discard::tests::discard_declared_name_and_temporary_metadata_caps_remain_independent_of_segment_data": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::every_discard_unlink_rmdir_and_sync_boundary_failure_preserves_recognizable_cold_remainder": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_barriers_keep_manifest_last_and_factory_temporary_before_its_required_segment": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_callback_error_still_observes_physical_loss_and_never_deletes_through_replacement": [
+          "ok"
+        ],
+        "store::custody::discard::tests::boundaries::discard_clean_callback_refusal_precedes_effects_and_callback_unwind_returns_no_capability": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_rejects_foreign_aliased_hardlinked_nonempty_sidecars_and_rotation_residue_before_effects": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_rejects_root_replacement_or_new_name_after_inventory_without_adopting_it": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::discard_remainder_refuses_surviving_auxiliary_and_reappeared_removed_children": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::missing_declared_files_are_discard_only_while_manifestless_sidecars_and_auxiliaries_reject": [
+          "ok"
+        ],
+        "store::custody::discard::tests::refusal::actual_unlink_permission_failure_returns_no_remainder_and_leaves_anchor_and_children": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::complete_namespace_preflight_rejects_unknown_or_aliased_obsolete_content_before_any_deletion": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::malformed_last_candidate_and_over_capacity_refuse_before_retiring_a_healthy_stage": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::bounded_cold_existing_factory_is_not_repaired_into_cursor_and_explicit_active_begin_cancels_it": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::healthy_semantic_refusal_keeps_actual_completed_writer_and_exact_duplicate_append": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::rejected_owner_original_sidecar_loss_blocks_abandonment_and_restored_inode_does_not_clear_failure": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::import_callback_namespace_mutation_dominates_ok_or_semantic_error_without_publication": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::cold_lost_finish_reply_recollects_actual_successor_without_republication_or_old_history_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::read_only_capacity_refusal_keeps_live_stage_and_allows_exact_policy_retry": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::smaller_byte_policy_cannot_delete_a_live_stage_to_fit_the_active_history": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard::actual_caller_unlink_denial_keeps_prior_publication_and_fences_after_permission_restore": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::every_actual_caller_disposal_boundary_reopens_the_exact_current_publication_and_completes_cancel": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::actual_successor_pointer_barrier_precedes_old_descriptor_and_candidate_removal": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::interrupted_replacement_retains_rejected_b_and_requires_explicit_cancel_of_cold_factory_c": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_contract::bounded_ordinary_api_does_not_claim_cold_detection_of_whole_unrecorded_stage_loss": [
+          "ok"
+        ],
+        "learner::prefix::tests::cold_bounded_resume_never_repairs_missing_sidecars_and_explicit_cancel_allows_fresh_copy": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::successful_replacement_reaches_three_validated_stores_with_original_owners_still_locked": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::three_slot_existing_resume_preflights_every_candidate_before_cleanup_and_then_succeeds": [
+          "ok"
+        ],
+        "learner::prefix::tests::discard_caller::real_owned_rotation_name_failure_is_strictly_refused_then_explicitly_cancelled_by_current_active": [
+          "ok"
+        ]
+      },
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "trace_sha256": "55657437a19e969a94954a306e40bc9a9425c74eb06cc5b0492b08bb44b3c9e2",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    }
+  },
+  "corrections": [
+    "Original existing-API RED had9 behavioral failures among11 required tests; two existing guards already passed.",
+    "First full GREEN attempt exposed a held-lock latch regression, a new accepted-suffix fixture ordered after the export boundary, and APFS rejection of raw non-UTF8 filenames.",
+    "Fixture now accepts index4 before committing3 so the real exported prefix includes the asserted accepted suffix. No semantic assertion weakened.",
+    "Actual inner held writer lock is checked before namespace/capacity classification; physical failure dominates a reusable input refusal. Existing regression now restores the original inode before probing sticky failure.",
+    "Actual Linux non-UTF8 filename test is separately compiled and required by the full verifier on Linux; it was not executed on Darwin.",
+    "Unused directory helper is deferred until its initial-receiver caller is integrated."
+  ],
+  "checks": {
+    "cargo fmt --all -- --check": 0,
+    "cargo clippy --locked -p rsf-storage -p rsf-vsr --all-targets -- -D warnings": 0,
+    "summary_verifier_python_ast": 0
+  },
+  "linux_pending_test": "learner::prefix::tests::discard::complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion",
+  "production_qualified": false,
+  "cicd_used": false,
+  "limits": "Actual local filesystem and process tests; no Linux, kernel or power-loss qualification. Full workspace/membership timing failures remain unresolved. These results do not implement fresh native control bootstrap, durable delivery/retention/fencing or client admission."
+}

@@ -81,9 +81,50 @@ pub(in crate::learner) fn published_bytes(
     }
     Ok(bytes)
 }
+pub(super) fn stage_bytes(stage: &Stage, limits: VsrPrefixLimits) -> RsfResult<u64> {
+    let custody = stage.store.capture_owned_custody()?;
+    let mut count = 0u64;
+    let mut bytes = 0u64;
+    let mut digest = Digest::blake3_bytes(b"RSF history chain v1");
+    let mut previous_hash = [0; 32];
+    let result =
+        stage
+            .store
+            .scan_owned_prefix(&custody, limits.storage()?, limits.admission()?, |raw| {
+                if raw.pg != stage.descriptor.probe.pg || raw.index.0 != count + 1 {
+                    return Err(corrupt(
+                        "bounded warm stage has foreign or noncontiguous records",
+                    ));
+                }
+                let record = VsrHistoryRecord {
+                    epoch: raw.epoch,
+                    kind: raw.kind,
+                    payload: raw.payload.clone(),
+                };
+                validate_record(raw.pg, count, &record)?;
+                count = count
+                    .checked_add(1)
+                    .ok_or_else(|| corrupt("bounded stage count overflow"))?;
+                bytes = bytes
+                    .checked_add(18 + raw.payload.len() as u64)
+                    .ok_or_else(|| corrupt("bounded stage size overflow"))?;
+                limits.check(count, bytes)?;
+                digest = transfer::extend_digest(digest, &record)?;
+                previous_hash = raw.record_hash;
+                Ok(SegmentScanControl::Continue)
+            });
+    stage.store.validate_owned_custody(&custody)?;
+    result.map_err(storage_error)?;
+    if count != stage.count || digest != stage.digest || previous_hash != stage.previous_hash {
+        return Err(corrupt("bounded warm stage differs from retained cursor"));
+    }
+    Ok(bytes)
+}
 pub(in crate::learner) fn check_overlap(
-    stage: &Stage,
-    context: &PrefixContext,
+    store: &SegmentStore,
+    descriptor: &VsrHistoryDescriptor,
+    custody: &rsf_storage::SegmentStoreCustody,
+    limits: VsrPrefixLimits,
     batch: &VsrHistoryBatch,
     overlap: usize,
 ) -> RsfResult<bool> {
@@ -93,33 +134,24 @@ pub(in crate::learner) fn check_overlap(
     let mut ordinal = 0u64;
     let mut matched = 0usize;
     let mut changed = false;
-    stage
-        .store
-        .scan_owned_prefix(
-            context
-                .custody
-                .as_ref()
-                .expect("staged context has custody"),
-            context.limits.storage()?,
-            context.limits.admission()?,
-            |record| {
-                if ordinal >= batch.ordinal {
-                    let expected = &batch.records[matched];
-                    changed |= record.pg != stage.descriptor.probe.pg
-                        || record.index.0 != ordinal + 1
-                        || record.epoch != expected.epoch
-                        || record.kind != expected.kind
-                        || record.payload != expected.payload;
-                    matched += 1;
-                }
-                ordinal += 1;
-                Ok(if matched == overlap {
-                    SegmentScanControl::Stop
-                } else {
-                    SegmentScanControl::Continue
-                })
-            },
-        )
+    store
+        .scan_owned_prefix(custody, limits.storage()?, limits.admission()?, |record| {
+            if ordinal >= batch.ordinal {
+                let expected = &batch.records[matched];
+                changed |= record.pg != descriptor.probe.pg
+                    || record.index.0 != ordinal + 1
+                    || record.epoch != expected.epoch
+                    || record.kind != expected.kind
+                    || record.payload != expected.payload;
+                matched += 1;
+            }
+            ordinal += 1;
+            Ok(if matched == overlap {
+                SegmentScanControl::Stop
+            } else {
+                SegmentScanControl::Continue
+            })
+        })
         .map_err(storage_error)?;
     if matched != overlap {
         return Err(corrupt("bounded learner retained overlap disappeared"));
