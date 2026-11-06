@@ -55,8 +55,15 @@ fn corrupt(message: impl Into<String>) -> RsfError {
 
 impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     pub(super) fn recover_application_commands(&mut self) -> RsfResult<()> {
+        self.recover_application_commands_from(&SegmentStore::recover(&self.path)?)
+    }
+
+    pub(super) fn recover_application_commands_from(
+        &mut self,
+        recovery: &SegmentStoreRecovery,
+    ) -> RsfResult<()> {
         let mut receipts = BTreeMap::new();
-        for wal in SegmentStore::recover(&self.path)?.recovery.wal_records {
+        for wal in &recovery.recovery.wal_records {
             if wal.kind == WalRecordKind::Commit
                 && ProtocolCommitRecord::is_protocol_payload(&wal.payload)
             {

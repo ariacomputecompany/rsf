@@ -1,0 +1,84 @@
+{
+  "scope": "Protocol constructor reuses one actual opened store and its replay for placement, policy, router cursors and application receipt recovery.",
+  "source": "1cd773561d641d555dd609e43ae62b13938bfba2a3e9a64b18e0f6f2ed468388",
+  "observations": {
+    "red": {
+      "path": "artifacts/protocol-runtime-onepass-review-20261106/observation-protocol-red-v2/execution.json",
+      "sha256": "c8f978d98c8f79216c311d4ce2ddff62f88d75be5fb63247e0b7f894c15f34f8",
+      "source_before": "d4e858e70b33f180e1cc351060f5581f7a458cc06ddfb2925959d502bb5d8cf4",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: FAILED. 60 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.44s"
+      ],
+      "required_test_outcomes": {
+        "durable::opening_tests::protocol_open_retains_metadata_writer_generation_through_receipt_recovery": [
+          "FAILED"
+        ],
+        "durable::opening_tests::protocol_open_preserves_each_missing_metadata_prefix_and_never_reappends_on_reopen": [
+          "ok"
+        ],
+        "durable::opening_tests::protocol_open_keeps_placement_before_corrupt_policy_failure_and_refuses_repeatedly": [
+          "ok"
+        ],
+        "durable::opening_tests::protocol_open_reused_receipts_still_reject_duplicate_physical_commit_records": [
+          "ok"
+        ]
+      },
+      "failed_tests": [
+        "durable::opening_tests::protocol_open_retains_metadata_writer_generation_through_receipt_recovery"
+      ],
+      "trace_sha256": "df3ac7817c0e7344346de408338cc0c41eaa1ca23c045c840c07a3e51796753c",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    },
+    "green": {
+      "path": "artifacts/protocol-runtime-onepass-review-20261106/observation-protocol-green-v1/execution.json",
+      "sha256": "f0951a1f83de05e1fc49a35210b0e63dc47102322cc103d30f1cf892af1051a3",
+      "source_before": "1cd773561d641d555dd609e43ae62b13938bfba2a3e9a64b18e0f6f2ed468388",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "required_test_outcomes": {
+        "durable::opening_tests::protocol_open_retains_metadata_writer_generation_through_receipt_recovery": [
+          "ok"
+        ],
+        "durable::opening_tests::protocol_open_preserves_each_missing_metadata_prefix_and_never_reappends_on_reopen": [
+          "ok"
+        ],
+        "durable::opening_tests::protocol_open_keeps_placement_before_corrupt_policy_failure_and_refuses_repeatedly": [
+          "ok"
+        ],
+        "durable::opening_tests::protocol_open_reused_receipts_still_reject_duplicate_physical_commit_records": [
+          "ok"
+        ]
+      },
+      "failed_tests": [],
+      "trace_sha256": "87cd7e6f99f52e34e68dc589ec2e8da19a462a0c0090a5a2e85e203f0089ee9f",
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    }
+  },
+  "checks": {
+    "format": 0,
+    "protocol_all_targets_clippy": 0
+  },
+  "earlier_attempt": "protocol-red-v1 failed compilation with ambiguous Vec AsRef in new fixture; changed to as_slice preserving exact byte assertion. This is not behavioral evidence.",
+  "limits": "RED60pass1 intended generation mismatch failure; GREEN61pass. Strict scripted scenario is not actual test execution; host trace contains actual Cargo. No latency/full-baseline/production/Linux qualification claim.",
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false
+}

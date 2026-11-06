@@ -796,6 +796,10 @@ bounded_control_names = [
     'warm_promotion_retains_publication_boundaries_and_live_writer_exclusion',
     'warm_promotion_rechecks_actual_pointer_seal_and_owner_after_published_hook',
     'warm_promotion_rejects_same_byte_owner_replacements_across_hooks',
+    'protocol_open_retains_metadata_writer_generation_through_receipt_recovery',
+    'protocol_open_preserves_each_missing_metadata_prefix_and_never_reappends_on_reopen',
+    'protocol_open_keeps_placement_before_corrupt_policy_failure_and_refuses_repeatedly',
+    'protocol_open_reused_receipts_still_reject_duplicate_physical_commit_records',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

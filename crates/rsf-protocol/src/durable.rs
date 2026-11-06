@@ -1,6 +1,9 @@
 mod application;
 mod command;
 mod handoff;
+mod opening;
+#[cfg(test)]
+mod opening_tests;
 pub use application::{ApplicationPayload, ApplicationSurface, ReplicatedFabricCommand};
 pub use command::{ProtocolCommandPurpose, ReplicatedProtocolCommand};
 pub use handoff::{CoordinatorCacheStats, CoordinatorState, InstalledCoordinatorCache};
@@ -495,8 +498,12 @@ impl PlacementMap {
 }
 
 fn recover_placement_map(path: impl AsRef<Path>) -> RsfResult<Option<PlacementMap>> {
+    placement_from_recovery(&SegmentStore::recover(path)?)
+}
+
+fn placement_from_recovery(recovery: &SegmentStoreRecovery) -> RsfResult<Option<PlacementMap>> {
     let mut latest = None;
-    for record in SegmentStore::recover(path)?.recovery.wal_records {
+    for record in &recovery.recovery.wal_records {
         if record.pg == METADATA_PG
             && record.kind == WalRecordKind::Membership
             && PlacementMap::is_payload(&record.payload)
@@ -669,8 +676,12 @@ impl ProtocolPolicy {
 }
 
 fn recover_protocol_policy(path: impl AsRef<Path>) -> RsfResult<Option<ProtocolPolicy>> {
+    policy_from_recovery(&SegmentStore::recover(path)?)
+}
+
+fn policy_from_recovery(recovery: &SegmentStoreRecovery) -> RsfResult<Option<ProtocolPolicy>> {
     let mut latest = None;
-    for record in SegmentStore::recover(path)?.recovery.wal_records {
+    for record in &recovery.recovery.wal_records {
         if record.pg == METADATA_PG
             && record.kind == WalRecordKind::Membership
             && ProtocolPolicy::is_payload(&record.payload)
@@ -740,6 +751,17 @@ impl DurableFabricRouter {
         let path = path.as_ref().to_path_buf();
         let (store, recovery) =
             SegmentStore::open_recovered(&path, SegmentStoreOptions::default())?;
+        Self::from_opened(path, groups, epoch, store, &recovery)
+    }
+
+    // The supplied owner and replay originate from the same storage open.
+    fn from_opened(
+        path: PathBuf,
+        groups: impl IntoIterator<Item = PlacementGroupId>,
+        epoch: Epoch,
+        store: SegmentStore,
+        recovery: &SegmentStoreRecovery,
+    ) -> RsfResult<Self> {
         let store = Arc::new(Mutex::new(store));
         let mut wals = BTreeMap::new();
         let mut next_indexes = BTreeMap::new();
@@ -747,7 +769,7 @@ impl DurableFabricRouter {
         let mut request_certificates = BTreeMap::new();
 
         for pg in groups {
-            let recovered = ProtocolWal::recover_records(&recovery, pg)?;
+            let recovered = ProtocolWal::recover_records(recovery, pg)?;
             let mut max_index = 0;
             for commit in recovered {
                 max_index = max_index.max(commit.certificate.index.0);
@@ -759,7 +781,7 @@ impl DurableFabricRouter {
             next_indexes.insert(pg, max_index + 1);
             wals.insert(
                 pg,
-                ProtocolWal::from_recovery(Arc::clone(&store), pg, epoch, &recovery)?,
+                ProtocolWal::from_recovery(Arc::clone(&store), pg, epoch, recovery)?,
             );
         }
 
@@ -1140,11 +1162,20 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         transport: T,
     ) -> RsfResult<Self> {
         let path = path.as_ref().to_path_buf();
-        let placement = recover_or_initialize_placement_map(&path, groups, epoch)?;
-        let policy = recover_or_initialize_protocol_policy(&path, epoch)?;
+        let (mut store, recovery) =
+            SegmentStore::open_recovered(&path, SegmentStoreOptions::default())?;
+        let (placement, policy) = opening::metadata(&mut store, &recovery, groups, epoch)?;
         policy.validate_placement_map(&placement)?;
+        #[cfg(test)]
+        opening_tests::after_metadata();
         let replicas_vec = replicas.clone().into_iter().collect::<Vec<_>>();
-        let router = DurableFabricRouter::open(&path, placement.groups.iter().copied(), epoch)?;
+        let router = DurableFabricRouter::from_opened(
+            path.clone(),
+            placement.groups.iter().copied(),
+            epoch,
+            store,
+            &recovery,
+        )?;
         let mut cells = BTreeMap::new();
         for pg in placement.groups.iter().copied() {
             cells.insert(
@@ -1177,7 +1208,7 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             application_failure: None,
             provision_local_cells: true,
         };
-        router.recover_application_commands()?;
+        router.recover_application_commands_from(&recovery)?;
         Ok(router)
     }
 
