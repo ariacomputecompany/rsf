@@ -1,4 +1,5 @@
 //! Real TLS and actual writer delivery. Native mock proves callback order only.
+mod sender;
 use super::*;
 use crate::replication::managed_control::initial::{
     ControlInitialBinding, ControlInitialPolicy, ControlInitialState,

@@ -77,6 +77,12 @@ pub(super) struct Writer {
     flight: Option<worker::Flight>,
     collector: Option<observation::Collector>,
 }
+impl Writer {
+    pub(super) fn has_flight(&self) -> bool {
+        self.flight.is_some()
+    }
+}
+
 impl PeerReplicaServer {
     /// Queue one canonical Begin. This requires current control-primary custody
     /// but does not append, commit, promise delivery or authorize any PG fence.
@@ -183,6 +189,9 @@ impl PeerReplicaServer {
             .managed_control
             .as_mut()
             .ok_or("control replication is not configured")?;
+        if binding.initial_sender.is_some() {
+            return Ok(ControlWriterProgress::Waiting);
+        }
         let pg = binding.pg();
         let cell = self
             .cells

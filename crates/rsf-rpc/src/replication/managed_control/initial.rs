@@ -6,8 +6,9 @@ use rsf_vsr::{
     VsrInitialRestriction, VsrInitialSelection, VsrInitialTransition, VsrPrefixLimits,
 };
 use std::path::Path;
-#[cfg(test)]
 mod client;
+pub(super) mod sender;
+pub use sender::{ControlInitialProgress, ObservedControlInitialPublication};
 mod source;
 pub(in crate::replication) mod wire;
 pub use rsf_vsr::VsrInitialState as ControlInitialState;
@@ -442,6 +443,7 @@ fn open_control(
                     voter: None,
                     learner: None,
                     writer: writer::Writer::default(),
+                    initial_sender: None,
                 },
             ))
         }

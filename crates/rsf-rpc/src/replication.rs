@@ -10,8 +10,9 @@ mod history;
 mod learner;
 pub use history::status::HistoryBeginRequired;
 pub use managed_control::initial::{
-    ControlInitialBinding, ControlInitialPolicy, ControlInitialSource, ControlInitialSourceError,
-    ControlInitialState, ControlInitialTransition,
+    ControlInitialBinding, ControlInitialPolicy, ControlInitialProgress, ControlInitialSource,
+    ControlInitialSourceError, ControlInitialState, ControlInitialTransition,
+    ObservedControlInitialPublication,
 };
 pub use managed_control::learner::ControlLearnerPolicy;
 pub use managed_control::native::{ControlNativePersistence, validate_control_provisioning};

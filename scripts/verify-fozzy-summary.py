@@ -981,6 +981,16 @@ bounded_control_names = [
     'explicit_application_identity_migration_postcreation_error_checks_original_custody',
     'explicit_application_identity_migration_interrupted_boundaries_repeat_without_lock_recreation',
     'explicit_application_identity_migration_unwind_releases_owner_and_preserves_retry_inode',
+    'real_tls_sender_recovers_actual_lost_batch_and_finish_replies_from_receiver_status',
+    'real_tls_sender_automatically_reconciles_lost_batch_and_finish_without_cancellation',
+    'real_tls_sender_source_custody_loss_dominates_semantic_refusal_and_clears_attempt',
+    'unavailable_initial_target_can_be_cancelled_and_pending_control_work_progresses',
+    'real_tls_sender_current_primary_relays_original_historical_source_after_both_source_losses',
+    'real_tls_sender_publication_and_cold_retry_preserve_exact_origin_without_admission',
+    'real_tls_sender_exact_replacement_refuses_stale_selection_aba',
+    'real_tls_sender_cancel_preserves_remote_selection_and_releases_control_writer',
+    'sender_rejects_wrong_target_identity_and_old_primary_source_before_remote_mutation',
+    'real_tls_sender_never_abandons_foreign_selection_without_exact_replacement',
 ]
 if sys.platform == "linux":
     bounded_control_names.append("complete_namespace_preflight_rejects_non_utf8_obsolete_name_without_deletion")

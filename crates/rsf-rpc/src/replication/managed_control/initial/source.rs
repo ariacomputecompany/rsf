@@ -82,6 +82,23 @@ impl PeerReplicaServer {
             limits,
         })
     }
+    pub(in crate::replication) fn validate_initial_control_source(
+        &self,
+        source: &ControlInitialSource,
+    ) -> Result<(), ControlInitialSourceError> {
+        let binding = self.managed_control.as_ref().ok_or_else(|| {
+            ControlInitialSourceError::Ownership("control is not configured".into())
+        })?;
+        let cell = self.cells.get(&binding.pg()).ok_or_else(|| {
+            ControlInitialSourceError::Ownership(
+                "initial source requires actual control voter".into(),
+            )
+        })?;
+        source
+            .identity
+            .validate(&binding.anchor, &binding.genesis, cell, self.local)
+            .map_err(ControlInitialSourceError::from)
+    }
     pub fn read_initial_control_batch(
         &self,
         source: &ControlInitialSource,

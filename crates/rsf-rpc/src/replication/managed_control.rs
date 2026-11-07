@@ -17,6 +17,7 @@ pub(super) struct Binding {
     voter: Option<ControlState>,
     learner: Option<PublishedControlState>,
     writer: writer::Writer,
+    initial_sender: Option<initial::sender::Sender>,
 }
 impl Binding {
     fn for_learner(
@@ -30,6 +31,7 @@ impl Binding {
             voter: None,
             learner: Some(state),
             writer: writer::Writer::default(),
+            initial_sender: None,
         }
     }
     pub(super) fn pg(&self) -> PlacementGroupId {
@@ -90,6 +92,7 @@ impl PeerReplicaServer {
             voter: None,
             learner: None,
             writer: writer::Writer::default(),
+            initial_sender: None,
         };
         binding.refresh_voter(&self.cells[&pg])?;
         self.managed_control = Some(binding);

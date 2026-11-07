@@ -49,6 +49,7 @@ impl PeerReplicaServer {
             voter: None,
             learner: None,
             writer: writer::Writer::default(),
+            initial_sender: None,
         };
         binding.refresh_voter(&server.cells[&pg])?;
         server.managed_control = Some(binding);

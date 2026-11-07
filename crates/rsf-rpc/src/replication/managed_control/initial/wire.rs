@@ -205,7 +205,6 @@ pub(in crate::replication) fn encode_reply(
     }
     Ok(bytes)
 }
-#[cfg(test)]
 pub(in crate::replication) fn encode_request(
     policy: [u8; 32],
     request: &Request,
@@ -246,7 +245,6 @@ pub(in crate::replication) fn encode_request(
     }
     Ok(bytes)
 }
-#[cfg(test)]
 fn read_state(bytes: &[u8]) -> io::Result<(ControlInitialState, usize)> {
     Ok(match bytes.first() {
         Some(0) => (ControlInitialState::Reserved, 1),
@@ -268,7 +266,6 @@ fn read_state(bytes: &[u8]) -> io::Result<(ControlInitialState, usize)> {
         _ => return Err(invalid("malformed initial response state")),
     })
 }
-#[cfg(test)]
 pub(in crate::replication) fn decode_reply(
     bytes: &[u8],
     policy: [u8; 32],
@@ -338,8 +335,7 @@ pub(in crate::replication) fn decode_reply(
 }
 
 // Keep the already owned request; decoding its possibly large batch again is
-// unnecessary. This test-only client is deliberately not a production sender.
-#[cfg(test)]
+// unnecessary. Only the owned sender schedules production requests.
 fn validate_reply(request: &Request, reply: &Reply, limits: VsrPrefixLimits) -> io::Result<()> {
     let valid = match (request, reply) {
         (Request::Status, Reply::Progress { state, records }) => {

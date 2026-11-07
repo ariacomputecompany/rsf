@@ -1,4 +1,4 @@
-//! Test-only bounded client until approved delivery-to-source sender integration.
+//! One authenticated bounded exchange; only the owned sender schedules mutations.
 use super::*;
 impl NetworkVsrTransport {
     pub(in crate::replication) fn initial_control_exchange(
