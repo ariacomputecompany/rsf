@@ -25,13 +25,27 @@ use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
-    CompactionReport, OwnedWalGroup, QuarantineReport, SegmentDescriptor, SegmentDiscardInventory,
-    SegmentDiscardRemainder, SegmentReadCursor, SegmentReadCustody, SegmentReadError,
-    SegmentReadLimit, SegmentReadLimits, SegmentScan, SegmentScanControl, SegmentScanFilter,
-    SegmentScanOutcome, SegmentStore, SegmentStoreBenchmark, SegmentStoreCustody,
-    SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision, TruncateReport, WalGroupEntry,
-    WalGroupRecord, append_only_manifest_byte_bound, wal_record_disk_bytes,
+    CompactionReport, OwnedWalGroup, ProvisionalBootstrap, QuarantineReport, SegmentDescriptor,
+    SegmentDiscardInventory, SegmentDiscardRemainder, SegmentReadCursor, SegmentReadCustody,
+    SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScan, SegmentScanControl,
+    SegmentScanFilter, SegmentScanOutcome, SegmentStore, SegmentStoreBenchmark,
+    SegmentStoreCustody, SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision,
+    TruncateReport, WalGroupEntry, WalGroupRecord, append_only_manifest_byte_bound,
+    wal_record_disk_bytes,
 };
+
+// Shared exact physical frame header for ordinary writes and provisional prefixes.
+fn encode_segment_header(payload: &[u8]) -> RsfResult<[u8; HEADER_LEN]> {
+    let len = u64::try_from(payload.len())
+        .map_err(|_| RsfError::new(ErrorCode::InvalidInput, "segment payload length overflow"))?;
+    let mut header = [0; HEADER_LEN];
+    header[..4].copy_from_slice(&MAGIC);
+    header[4..6].copy_from_slice(&SEGMENT_RECORD_VERSION.to_le_bytes());
+    header[6..8].copy_from_slice(&DEFAULT_CHECKSUM_ALGORITHM.to_u16().to_le_bytes());
+    header[8..16].copy_from_slice(&len.to_le_bytes());
+    header[16..24].copy_from_slice(&DEFAULT_CHECKSUM_ALGORITHM.checksum(payload).to_le_bytes());
+    Ok(header)
+}
 
 fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {
     #[cfg(test)]
@@ -226,29 +240,8 @@ impl SegmentLog {
             .file
             .seek(SeekFrom::End(0))
             .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        let len = u64::try_from(payload.len()).map_err(|_| {
-            RsfError::new(
-                ErrorCode::InvalidInput,
-                "payload length does not fit in segment record header",
-            )
-        })?;
-        let checksum_algorithm = DEFAULT_CHECKSUM_ALGORITHM;
-        let checksum = checksum_algorithm.checksum(payload);
-
         self.file
-            .write_all(&MAGIC)
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&SEGMENT_RECORD_VERSION.to_le_bytes())
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&checksum_algorithm.to_u16().to_le_bytes())
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&len.to_le_bytes())
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&checksum.to_le_bytes())
+            .write_all(&encode_segment_header(payload)?)
             .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
         self.file
             .write_all(payload)
@@ -541,6 +534,34 @@ impl SegmentLock {
         let lock_path = std::fs::canonicalize(&lock_path)
             .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         Self::register_opened(lock_path, file)
+    }
+
+    // Provisional factories must not reenter an existing local writer. The
+    // exact acquired descriptor remains in the registry through writer handoff.
+    fn register_exclusive_opened(lock_path: PathBuf, file: File) -> RsfResult<Self> {
+        let mut registry = lock_registry().lock().map_err(|_| {
+            RsfError::new(ErrorCode::InvalidInput, "segment lock registry is poisoned")
+        })?;
+        if registry.contains_key(&lock_path) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "provisional lock already owned",
+            ));
+        }
+        file.try_lock().map_err(|err| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("provisional lock unavailable: {err}"),
+            )
+        })?;
+        registry.insert(
+            lock_path.clone(),
+            SegmentLockOwner {
+                references: 1,
+                _file: file,
+            },
+        );
+        Ok(Self { path: lock_path })
     }
 
     fn register_opened(lock_path: PathBuf, file: File) -> RsfResult<Self> {

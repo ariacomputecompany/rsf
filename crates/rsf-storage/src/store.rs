@@ -7,9 +7,9 @@ use std::time::{Instant, SystemTime};
 mod coordination;
 mod custody;
 pub use custody::{
-    OwnedWalGroup, SegmentDiscardInventory, SegmentDiscardRemainder, SegmentReadCursor,
-    SegmentReadCustody, SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScanControl,
-    SegmentScanOutcome, SegmentStoreCustody, append_only_manifest_byte_bound,
+    OwnedWalGroup, ProvisionalBootstrap, SegmentDiscardInventory, SegmentDiscardRemainder,
+    SegmentReadCursor, SegmentReadCustody, SegmentReadError, SegmentReadLimit, SegmentReadLimits,
+    SegmentScanControl, SegmentScanOutcome, SegmentStoreCustody, append_only_manifest_byte_bound,
     wal_record_disk_bytes,
 };
 mod group;

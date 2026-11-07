@@ -55,15 +55,7 @@ fn plan(approval: &VsrMembershipApproval, chosen: &VsrMembershipChosen) -> VsrMe
 pub(super) fn returned_membership(root: &Path) -> DurableVsrCell {
     for node in 0..4 {
         let state = root.join(format!("store-{node}"));
-        std::fs::create_dir_all(&state).unwrap();
-        std::fs::write(
-            state.join("IDENTITY.json"),
-            serde_json::to_vec(&serde_json::json!({
-                "version":1,"cluster":"cli-cluster","node":node
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+        legacy_identity::provision(&state, "cli-cluster", node);
     }
     let mut cells = (0..3)
         .map(|node| {

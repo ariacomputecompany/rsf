@@ -1170,11 +1170,13 @@ dependencies = [
 name = "rsfd"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rcgen",
  "rsf-admin",
  "rsf-auth",
  "rsf-blob",
  "rsf-control",
+ "rsf-control-state",
  "rsf-core",
  "rsf-kv",
  "rsf-object",

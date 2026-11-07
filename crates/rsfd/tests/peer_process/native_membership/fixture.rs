@@ -102,16 +102,7 @@ fn provision_four(root: &Path, groups: &[PlacementGroupId]) -> BTreeMap<NodeId, 
             },
         );
         let state = root.join(format!("store-{node}"));
-        std::fs::create_dir_all(&state).unwrap();
-        // This is the pre-crash V1 identity, before managed enrollment.
-        std::fs::write(
-            state.join("IDENTITY.json"),
-            serde_json::to_vec(
-                &serde_json::json!({"version":1,"cluster":"cli-cluster","node":node}),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        legacy_identity::provision(&state, "cli-cluster", node);
     }
     let mapped = peers.iter().map(|(node, peer)| serde_json::json!({
         "node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,

@@ -9,7 +9,8 @@ pub struct VsrPrefixLimits {
     pub max_encoded_bytes: u64,
 }
 impl VsrPrefixLimits {
-    pub(crate) fn validate(self) -> RsfResult<()> {
+    /// Check finite platform and physical framing bounds without opening an owner.
+    pub fn validate(self) -> RsfResult<()> {
         if self.max_records == 0 || self.max_encoded_bytes < 18 {
             return Err(invalid_input("prefix limits must be finite and nonzero"));
         }

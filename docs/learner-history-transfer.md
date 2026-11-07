@@ -51,6 +51,29 @@ rejects missing source stores, conflicting ownership, learner sources, and
 voting targets. It does not create a source store or change the source's
 membership.
 
+For daemon application sources, the CLI retains the existing sibling
+`<daemon-state>/replication-identity` binding. It must match the source cluster
+and node. Native identity, pending or peer-lock markers at `protocol.vsr`
+select strict native ownership; a missing or damaged native identity never
+falls back to the application binding.
+
+Older daemon versions wrote a V1 `replication-identity/IDENTITY.json` without
+`.peer.lock`. Stop that legacy daemon and its administrative writers, then run
+this explicit application-only migration before restarting or exporting:
+
+```sh
+rsfd peer migrate-application-identity --state <daemon-state> --cluster <cluster> --node <node>
+```
+
+The command requires the existing exact application layout and V1 identity.
+It retains original directory/file ownership, creates and syncs the missing
+exclusive lock, and preserves identity and source bytes. Repeating it renews
+the barriers without replacing the lock. It refuses unknown or pending binding
+entries, managed/control identity formats, aliases, mismatches and missing
+source state. It cannot repair a native peer's missing lock. Normal startup and
+history transfer never perform this migration implicitly. Keep legacy writers
+stopped throughout the operation; old binaries did not honor this lock.
+
 The source verifies a live quorum of matching current-primary probes before
 transfer and again before publication. A matching probe binds placement group,
 view, primary, voter set, committed index, and committed-command digest.

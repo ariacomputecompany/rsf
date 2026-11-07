@@ -107,16 +107,8 @@ impl ReplicationTransport {
             Duration::from_millis(config.timeout_ms),
         )?;
         let binding = state.join("replication-identity");
-        std::fs::create_dir_all(&binding).map_err(|err| err.to_string())?;
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(binding.join(".peer.lock"))
-            .map_err(|err| err.to_string())?;
-        let _lock = rsf_storage::ExclusiveFileLock::acquire(lock)
-            .map_err(|err| format!("replication identity is busy: {err}"))?;
-        crate::peer::bind_state(&binding, &cluster, primary)?;
+        rsf_storage::create_dir_all_synced(&binding).map_err(|err| err.to_string())?;
+        let _identity = crate::peer::bind_state(&binding, &cluster, primary)?;
         Ok(Self(Some(transport)))
     }
     /// For inventory recovery only when configuration is invalid. This transport

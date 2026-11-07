@@ -18,6 +18,7 @@ rsf-tenancy = { path = "../rsf-tenancy" }
 rsf-admin = { path = "../rsf-admin" }
 rsf-blob = { path = "../rsf-blob" }
 rsf-control = { path = "../rsf-control" }
+rsf-control-state = { path = "../rsf-control-state" }
 rsf-core = { path = "../rsf-core" }
 rsf-kv = { path = "../rsf-kv" }
 rsf-object = { path = "../rsf-object" }
@@ -28,6 +29,9 @@ rsf-sql = { path = "../rsf-sql" }
 rsf-upgrade = { path = "../rsf-upgrade" }
 rsf-vsr = { path = "../rsf-vsr" }
 rsf-wire = { path = "../rsf-wire" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }

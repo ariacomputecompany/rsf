@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Component, PathBuf};
 mod custody;
+mod factory;
+pub use factory::{ProvisionalVsrVoter, VsrBootstrapCompletion, VsrBootstrapSpec};
 mod marker;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

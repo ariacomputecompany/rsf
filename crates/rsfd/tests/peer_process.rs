@@ -23,6 +23,8 @@ mod automatic;
 mod client_retry;
 #[path = "peer_process/client_takeover.rs"]
 mod client_takeover;
+#[path = "peer_process/legacy_identity.rs"]
+mod legacy_identity;
 #[path = "peer_process/membership_admission.rs"]
 mod membership_admission;
 #[path = "peer_process/native_membership.rs"]

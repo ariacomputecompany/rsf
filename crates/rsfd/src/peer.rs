@@ -11,10 +11,14 @@ use rsf_vsr::DurableVsrCell;
 use serde::Deserialize;
 
 mod client;
+mod control;
+#[cfg(test)]
+mod control_tests;
 mod materializer;
 mod membership;
 mod role;
-mod state_identity;
+mod source_owner;
+pub(crate) mod state_identity;
 use materializer::ApplicationMaterializer;
 
 #[derive(Deserialize)]
@@ -32,6 +36,8 @@ struct PeerConfig {
     elections: Option<ElectionConfig>,
     #[serde(default)]
     client: Option<client::ClientConfig>,
+    #[serde(default)]
+    control: Option<control::Config>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -75,7 +81,9 @@ struct PeerService {
     local: NodeId,
     listener: TcpListener,
     server: PeerReplicaServer,
-    _lock: rsf_storage::ExclusiveFileLock,
+    state_identity: state_identity::StateIdentity,
+    control: Option<control::Trusted>,
+    genesis: Option<control::Scheduler>,
     materializer: ApplicationMaterializer,
     elections: Option<PeerElectionTiming>,
     last_elections: BTreeMap<u64, (u64, u64, bool, String)>,
@@ -85,6 +93,12 @@ struct PeerService {
 }
 
 pub fn run_cli(args: &[String]) -> Result<(), String> {
+    if args
+        .first()
+        .is_some_and(|arg| arg == "migrate-application-identity")
+    {
+        return source_owner::migrate_application_identity_cli(args);
+    }
     if args.first().is_some_and(|arg| arg == "sync-learner") {
         return sync_learner_cli(args);
     }
@@ -101,6 +115,7 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
     );
     std::io::stdout().flush().map_err(|err| err.to_string())?;
     loop {
+        service.state_identity.validate()?;
         let started = std::time::Instant::now();
         for _ in 0..64 {
             let (socket, address) = match service.listener.accept() {
@@ -114,21 +129,36 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
             let mut materialize_time = Duration::ZERO;
             let mut materialize_count = 0_u64;
             let mut last_entry = None;
-            let result = service
-                .server
-                .serve_connection_with_apply(socket, &mut |entry| {
-                    let apply_started = std::time::Instant::now();
-                    let result = (|| {
-                        if let Some(command) = decode_application_entry(entry)? {
-                            materializer.apply(&command)?;
-                        }
-                        Ok(())
-                    })();
-                    materialize_time += apply_started.elapsed();
-                    materialize_count += 1;
-                    last_entry = Some((entry.prepare.pg.0, entry.prepare.index.0));
-                    result
-                });
+            let mut apply = |entry: &rsf_vsr::VsrCommittedEntry| {
+                let apply_started = std::time::Instant::now();
+                let result = (|| {
+                    if let Some(command) = decode_application_entry(entry)? {
+                        materializer.apply(&command)?;
+                    }
+                    Ok(())
+                })();
+                materialize_time += apply_started.elapsed();
+                materialize_count += 1;
+                last_entry = Some((entry.prepare.pg.0, entry.prepare.index.0));
+                result
+            };
+            let result = if let Some(control) = &service.control {
+                service.server.serve_connection_with_native_control(
+                    socket,
+                    &mut apply,
+                    &mut control::Adapter {
+                        identity: &mut service.state_identity,
+                        control,
+                    },
+                )
+            } else {
+                service
+                    .server
+                    .serve_connection_with_apply(socket, &mut apply)
+            };
+            // A failed native owner stops all subsequent local/network work.
+            // Handler semantic errors remain ordinary bounded RPC rejections.
+            service.state_identity.validate()?;
             let event = serde_json::json!({
                 "event":"peer.rpc", "node":service.local.0,
                 "outcome":if result.is_ok() { "accepted" } else { "rejected" },
@@ -151,12 +181,15 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
         }
         if service.server.membership_recovery_enabled() {
             let materializer = &mut service.materializer;
-            if let Some(update) = service.server.poll_membership_recovery(&mut |entry| {
+            service.state_identity.validate()?;
+            let progress = service.server.poll_membership_recovery(&mut |entry| {
                 if let Some(command) = decode_application_entry(entry)? {
                     materializer.apply(&command)?;
                 }
                 Ok(())
-            })? {
+            });
+            service.state_identity.validate()?;
+            if let Some(update) = progress? {
                 let state = serde_json::json!({
                     "event": "peer.membership", "pg": update.pg.0,
                     "plan": update.plan.map(|id| id.iter().map(|byte| format!("{byte:02x}")).collect::<String>()),
@@ -172,7 +205,8 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
         }
         if let Some(timing) = service.elections {
             let materializer = &mut service.materializer;
-            if let Some(update) = service.server.poll_elections_with_progress(timing, &mut |entry| {
+            service.state_identity.validate()?;
+            let progress = service.server.poll_elections_with_progress(timing, &mut |entry| {
                 if let Some(command) = decode_application_entry(entry)? {
                     materializer.apply(&command)?;
                 }
@@ -180,7 +214,9 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
             }, &mut |progress| {
                 println!("{}", serde_json::json!({"event":"peer.control", "node":progress.node.0, "pg":progress.pg.0, "phase":progress.phase, "elapsed_ms":progress.elapsed.as_millis(), "records":progress.records}));
                 let _ = std::io::stdout().flush();
-            })? {
+            });
+            service.state_identity.validate()?;
+            if let Some(update) = progress? {
                 let state = (
                     update.view.0,
                     update.primary.0,
@@ -196,6 +232,36 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        if let (Some(genesis), Some(control)) = (&mut service.genesis, &service.control) {
+            let progress = genesis.poll(
+                service.local,
+                control,
+                &mut service.state_identity,
+                &mut service.server,
+            );
+            // Physical native failure is fatal even when a semantic writer error
+            // is retried after a view change. No result is logged before this.
+            service.state_identity.validate()?;
+            match progress {
+                Ok(Some(rsf_rpc::replication::ControlWriterProgress::ObservedGenesisDelivery(
+                    observed,
+                ))) => {
+                    println!(
+                        "{}",
+                        serde_json::json!({"event":"peer.genesis_delivery", "node":service.local.0,
+                        "pg":observed.pg().0, "primary":observed.historical_primary().0,
+                        "reporters":observed.reporters().iter().map(|node| node.0).collect::<Vec<_>>()})
+                    );
+                    std::io::stdout().flush().map_err(|e| e.to_string())?;
+                }
+                Err(reason) => eprintln!(
+                    "{}",
+                    serde_json::json!({"event":"peer.genesis_retry", "node":service.local.0, "reason":reason})
+                ),
+                _ => {}
+            }
+        }
+        service.state_identity.validate()?;
         if let Some(client) = &service.client {
             client.serve_one(&mut service.server, &mut service.materializer)?;
         }
@@ -211,12 +277,34 @@ struct LoadedPeerConfig {
     state: PathBuf,
     identity: PeerIdentity,
     peers: BTreeMap<NodeId, PeerEndpoint>,
+    control: Option<control::Trusted>,
+}
+fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let file = File::open(path).map_err(|_| format!("cannot open {label}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| format!("cannot inspect {label}"))?;
+    if !metadata.is_file() || metadata.len() > maximum {
+        return Err(format!("{label} exceeds its finite regular-file bound"));
+    }
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(metadata.len()).map_err(|_| "configuration exceeds platform")?,
+    );
+    file.take(
+        maximum
+            .checked_add(1)
+            .ok_or("configuration bound overflow")?,
+    )
+    .read_to_end(&mut bytes)
+    .map_err(|_| format!("cannot read {label}"))?;
+    if bytes.len() as u64 > maximum {
+        return Err(format!("{label} exceeds its finite bound"));
+    }
+    Ok(bytes)
 }
 fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
-    let raw = std::fs::read(path).map_err(|err| format!("cannot read peer config: {err}"))?;
-    if raw.len() > 1024 * 1024 {
-        return Err("peer configuration exceeds 1 MiB".into());
-    }
+    let raw = read_bounded(path, 1024 * 1024, "peer configuration")?;
     let config: PeerConfig =
         serde_json::from_slice(&raw).map_err(|err| format!("invalid peer config: {err}"))?;
     let cluster = ClusterId::new(&config.cluster).map_err(|err| err.message)?;
@@ -247,6 +335,7 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
             return Err("duplicate peer node".into());
         }
     }
+    let control = control::Trusted::load(&config, base, &cluster, &identity, &peers)?;
     let mut groups = BTreeSet::new();
     for cell in &config.cells {
         let voters = cell.voters.iter().copied().collect::<BTreeSet<_>>();
@@ -254,9 +343,13 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
             || cell.view == 0
             || voters.len() != cell.voters.len()
             || voters.len() > 4096
-            || match cell.learner_source {
-                None => !voters.contains(&config.node),
-                Some(source) => {
+            || match (
+                control.as_ref().filter(|trusted| trusted.pg().0 == cell.pg),
+                cell.learner_source,
+            ) {
+                (Some(_), _) => false,
+                (None, None) => !voters.contains(&config.node),
+                (None, Some(source)) => {
                     voters.contains(&config.node)
                         || source != cell.primary
                         || source == config.node
@@ -289,10 +382,12 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
     }
     if let Some(elections) = &config.elections {
         if membership.is_empty()
-            && config
-                .cells
-                .iter()
-                .all(|cell| cell.learner_source.is_some())
+            && config.cells.iter().all(|cell| {
+                cell.learner_source.is_some()
+                    || control
+                        .as_ref()
+                        .is_some_and(|c| c.pg().0 == cell.pg && !c.voter())
+            })
         {
             return Err("automatic election requires a hosted voting cell".into());
         }
@@ -301,11 +396,12 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
             // Every future voter must already have a mapped TLS identity.
             validate_cell_timing(elections.timing(), timeout, peers.len(), false)?;
         }
-        for cell in config
-            .cells
-            .iter()
-            .filter(|cell| cell.learner_source.is_none())
-        {
+        for cell in config.cells.iter().filter(|cell| {
+            cell.learner_source.is_none()
+                && control
+                    .as_ref()
+                    .is_none_or(|c| c.pg().0 != cell.pg || c.voter())
+        }) {
             let timing = elections.timing();
             validate_cell_timing(timing, timeout, cell.voters.len(), config.client.is_some())?;
         }
@@ -330,6 +426,7 @@ fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
         state,
         identity,
         peers,
+        control,
     })
 }
 
@@ -362,38 +459,52 @@ impl PeerService {
             state,
             identity,
             peers,
+            control,
         } = load_config(path)?;
         let timeout = Duration::from_millis(config.timeout_ms);
         let elections = config.elections.as_ref().map(ElectionConfig::timing);
         rsf_storage::create_dir_all_synced(&state).map_err(|err| err.to_string())?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(state.join(".peer.lock"))
-            .map_err(|err| err.to_string())?;
-        let lock = rsf_storage::ExclusiveFileLock::acquire(lock)
-            .map_err(|err| format!("peer state already has an owner: {err}"))?;
-        let mut state_identity =
-            state_identity::StateIdentity::bind(&state, &cluster, NodeId(config.node))?;
+        let mut state_identity = state_identity::StateIdentity::open(
+            &state,
+            &cluster,
+            NodeId(config.node),
+            control
+                .as_ref()
+                .map(control::Trusted::reservation)
+                .transpose()?,
+        )?;
         let membership = membership::configured(&config.cells)?;
         let managed = membership.keys().copied().collect::<BTreeSet<_>>();
         membership::preflight(
             &state,
             &managed,
-            &state_identity.managed,
+            state_identity.managed(),
             config.client.is_some(),
         )?;
+        let genesis = control.as_ref().and_then(control::Trusted::scheduler);
         let poll_interval = elections
             .map(|timing| timing.heartbeat)
             .into_iter()
             .chain(membership.values().map(|timing| timing.interval))
+            .chain(genesis.as_ref().map(|_| Duration::from_millis(10)))
             .min();
         let mut cells = BTreeMap::new();
         let mut learners = BTreeMap::new();
         let local = NodeId(config.node);
         let mut promotion_paths = BTreeMap::new();
+        if let Some(control) = &control {
+            if let Some(cell) = control.open_voter(&state, &mut state_identity)? {
+                cells.insert(control.pg(), cell);
+            }
+            state_identity.validate()?;
+        }
         for config in config.cells {
+            if control
+                .as_ref()
+                .is_some_and(|control| control.pg().0 == config.pg)
+            {
+                continue;
+            }
             let pg = PlacementGroupId(config.pg);
             let configured_learner = config.learner_source.is_some();
             let role = if managed.contains(&pg) {
@@ -436,15 +547,32 @@ impl PeerService {
                 )?;
             }
         }
-        let server = PeerReplicaServer::with_learners(
-            NodeId(config.node),
-            &cluster,
-            identity,
-            peers.clone(),
-            cells,
-            learners,
-            timeout,
-        )?;
+        let server = if let Some(control) = &control {
+            control.bind_server(
+                control::ServerInputs {
+                    local,
+                    cluster: cluster.clone(),
+                    tls: identity,
+                    peers: peers.clone(),
+                    cells,
+                    learners,
+                    state: state.clone(),
+                    timeout,
+                },
+                &mut state_identity,
+            )?
+        } else {
+            PeerReplicaServer::with_learners(
+                local,
+                &cluster,
+                identity,
+                peers.clone(),
+                cells,
+                learners,
+                timeout,
+            )?
+        };
+        state_identity.validate()?;
         let mut server = if managed.is_empty() {
             server
         } else {
@@ -456,7 +584,7 @@ impl PeerService {
         // The recovery hook proves existing bound custody before stale learner
         // declarations can participate in elections. Enrollment is monotonic
         // admission policy, never a publication-completion or voting grant.
-        state_identity.enroll(&state, &managed)?;
+        state_identity.enroll(&managed)?;
         let mut materializer = ApplicationMaterializer::new(state.join("application"));
         let mut recovered = Vec::new();
         for entry in server.committed_application_entries()? {
@@ -487,6 +615,7 @@ impl PeerService {
                 )
             })
             .transpose()?;
+        state_identity.validate()?;
         let listener = TcpListener::bind(config.listen)
             .map_err(|err| format!("cannot bind peer listener {}: {err}", config.listen))?;
         if poll_interval.is_some() {
@@ -503,7 +632,9 @@ impl PeerService {
             last_membership: BTreeMap::new(),
             poll_interval,
             client,
-            _lock: lock,
+            state_identity,
+            control,
+            genesis,
             materializer,
         })
     }
@@ -545,8 +676,14 @@ pub(crate) fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
     Ok(result)
 }
 
-pub(crate) fn bind_state(root: &Path, cluster: &ClusterId, node: NodeId) -> Result<(), String> {
-    state_identity::StateIdentity::bind(root, cluster, node).map(|_| ())
+pub(crate) fn bind_state(
+    root: &Path,
+    cluster: &ClusterId,
+    node: NodeId,
+) -> Result<state_identity::StateIdentity, String> {
+    let mut owner = state_identity::StateIdentity::open(root, cluster, node, None)?;
+    owner.require_unreserved()?;
+    Ok(owner)
 }
 
 fn sync_learner_cli(args: &[String]) -> Result<(), String> {
@@ -569,7 +706,18 @@ fn sync_learner_cli(args: &[String]) -> Result<(), String> {
         state,
         identity,
         peers,
+        control,
     } = load_config(Path::new(path))?;
+    let mut source_owner = source_owner::SourceOwner::open(
+        &state,
+        &cluster,
+        NodeId(config.node),
+        PlacementGroupId(pg),
+        control
+            .as_ref()
+            .map(control::Trusted::reservation)
+            .transpose()?,
+    )?;
     let specification = config
         .cells
         .iter()
@@ -578,6 +726,7 @@ fn sync_learner_cli(args: &[String]) -> Result<(), String> {
     if specification.learner_source.is_some() || specification.primary != config.node {
         return Err("history source must be configured as primary voter".into());
     }
+    source_owner.validate()?;
     let directory = state.join(format!("pg-{pg}"));
     let mut source = DurableVsrCell::open_existing(directory, PlacementGroupId(pg))
         .map_err(|err| err.message)?;
@@ -588,9 +737,11 @@ fn sync_learner_cli(args: &[String]) -> Result<(), String> {
         peers,
         Duration::from_millis(config.timeout_ms),
     )?;
+    source_owner.validate()?;
     let tail = network
         .sync_learner(target, &mut source)
         .map_err(|err| err.reason)?;
+    source_owner.validate()?;
     println!(
         "{}",
         serde_json::json!({"event":"peer.learner-synced","pg":pg,"target":target.0,"committed_tail":tail.0,"role":"learner"})

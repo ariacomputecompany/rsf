@@ -40,15 +40,12 @@ Diagnose and fix failures under the original deadlines, workloads, retries and
 concurrency, then requalify the final source through all 25 domains. Preserve
 earlier failed traces; scoped recovery fixes do not establish a clean baseline.
 
-The integrated initial-learner path still needs complete RPC qualification: its
-historical-Genesis relay Start request timed out in the full RPC run. Full VSR
-(372 tests), storage (180) and control-state (24) passed; RPC passed 156 and failed
-3 under unchanged controls. Evidence is preserved in
-`docs/initial-learner-progress-qualification-2026-11-06.json`. Diagnose the initial
-transfer deadline, membership lost-reply deadline and partial-stage deadline
-without changing the tests. Native-identity persistence still needs integration,
-its retained-file readback correction and actual red/green execution. The prepared
-initial sender remains an unqualified draft.
+Historical initial-transfer, membership lost-reply and partial-stage deadline
+failures still need a demonstrated cause and correction under unchanged controls.
+Preserve `docs/initial-learner-progress-qualification-2026-11-06.json`; subsequent
+scoped passes in `docs/native-bootstrap-migration-qualification-2026-11-06.json`
+do not prove those intermittent timing failures fixed. Integrate and qualify the
+prepared initial sender and actual native target orchestration.
 
 Managed control initiation, authenticated commit-delivery confirmation, new-voter
 retention and receiver/client admission remain unfinished. Local policy or passing
@@ -64,8 +61,8 @@ open.
 - Resolve the remaining STAGE deadline failures, then obtain a fresh full
   baseline certificate. Preserve original deadlines,
   retry counts, concurrency and every failed attempt.
-- Finish initial-learner RPC deadline qualification and integrate native-identity
-  persistence, provisional voter creation and the sender. Preserve the integrated
+- Finish initial-learner RPC deadline qualification and integrate the sender
+  and native target orchestration. Preserve the integrated
   original owner context and bounded namespace disposal; finite WAL reads alone
   do not bound the complete transfer lifecycle.
 - Investigate responsive corrupt accepted minorities with the five-driver

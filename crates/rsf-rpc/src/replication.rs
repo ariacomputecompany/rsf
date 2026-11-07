@@ -14,6 +14,7 @@ pub use managed_control::initial::{
     ControlInitialState, ControlInitialTransition,
 };
 pub use managed_control::learner::ControlLearnerPolicy;
+pub use managed_control::native::{ControlNativePersistence, validate_control_provisioning};
 mod installation;
 mod managed_control;
 pub use managed_control::writer::{
@@ -481,6 +482,17 @@ impl PeerReplicaServer {
         materializer_present: bool,
         persist: Option<&mut managed_control::initial::Persist<'_>>,
     ) -> io::Result<()> {
+        self.serve_io_guarded(socket, apply, materializer_present, persist, None)
+    }
+
+    fn serve_io_guarded(
+        &mut self,
+        socket: TcpStream,
+        apply: &mut impl FnMut(&VsrCommittedEntry) -> Result<(), String>,
+        materializer_present: bool,
+        persist: Option<&mut managed_control::initial::Persist<'_>>,
+        mut native: Option<&mut dyn ControlNativePersistence>,
+    ) -> io::Result<()> {
         let mut stream = StreamOwned::new(
             ServerConnection::new(Arc::clone(&self.identity.server))
                 .map_err(|err| invalid(err.to_string()))?,
@@ -501,10 +513,23 @@ impl PeerReplicaServer {
         let request = read_frame(&mut stream)?;
         let (kind, payload) = parse(&request, &self.cluster, sender, self.local)?;
         self.pending_contact = None;
-        let response = if let Err(error) = self.guard_membership_recovery(kind, payload) {
+        let native_before = match native.as_mut() {
+            Some(adapter) => adapter.validate().map_err(invalid),
+            None => Ok(()),
+        };
+        let mut response = if let Err(error) = native_before {
+            Err(error)
+        } else if let Err(error) = self.guard_membership_recovery(kind, payload) {
             Err(error)
         } else if kind == CONTROL_INITIAL {
-            self.dispatch_initial_control(sender, payload, persist)
+            match native.as_mut() {
+                Some(adapter) => self.dispatch_initial_control(
+                    sender,
+                    payload,
+                    Some(&mut |event| adapter.persist(event)),
+                ),
+                None => self.dispatch_initial_control(sender, payload, persist),
+            }
         } else if kind == CONTROL_COMMITTED {
             self.dispatch_control_committed(sender, payload)
         } else if kind == MEMBERSHIP_STAGE {
@@ -550,6 +575,15 @@ impl PeerReplicaServer {
             self.dispatch(sender, kind, payload, apply)
                 .map(|index| index.0.to_le_bytes().to_vec())
         };
+        // The same native owner brackets every handler, including semantic
+        // errors, published retries and paths with no persistence transition.
+        // Physical native failure must dominate before any successful ACK or
+        // primary-contact progress; it is never a typed retryable history error.
+        if let Some(adapter) = native.as_mut()
+            && let Err(error) = adapter.validate()
+        {
+            response = Err(invalid(error));
+        }
         if response.is_ok()
             && let Some(pg) = self.pending_contact.take()
         {

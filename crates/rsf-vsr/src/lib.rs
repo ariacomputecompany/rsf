@@ -1,4 +1,5 @@
 mod bounded;
+pub use bounded::{ProvisionalVsrVoter, VsrBootstrapCompletion, VsrBootstrapSpec};
 mod election;
 mod installation;
 mod membership;

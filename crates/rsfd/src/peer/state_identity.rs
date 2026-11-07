@@ -1,261 +1,259 @@
-//! Peer identity also retains monotonic recovery-only client admission policy.
-//! This is not a membership completion record or a voting authority proof.
+//! Retained native identity and monotonic restrictions, never VSR authority.
 use super::*;
-
+use rsf_rpc::replication::{
+    ControlInitialBinding, ControlInitialPolicy, ControlInitialState, ControlInitialTransition,
+};
+mod bootstrap;
+mod custody;
+mod schema;
+#[cfg(test)]
+pub(super) mod tests;
+pub(super) use schema::{ControlCustody, Reservation};
 const MAX_GROUPS: usize = 4096;
 const MAX_IDENTITY_BYTES: u64 = 128 * 1024;
 
-// Typed decoding rejects duplicate keys as well as unknown fields. An explicit
-// null managed set is invalid; only an absent field denotes a V1 identity.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredIdentity {
-    version: u64,
-    cluster: String,
-    node: u64,
-    #[serde(default, deserialize_with = "managed_groups")]
-    managed_membership: Option<Vec<u64>>,
+pub(crate) struct StateIdentity {
+    custody: custody::Custody,
+    value: schema::Value,
+    failed: bool,
 }
-
-fn managed_groups<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Vec<u64>>, D::Error> {
-    Vec::<u64>::deserialize(deserializer).map(Some)
+impl std::fmt::Debug for StateIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateIdentity")
+            .field("failed", &self.failed)
+            .finish_non_exhaustive()
+    }
 }
-
-pub(super) struct StateIdentity {
-    cluster: String,
-    node: NodeId,
-    pub managed: BTreeSet<PlacementGroupId>,
-}
-
 impl StateIdentity {
-    pub fn bind(root: &Path, cluster: &ClusterId, node: NodeId) -> Result<Self, String> {
-        let path = root.join("IDENTITY.json");
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) => {
-                if !metadata.is_file() || metadata.len() > MAX_IDENTITY_BYTES {
-                    return Err("peer state identity is not a bounded regular file".into());
-                }
-                let bytes = std::fs::read(&path)
-                    .map_err(|error| format!("cannot read peer state identity: {error}"))?;
-                let stored = Self::decode(&bytes)?;
-                if stored.cluster != cluster.as_str() || stored.node != node {
-                    return Err("peer state belongs to a different cluster or node".into());
-                }
-                Ok(stored)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                for entry in std::fs::read_dir(root).map_err(|error| error.to_string())? {
-                    let name = entry.map_err(|error| error.to_string())?.file_name();
-                    if name != ".peer.lock" && name != "IDENTITY.pending" {
-                        return Err(
-                            "unbound peer state contains existing data; migrate it explicitly"
-                                .into(),
-                        );
-                    }
-                }
-                let identity = Self {
-                    cluster: cluster.as_str().to_owned(),
+    /// The caller validates trusted provisioning before creating a reservation.
+    /// Acquisition retains the exact same peer-lock descriptor for this owner.
+    pub(super) fn open(
+        root: &Path,
+        cluster: &ClusterId,
+        node: NodeId,
+        reservation: Option<Reservation>,
+    ) -> Result<Self, String> {
+        Self::open_inner(root, cluster, node, reservation, false)
+    }
+    fn open_inner(
+        root: &Path,
+        cluster: &ClusterId,
+        node: NodeId,
+        reservation: Option<Reservation>,
+        existing: bool,
+    ) -> Result<Self, String> {
+        let custody = custody::Custody::open(root, existing)?;
+        if existing && custody.bytes().is_none() {
+            return Err("native identity is required".into());
+        }
+        let value = match custody.bytes() {
+            Some(bytes) => schema::Value::decode(bytes)?,
+            None => {
+                custody.empty_factory()?;
+                schema::Value {
+                    cluster: cluster.as_str().into(),
                     node,
                     managed: BTreeSet::new(),
-                };
-                identity.persist(root)?;
-                Ok(identity)
-            }
-            Err(error) => Err(format!("cannot inspect peer state identity: {error}")),
-        }
-    }
-
-    fn decode(bytes: &[u8]) -> Result<Self, String> {
-        let value: StoredIdentity =
-            serde_json::from_slice(bytes).map_err(|_| "peer state identity is corrupt")?;
-        ClusterId::new(&value.cluster).map_err(|error| error.message)?;
-        let mut managed = BTreeSet::new();
-        match (value.version, value.managed_membership) {
-            (1, None) => {}
-            (2, Some(groups)) if !groups.is_empty() && groups.len() <= MAX_GROUPS => {
-                let mut previous = None;
-                for group in groups {
-                    if previous.is_some_and(|previous| previous >= group) {
-                        return Err("managed peer groups must be unique and sorted".into());
-                    }
-                    managed.insert(PlacementGroupId(group));
-                    previous = Some(group);
+                    control: None,
                 }
             }
-            _ => return Err("invalid peer identity schema".into()),
-        }
-        Ok(Self {
-            cluster: value.cluster,
-            node: NodeId(value.node),
-            managed,
-        })
-    }
-
-    /// Call only after every newly enrolled group's existing transition custody
-    /// and recovery-only RPC policy have been validated, before listening.
-    pub fn enroll(
-        &mut self,
-        root: &Path,
-        configured: &BTreeSet<PlacementGroupId>,
-    ) -> Result<(), String> {
-        if !self.managed.is_subset(configured) || configured.len() > MAX_GROUPS {
-            return Err("managed peer groups cannot be omitted or removed".into());
-        }
-        if self.managed == *configured {
-            return Ok(());
-        }
-        let next = Self {
-            cluster: self.cluster.clone(),
-            node: self.node,
-            managed: configured.clone(),
         };
-        next.persist(root)?;
-        *self = next;
+        if value.cluster != cluster.as_str() || value.node != node {
+            return Err("peer state belongs to a different cluster or node".into());
+        }
+        match (&value.control, &reservation) {
+            (Some(_), None) => {
+                return Err("reserved control configuration cannot be omitted".into());
+            }
+            (Some(old), Some(next)) if !old.compatible_provisioning(next) => {
+                return Err("reserved control policy or owner kind cannot change".into());
+            }
+            _ => {}
+        }
+        if value.control.is_none()
+            && reservation.as_ref().is_some_and(|r| {
+                matches!(
+                    r.custody,
+                    ControlCustody::ReservedLearner {} | ControlCustody::ReservedVoter {}
+                )
+            })
+        {
+            let pg = reservation.as_ref().expect("checked reservation").pg().0;
+            for name in [format!("pg-{pg}"), format!("learner-{pg}")] {
+                match std::fs::symlink_metadata(custody.root().join(name)) {
+                    Ok(_) => return Err("existing control root requires explicit adoption".into()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err("cannot inspect native control reservation root".into()),
+                }
+            }
+        }
+        let mut owner = Self {
+            custody,
+            value,
+            failed: false,
+        };
+        if owner.custody.bytes().is_none()
+            || (owner.value.control.is_none() && reservation.is_some())
+        {
+            let mut next = owner.value.clone();
+            next.control = reservation;
+            owner.replace(next)?;
+        } else {
+            owner.physical(|custody| custody.renew())?;
+        }
+        owner.validate()?;
+        Ok(owner)
+    }
+    pub(super) fn open_existing(
+        root: &Path,
+        cluster: &ClusterId,
+        node: NodeId,
+        reservation: Option<Reservation>,
+    ) -> Result<Self, String> {
+        Self::open_inner(root, cluster, node, reservation, true)
+    }
+    pub(super) fn validate(&mut self) -> Result<(), String> {
+        if self.failed {
+            return Err("native identity durability failed; reopen required".into());
+        }
+        if let Err(error) = boundary(Boundary::BeforeValidate, self.custody.root())
+            .and_then(|()| self.custody.validate())
+        {
+            self.failed = true;
+            return Err(error);
+        }
         Ok(())
     }
-
-    fn persist(&self, root: &Path) -> Result<(), String> {
-        let mut value = serde_json::json!({
-            "version": 1, "cluster": self.cluster, "node": self.node.0,
-        });
-        if !self.managed.is_empty() {
-            value["version"] = 2.into();
-            value["managed_membership"] = self
-                .managed
-                .iter()
-                .map(|group| group.0)
-                .collect::<Vec<_>>()
-                .into();
+    fn physical<T>(
+        &mut self,
+        action: impl FnOnce(&mut custody::Custody) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.validate()?;
+        self.failed = true;
+        let value = action(&mut self.custody)?;
+        self.custody.validate()?;
+        self.failed = false;
+        Ok(value)
+    }
+    fn replace(&mut self, next: schema::Value) -> Result<(), String> {
+        self.validate()?;
+        let bytes = next.encode()?;
+        self.physical(|custody| custody.publish(&bytes))?;
+        self.value = next;
+        Ok(())
+    }
+    pub(super) fn managed(&self) -> &BTreeSet<PlacementGroupId> {
+        &self.value.managed
+    }
+    pub(super) fn reservation(&mut self) -> Result<Option<&Reservation>, String> {
+        self.validate()?;
+        Ok(self.value.control.as_ref())
+    }
+    /// Called after bound membership recovery has validated every new group.
+    pub(super) fn enroll(&mut self, configured: &BTreeSet<PlacementGroupId>) -> Result<(), String> {
+        self.validate()?;
+        if !self.value.managed.is_subset(configured) || configured.len() > MAX_GROUPS {
+            return Err("managed peer groups cannot be omitted or removed".into());
         }
-        let temporary = root.join("IDENTITY.pending");
-        match std::fs::symlink_metadata(&temporary) {
-            Ok(metadata) if metadata.is_file() => {
-                std::fs::remove_file(&temporary).map_err(|error| error.to_string())?;
-            }
-            Ok(_) => return Err("peer identity temporary path is not a regular file".into()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "cannot inspect peer identity temporary path: {error}"
-                ));
-            }
+        if self.value.managed == *configured {
+            return Ok(());
         }
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .map_err(|error| error.to_string())?;
-        file.write_all(&serde_json::to_vec(&value).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())?;
-        std::fs::rename(&temporary, root.join("IDENTITY.json"))
-            .map_err(|error| error.to_string())?;
-        File::open(root)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| error.to_string())
+        let mut next = self.value.clone();
+        next.managed = configured.clone();
+        self.replace(next)
+    }
+    pub(super) fn initial_binding(
+        &mut self,
+        policy: &ControlInitialPolicy,
+    ) -> Result<ControlInitialBinding, String> {
+        self.validate()?;
+        let reservation = self
+            .value
+            .control
+            .as_ref()
+            .ok_or("control reservation is absent")?;
+        if !reservation.matches(policy)? {
+            return Err("control policy differs from native reservation".into());
+        }
+        Ok(ControlInitialBinding {
+            policy: policy.clone(),
+            state: reservation.custody.initial()?,
+        })
+    }
+    pub(super) fn persist_initial(
+        &mut self,
+        policy: &ControlInitialPolicy,
+        event: &ControlInitialTransition<'_>,
+    ) -> Result<(), String> {
+        self.validate()?;
+        let reservation = self
+            .value
+            .control
+            .as_ref()
+            .ok_or("control reservation is absent")?;
+        if event.local() != self.value.node
+            || event.policy().anchor != policy.anchor
+            || event.policy().genesis != policy.genesis
+            || event.policy().limits != policy.limits
+            || !reservation.matches(policy)?
+        {
+            return Err("initial transition differs from native control policy".into());
+        }
+        let expected = reservation.custody.initial()?;
+        if expected != event.expected() || !schema::permitted(expected, event.next()) {
+            return Err("initial transition differs from native selected generation".into());
+        }
+        if let ControlInitialState::Publishing { source, .. }
+        | ControlInitialState::Published { source, .. } = event.next()
+            && (source == self.value.node
+                || !policy
+                    .genesis
+                    .group(policy.anchor.control_pg)
+                    .ok_or("control group absent")?
+                    .voters
+                    .contains(&source))
+        {
+            return Err("initial historical source is not an original voter".into());
+        }
+        let mut next = self.value.clone();
+        next.control.as_mut().expect("reservation checked").custody =
+            ControlCustody::from_initial(event.next());
+        self.replace(next)
+    }
+    pub(super) fn require_unreserved_pg(&mut self, pg: PlacementGroupId) -> Result<(), String> {
+        self.validate()?;
+        if self.value.control.as_ref().is_some_and(|r| r.pg() == pg) {
+            return Err("reserved control cannot use raw learner synchronization".into());
+        }
+        Ok(())
+    }
+    pub(crate) fn require_unreserved(&mut self) -> Result<(), String> {
+        self.validate()?;
+        if self.value.control.is_some() {
+            return Err("reserved control cannot use legacy replication binding".into());
+        }
+        Ok(())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn root() -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "rsfd-managed-identity-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        root
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Boundary {
+    BeforeValidate,
+    BeforeWrite,
+    BeforeFileSync,
+    BeforeRename,
+    AfterRename,
+    BeforeDirectorySync,
+    AfterDirectorySync,
+}
+fn boundary(at: Boundary, root: &Path) -> Result<(), String> {
+    #[cfg(test)]
+    {
+        tests::boundary(at, root)
     }
-    #[test]
-    fn managed_identity_is_monotonic_and_binding_never_downgrades_policy() {
-        let root = root();
-        let cluster = ClusterId::new("managed").unwrap();
-        let mut identity = StateIdentity::bind(&root, &cluster, NodeId(2)).unwrap();
-        let groups = [PlacementGroupId(1), PlacementGroupId(9)].into();
-        identity.enroll(&root, &groups).unwrap();
-        let before = std::fs::read(root.join("IDENTITY.json")).unwrap();
-        bind_state(&root, &cluster, NodeId(2)).unwrap();
-        let mut reopened = StateIdentity::bind(&root, &cluster, NodeId(2)).unwrap();
-        assert_eq!(reopened.managed, groups);
-        assert!(
-            reopened
-                .enroll(&root, &[PlacementGroupId(1)].into())
-                .is_err()
-        );
-        assert_eq!(std::fs::read(root.join("IDENTITY.json")).unwrap(), before);
-        assert!(StateIdentity::bind(&root, &cluster, NodeId(3)).is_err());
-        reopened
-            .enroll(
-                &root,
-                &[
-                    PlacementGroupId(1),
-                    PlacementGroupId(9),
-                    PlacementGroupId(10),
-                ]
-                .into(),
-            )
-            .unwrap();
-        assert_eq!(
-            StateIdentity::bind(&root, &cluster, NodeId(2))
-                .unwrap()
-                .managed
-                .len(),
-            3
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn managed_identity_rejects_duplicate_unknown_and_noncanonical_policy_fields() {
-        for bytes in [
-            r#"{"version":1,"version":2,"cluster":"managed","node":2,"managed_membership":[1]}"#,
-            r#"{"version":2,"cluster":"managed","node":2,"managed_membership":[1],"managed_membership":[9]}"#,
-            r#"{"version":1,"cluster":"managed","node":2,"managed_membership":null}"#,
-            r#"{"version":2,"cluster":"managed","node":2,"managed_membership":[]}"#,
-            r#"{"version":2,"cluster":"managed","node":2,"managed_membership":[1,1]}"#,
-            r#"{"version":2,"cluster":"managed","node":2,"managed_membership":[9,1]}"#,
-            r#"{"version":1,"cluster":"managed","node":2,"extra":0}"#,
-            r#"{"version":2,"cluster":"managed","node":2}"#,
-            r#"{"version":2,"cluster":"managed","node":2,"managed_membership":[1]"#,
-        ] {
-            assert!(StateIdentity::decode(bytes.as_bytes()).is_err(), "{bytes}");
-        }
-    }
-    #[test]
-    #[cfg(unix)]
-    fn managed_identity_rejects_foreign_temporary_paths_without_touching_policy() {
-        let root = root();
-        let cluster = ClusterId::new("managed").unwrap();
-        let mut identity = StateIdentity::bind(&root, &cluster, NodeId(2)).unwrap();
-        let before = std::fs::read(root.join("IDENTITY.json")).unwrap();
-        let foreign = root.join("foreign");
-        std::fs::write(&foreign, b"not an identity temporary file").unwrap();
-        std::os::unix::fs::symlink(&foreign, root.join("IDENTITY.pending")).unwrap();
-        assert!(
-            identity
-                .enroll(&root, &[PlacementGroupId(1)].into())
-                .is_err()
-        );
-        assert_eq!(
-            std::fs::read(&foreign).unwrap(),
-            b"not an identity temporary file"
-        );
-        assert_eq!(std::fs::read(root.join("IDENTITY.json")).unwrap(), before);
-        assert!(identity.managed.is_empty());
-        std::fs::remove_file(root.join("IDENTITY.pending")).unwrap();
-        std::fs::create_dir(root.join("IDENTITY.pending")).unwrap();
-        assert!(
-            identity
-                .enroll(&root, &[PlacementGroupId(1)].into())
-                .is_err()
-        );
-        assert_eq!(std::fs::read(root.join("IDENTITY.json")).unwrap(), before);
-        std::fs::remove_dir_all(root).unwrap();
+    #[cfg(not(test))]
+    {
+        let _ = (at, root);
+        Ok(())
     }
 }

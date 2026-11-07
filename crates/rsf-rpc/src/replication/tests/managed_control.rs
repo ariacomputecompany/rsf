@@ -21,3 +21,5 @@ mod routing;
 mod writer;
 
 mod initial;
+
+mod dedicated_voter;

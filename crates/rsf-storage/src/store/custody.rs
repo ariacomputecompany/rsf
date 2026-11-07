@@ -5,6 +5,8 @@ use super::*;
 use std::io::Read;
 use std::sync::Arc;
 mod append;
+mod bootstrap;
+pub use bootstrap::ProvisionalBootstrap;
 mod discard;
 pub use discard::{SegmentDiscardInventory, SegmentDiscardRemainder};
 mod immutable;

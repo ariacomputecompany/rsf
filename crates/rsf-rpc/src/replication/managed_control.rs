@@ -6,6 +6,8 @@ use rsf_control_state::{
 mod application;
 pub(super) mod initial;
 pub(super) mod learner;
+pub(super) mod native;
+mod voter;
 pub(super) mod writer;
 
 #[derive(Debug)]

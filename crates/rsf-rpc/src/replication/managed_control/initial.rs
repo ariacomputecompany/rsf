@@ -28,7 +28,10 @@ pub struct ControlInitialBinding {
     pub state: ControlInitialState,
 }
 impl ControlInitialPolicy {
-    fn validate_local(&self, local: NodeId) -> Result<(), String> {
+    pub(super) fn validate_local(&self, local: NodeId) -> Result<(), String> {
+        self.limits.validate().map_err(|error| {
+            format!("initial control requires finite limits: {}", error.message)
+        })?;
         let group = self
             .genesis
             .group(self.anchor.control_pg)
