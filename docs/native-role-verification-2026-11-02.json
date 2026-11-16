@@ -1,0 +1,70 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "base_commit": "e91756b9ba54e861de8d7a2162f1ec697cd38013",
+  "tested_source_sha256": "5037bc3bd7c9150ad725f3a7cc0eb6cb4579943ddb7c074dd851fff479f8f567",
+  "source_unchanged": true,
+  "implementation": {
+    "restart": "Native group startup recovers complete owned promoted cells from authoritative replay even with stale learner configuration and deleted original learner storage. Incomplete owned targets retain configured read-only learner custody.",
+    "identity": "Peer constructor rejects durable placement-group remapping and a promotion owner differing from authenticated local node. Local membership and mapped-endpoint checks remain required.",
+    "corruption": "Missing or corrupt published pointers/owner metadata cannot downgrade to learner or initialize old-authority storage. Pending targets require matching node, group and original bootstrap.",
+    "elections": "Declared timing still validates early; recovered voting membership also validates before listening. Recovered promoted cells with stale learner configuration cannot join automatic elections, including mixed-group daemons. Client learner restrictions remain.",
+    "admission": "No new membership operator command, publication RPC or client/control admission is enabled."
+  },
+  "verification": {
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsf-storage",
+      "rsfd"
+    ],
+    "passed": 387,
+    "failed": 0,
+    "ignored": 1,
+    "native_role_regressions": 6,
+    "trace": "artifacts/native-role-packages-20261102.trace.fozzy",
+    "process_log": "artifacts/native-role-packages-20261102-process.log",
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "host_execution_passed": true,
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true,
+    "existing_real_sigkill_boundaries_also_check_pending_status": [
+      "owned",
+      "staged",
+      "renamed",
+      "published"
+    ]
+  },
+  "regression_evidence": {
+    "before_fix_trace": "artifacts/native-role-before-fix-20261102.trace.fozzy",
+    "before_fix_failed_tests": 4,
+    "after_initial_fix_trace": "artifacts/native-role-after-fix-20261102.trace.fozzy",
+    "after_initial_fix_passed_tests": 4,
+    "final_expanded_native_tests_passed": 6,
+    "failed_trace_minimized": "artifacts/native-role-before-fix-20261102.min.trace.fozzy",
+    "shrink_scope": "One recorded host process outcome; replay preserves its exit-101 failure, not a deterministic native process schedule."
+  },
+  "clippy": {
+    "passed": true,
+    "all_targets": true,
+    "warnings_denied": true,
+    "no_deps": true,
+    "log": "artifacts/native-role-20261102-clippy-final.log",
+    "unrestricted_attempt": "artifacts/native-role-20261102-clippy.log",
+    "unrestricted_remaining": "Existing dependency lints in rsf-tuple, rsf-manifest and rsf-prepared."
+  },
+  "review": {
+    "independent_agent_read_only": true,
+    "finding_fixed": "Mixed-group election scheduling previously included recovered stale-learner promoted cells. Explicit voting configuration is now required and regression tested."
+  },
+  "limits": [
+    "Native peer publication quorum, live role handoff and atomic control/catalog admission remain unfinished.",
+    "Opaque pre-RSFC1 protocol payloads exercise native durability here; these role tests do not claim four-surface client admission after membership change.",
+    "Final source full gate, independent-group routing, retention/checkpoint/migration and independent-host/region numeric fault/capacity qualification remain required.",
+    "Recorded host processes and SIGKILL are not machine power-loss tests or deterministic socket/thread scheduling."
+  ]
+}

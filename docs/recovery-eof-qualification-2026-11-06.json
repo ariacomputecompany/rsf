@@ -1,0 +1,383 @@
+{
+  "version": 1,
+  "date": "2026-11-06",
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "change": "Recovery fixture records typed UnexpectedEof without terminating the survivor loop; real closed-socket probes require zero application callbacks, successful authenticated inbound traffic and both actual durable majorities. Other errors still fail.",
+  "observations": {
+    "eof-red-v1": {
+      "source_before": "bcb41fe9be4b82ff58a2bb27228e5691b79efa0c8a724a36ce854b8764090905",
+      "source_after": "bcb41fe9be4b82ff58a2bb27228e5691b79efa0c8a724a36ce854b8764090905",
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-rpc",
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits",
+        "--",
+        "--exact"
+      ],
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 137 filtered out; finished in 6.55s"
+      ],
+      "required_test_outcomes": {
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits": [
+          "FAILED"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": false,
+      "trace_sha256": "6e2274fe829b5d07a93a70f9cbc8d9b66320f208545eaa1af58a1992d2b714b6",
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "60609c38b5a3f6b208e8f778723a357deb15bddd9e00a6e9dd40ac6a3b3f3e69",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "54d0c4366c959875ad00a11ee6e87992c5dd05fbf979afcd198dd716467e564b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 1,
+          "stdout_sha256": "9d6d6d8654a467eaafd9305a02184cf0649f7e20bae0aa9f52542fdf70611804",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "baebc9fc6ca554be0cd65d0675060075456d74e1a725a1c18082eeeab49cba9a",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 1,
+          "stdout_sha256": "2e6103fbca7d2a56c5cb6ee049aa0584aad60a4ef85cdff415a08f91141df67b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-red-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "2d8fe1a584d1524929d4b4eb27d96b84355fcee3f991c5cec24dc6a60f81f1d2",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "execution_sha256": "8157d6eef85dc94f6963f3a43207ff6b46206452924fa568747f90d4aa9f45ed"
+    },
+    "eof-green-v1": {
+      "source_before": "f857373008ff8c6e5b697f87558b78ff6ec102848e7f1e5f8da353785914bb44",
+      "source_after": "f857373008ff8c6e5b697f87558b78ff6ec102848e7f1e5f8da353785914bb44",
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-rpc",
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits",
+        "--",
+        "--exact"
+      ],
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 137 filtered out; finished in 12.46s"
+      ],
+      "required_test_outcomes": {
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": true,
+      "trace_sha256": "f464798a35661e2b8bf5d65c36f49474bb284b5acf5a2815def38d7ff874358e",
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "1f81e3d85013bce1bb3582343a6fe60131e264013a412aaa3868b73ac0978eab",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "94a2a791a66f0aefa74a3e2e4e8b195634fd7bf3ed77deaa89bc2080b0824731",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "01f67708e9a8efe2450686ca3f5bdd7700eba288982c21dcd73d28215d0064e4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "2eefe26724bfb1e9cee43cb71f55a12611aab10eebfbb76ec79f230d9899c3cc",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "483eacb417bfbdb137ab541a562aec34e5f976566c3715dcee7be1cd464cda68",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-green-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "983973d6e764a496a7824dcec2560fac410ed178b5591c7a8a40945323165c35",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "execution_sha256": "19f0749d84026f6ddb37d0500ad9c06a6334014846af2bafc6ea4e137ffa0daf"
+    },
+    "eof-concurrent-v1": {
+      "source_before": "f857373008ff8c6e5b697f87558b78ff6ec102848e7f1e5f8da353785914bb44",
+      "source_after": "f857373008ff8c6e5b697f87558b78ff6ec102848e7f1e5f8da353785914bb44",
+      "source_unchanged": true,
+      "controls_unchanged": true,
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-vsr",
+        "-p",
+        "rsf-rpc",
+        "-p",
+        "rsf-protocol"
+      ],
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.18s",
+        "test result: ok. 138 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 71.92s",
+        "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 103.59s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "required_test_outcomes": {
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": true,
+      "trace_sha256": "9f753b3d3790950aa6175c7802b7b793bd90598a43b3bdbbdf02e5d7e3055d9c",
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "7570e17610569a0bd45c8c7326a83a0b3df42cbd11bfc11b028b36e40e412022",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "5166ec8052da060c63e5e39add2382cf819809449dec4f6a70f9b9d1e08fd715",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "5e7bc6387164122c01fbae517971cef6aeac1ecae705c836066fbc73471b987d",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "db85fefd8cceea85fd2858ba5185151630ea94400a4517470878ef5cd655b993",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "1526f3a484dfdb0b96c5aadc2b594cbfbbfcaf09561de895520c686bf85cea2f",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-eof-concurrent-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "758c5be27f12a62eb72995d1c06ba3223645ea2a3e497b5027f62ec86a9ba430",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "execution_sha256": "133d18e1b9f60ab168a17631c98d2a35c354d33f3300c80a494f409173c6f8c2"
+    }
+  },
+  "limits": [
+    "Test fixture correction only; production service behavior is unchanged.",
+    "Original 15-second recovery budget, 800-ms RPC deadline, retries and concurrent workload preserved.",
+    "RED reproduced both survivor EOF panics after successful STAGE setup.",
+    "The complete V2 baseline remains failed despite its 1602 passing workspace tests; its two failing domains are preserved separately.",
+    "Concurrent success does not establish that the independent STAGE timing failures are fixed."
+  ]
+}

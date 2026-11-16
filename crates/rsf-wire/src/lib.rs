@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod sql_stream;
+
 use std::collections::BTreeSet;
 
 use rsf_core::{ErrorCode, RsfError, RsfResult};

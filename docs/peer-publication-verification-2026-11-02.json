@@ -1,0 +1,85 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "base_commit": "73e822d",
+  "final_source_sha256": "73fac589ee1c85a1b9d359e470897b86d608ac74c5965641720219cf902e5773",
+  "final_source_unchanged": true,
+  "implementation": {
+    "peer_publication": "Authenticated publish/query RPCs bind caller, reporter, placement group, proposal, chosen input and canonical plan. Both wire routes require a trusted materializer.",
+    "custody": "First publication syncs retained quorum input before kernel publication. Learner promotion keeps exclusive cell ownership through synchronous transfer into the voter map.",
+    "historical_retry": "Replay-proven active ancestry permits historical acknowledgements after newer views and promises. Retry applies the current committed prefix and preserves original PUBLICATION bytes, generations, log, receipts, promises and primary-contact clocks.",
+    "cold_decision": "The same retained decision journal recovers through its chosen input, sealed stage and active ancestry even when its initial authority differs. This cannot create a new acceptor or reset promises.",
+    "application_failure": "Failed current-prefix application leaves installation pending. Warm stage receipt reuse requires matching recovery state and no pending application; failed attempts clear stale receipt tokens.",
+    "transport": "One bounded retry resolves transient publication/query transport failures. Semantic errors and authenticated reporter mismatches are rejected."
+  },
+  "affected_packages": {
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsf-storage",
+      "rsfd"
+    ],
+    "passed": 405,
+    "failed": 0,
+    "ignored": 1,
+    "trace": "artifacts/native-publication-packages-20261102.trace.fozzy",
+    "seed": 20260912,
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "host_execution_passed": true,
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true
+  },
+  "focused_verification": {
+    "passed": 76,
+    "failed": 0,
+    "trace": "artifacts/native-publication-tls-fixed-20261102.trace.fozzy",
+    "trace_verify_passed": true,
+    "replay_passed": true,
+    "ci_passed": true
+  },
+  "tls_regressions": [
+    "Permanent deletion of original source and nominated candidate; surviving voter and learner publish, cold-open promoted role, elect another candidate and commit later operations.",
+    "Exact 128 KiB operation, original request receipt and accepted tail survive publication, later views, promises and repeated cold recovery.",
+    "Warm and cold historical retries preserve original proof bytes, active pointer, generations and exact manifest/segment bytes; later application work is rebuilt.",
+    "Wrong caller/input/plan/group, missing materializer, failed application and corrupt promoted owner cannot acknowledge readiness.",
+    "Application failure after durable authority publication resumes cold without another generation or log rewrite.",
+    "Real TLS reply suppression resolves exactly once through the production dispatcher; an authenticated connection cannot return a report naming another voter."
+  ],
+  "fixture_failure": {
+    "trace": "artifacts/native-publication-tls-20261102.trace.fozzy",
+    "failed_tests": 2,
+    "cause": "The readback fixture attempted a second SegmentStore open while a child peer owned the store lock.",
+    "fix": "Read exact manifest and segment bytes without taking ownership or running recovery. Passing focused and affected-package runs include this fix."
+  },
+  "clippy": {
+    "passed": true,
+    "all_targets": true,
+    "warnings_denied": true,
+    "no_deps": true,
+    "log": "artifacts/native-publication-final-20261102-clippy.log"
+  },
+  "review": {
+    "agents": 2,
+    "integration_review_completed": true,
+    "source_ownership_separate": true
+  },
+  "full_gate_required_regressions": 4,
+  "previous_full_gate": {
+    "report": "docs/publication-recovery-full-verification-2026-11-02.json",
+    "passed_domains": 23,
+    "workspace_passed": 1229,
+    "workspace_failed": 0
+  },
+  "limits": [
+    "Native daemon transition configuration and bounded background orchestration are not wired by this change.",
+    "A collected publication quorum is historical evidence; durable global completion and replicated control/catalog admission remain unfinished. No operator membership command is enabled.",
+    "Repeated transitions, removed-role lifecycle, abort/conflict handling, independent-group routing, retention and legacy migration remain required.",
+    "The TLS fixtures use trusted protocol-entry application and do not establish SQL/KV/object/blob semantics across a live native membership transition.",
+    "Local host tests do not qualify independent hosts/regions, power loss, production capacity/p99 targets, or deterministic native socket/thread scheduling.",
+    "The passing scoped Clippy command excludes existing dependency lint debt."
+  ]
+}

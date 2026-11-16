@@ -48,7 +48,7 @@ fn validate(command: &ReplicatedFabricCommand) -> RsfResult<()> {
     }
     Ok(())
 }
-fn field(out: &mut Vec<u8>, value: &[u8]) -> RsfResult<()> {
+pub(in crate::durable) fn field(out: &mut Vec<u8>, value: &[u8]) -> RsfResult<()> {
     if value.len() > rsf_vsr::MAX_REPLICATED_COMMAND_BYTES
         || out.len().saturating_add(4).saturating_add(value.len())
             > rsf_vsr::MAX_REPLICATED_COMMAND_BYTES
@@ -59,7 +59,10 @@ fn field(out: &mut Vec<u8>, value: &[u8]) -> RsfResult<()> {
     out.extend_from_slice(value);
     Ok(())
 }
-fn encode_operation(out: &mut Vec<u8>, operation: &FabricOperation) -> RsfResult<()> {
+pub(in crate::durable) fn encode_operation(
+    out: &mut Vec<u8>,
+    operation: &FabricOperation,
+) -> RsfResult<()> {
     match operation {
         FabricOperation::CatalogMutation { namespace, item } => {
             out.push(1);
@@ -134,15 +137,25 @@ fn encode_operation(out: &mut Vec<u8>, operation: &FabricOperation) -> RsfResult
             out.push(12);
             out.extend_from_slice(digest);
         }
+        FabricOperation::SqlSession {
+            owner,
+            session,
+            digest,
+        } => {
+            out.push(13);
+            field(out, owner.as_bytes())?;
+            field(out, session.as_bytes())?;
+            out.extend_from_slice(digest);
+        }
     }
     Ok(())
 }
-struct Reader<'a> {
-    bytes: &'a [u8],
-    position: usize,
+pub(in crate::durable) struct Reader<'a> {
+    pub(in crate::durable) bytes: &'a [u8],
+    pub(in crate::durable) position: usize,
 }
 impl<'a> Reader<'a> {
-    fn take(&mut self, len: usize) -> RsfResult<&'a [u8]> {
+    pub(in crate::durable) fn take(&mut self, len: usize) -> RsfResult<&'a [u8]> {
         let end = self
             .position
             .checked_add(len)
@@ -163,7 +176,7 @@ impl<'a> Reader<'a> {
     fn u64(&mut self) -> RsfResult<u64> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
-    fn field(&mut self) -> RsfResult<&'a [u8]> {
+    pub(in crate::durable) fn field(&mut self) -> RsfResult<&'a [u8]> {
         let len = self.u32()? as usize;
         self.take(len)
     }
@@ -171,7 +184,7 @@ impl<'a> Reader<'a> {
         String::from_utf8(self.field()?.to_vec())
             .map_err(|_| corrupt("application string is not UTF-8"))
     }
-    fn operation(&mut self) -> RsfResult<FabricOperation> {
+    pub(in crate::durable) fn operation(&mut self) -> RsfResult<FabricOperation> {
         Ok(match self.byte()? {
             1 => FabricOperation::CatalogMutation {
                 namespace: self.string()?,
@@ -231,6 +244,11 @@ impl<'a> Reader<'a> {
                 key: self.string()?,
             },
             12 => FabricOperation::BlobPin {
+                digest: self.take(32)?.try_into().unwrap(),
+            },
+            13 => FabricOperation::SqlSession {
+                owner: self.string()?,
+                session: self.string()?,
                 digest: self.take(32)?.try_into().unwrap(),
             },
             _ => return Err(corrupt("unknown application operation tag")),

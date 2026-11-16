@@ -1,0 +1,834 @@
+{
+  "date": "2026-11-03",
+  "scope": "Complete local custody and streaming membership-copy baseline, including independent test fixture reservation",
+  "all_pass": true,
+  "production_qualified": false,
+  "source_sha256": "97b195e9157471d7aa59c3e22b4ac389aa2f41405b3d205447a37d43269b47f5",
+  "source_unchanged": true,
+  "engine": {
+    "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+    "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "version": "fozzy 0.1.0"
+  },
+  "execution_context": {
+    "cargo_configs": {
+      "/.cargo/config": null,
+      "/.cargo/config.toml": null,
+      "/Users/.cargo/config": null,
+      "/Users/.cargo/config.toml": null,
+      "/Users/deepsaint/.cargo/config": null,
+      "/Users/deepsaint/.cargo/config.toml": null,
+      "/Users/deepsaint/Desktop/.cargo/config": null,
+      "/Users/deepsaint/Desktop/.cargo/config.toml": null,
+      "/Users/deepsaint/Desktop/rsf/.cargo/config": null,
+      "/Users/deepsaint/Desktop/rsf/.cargo/config.toml": null
+    },
+    "environment_sha256": {
+      "CARGO_BUILD_JOBS": null,
+      "CARGO_BUILD_RUSTFLAGS": null,
+      "CARGO_BUILD_TARGET": "602526fe5d0720f8fb8f60272c924a754eb90c461381908e5d8a5f04f6e504c0",
+      "CARGO_ENCODED_RUSTFLAGS": null,
+      "CARGO_HOME": null,
+      "CARGO_INCREMENTAL": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+      "RUSTC": null,
+      "RUSTC_WORKSPACE_WRAPPER": null,
+      "RUSTC_WRAPPER": null,
+      "RUSTDOC": null,
+      "RUSTDOCFLAGS": null,
+      "RUSTFLAGS": null,
+      "RUSTUP_HOME": null,
+      "RUSTUP_TOOLCHAIN": null,
+      "RUST_TEST_THREADS": null
+    },
+    "host": {
+      "machine": "x86_64",
+      "python": "3.14.7",
+      "release": "24.3.0",
+      "system": "Darwin"
+    },
+    "tools": {
+      "cargo": {
+        "path": "/Users/deepsaint/.cargo/bin/cargo",
+        "version": "cargo 1.92.0 (344c4567c 2025-10-21)"
+      },
+      "rustc": {
+        "path": "/Users/deepsaint/.cargo/bin/rustc",
+        "version": "rustc 1.92.0 (ded5c06cf 2025-12-08)\nbinary: rustc\ncommit-hash: ded5c06cf21d2b93bffd5d884aa6e96934ee4234\ncommit-date: 2025-12-08\nhost: aarch64-apple-darwin\nrelease: 1.92.0\nLLVM version: 21.1.3"
+      }
+    }
+  },
+  "seed": 20260912,
+  "workspace_tests": {
+    "passed": 1443,
+    "failed": 0,
+    "ignored": 1
+  },
+  "workspace_ignored_note": "The opt-in daemon stress test is ignored in workspace and required separately in debug and release.",
+  "completed_domains": [
+    "storage",
+    "vsr",
+    "control-state",
+    "membership",
+    "membership-decision",
+    "membership-peer",
+    "membership-staging",
+    "membership-activation",
+    "protocol",
+    "peer-rpc",
+    "kv-transactions",
+    "sql",
+    "authentication",
+    "tenancy",
+    "daemon",
+    "native-membership",
+    "automatic-client",
+    "sql-stream",
+    "daemon-stress",
+    "release-stress",
+    "object-blob",
+    "recovery",
+    "policy",
+    "end-to-end",
+    "workspace"
+  ],
+  "integrated_recovery_regressions": {
+    "interrupted_mkdir_retries_every_existing_ancestor_and_sync_failure": true,
+    "partial_ancestor_creation_and_existing_bytes_are_preserved": true,
+    "file_obstructions_are_errors_without_replacement_or_sync_success": true,
+    "relative_empty_and_parent_components_keep_filesystem_resolution": true,
+    "provisioned_aliases_sync_physical_and_lexical_routes_without_replacement": true,
+    "final_file_alias_publication_covers_both_parents_and_every_failure": true,
+    "process_kill_after_mkdir_requires_barriers_on_visible_retry": true,
+    "newly_created_segment_is_present_before_publication_and_failure_returns_no_writer": true,
+    "existing_segment_failure_preserves_wal_and_releases_lock_before_retry": true,
+    "direct_open_locked_creation_also_executes_publication_before_returning": true,
+    "generic_manifestless_segment_rejection_still_preserves_residue": true,
+    "published_learner_token_rejects_warm_missing_or_corrupt_outer_custody_without_repair": true,
+    "published_learner_token_rejects_changed_inner_generation_and_outer_aliases": true,
+    "newer_legitimate_learner_publication_changes_opaque_token_without_voting_authority": true,
+    "published_learner_token_rejects_missing_inner_directory_and_trailing_dot_root_alias": true,
+    "accepted_majority_reconstruction_never_mixes_rounds_or_inputs": true,
+    "relayed_or_unchanged_promises_do_not_keep_dead_coordinator_preferred": true,
+    "recovery_grace_covers_global_fair_cycles_and_checks_arithmetic": true,
+    "durable_driver_preserves_minority_b_across_partial_copy_restart": true,
+    "delayed_older_state_never_downgrades_or_renews_newer_direct_activity": true,
+    "another_survivor_restarts_phase_one_after_unaccepted_selected_source_dies": true,
+    "additional_copy_source_is_promised_without_replacing_frozen_phase_one_proof": true,
+    "lost_accept_reply_then_metadata_majority_rebinds_complete_copy_as_chosen": true,
+    "real_tls_round_bound_copy_activity_rejects_stale_reads_and_keeps_observers_inert": true,
+    "managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody": true,
+    "real_tls_two_group_recovery_serves_inbound_and_rotates_past_a_blackhole": true,
+    "real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live": true,
+    "durable_group_flushes_each_dirty_segment_before_successor_manifest_and_return": true,
+    "durable_group_is_byte_identical_to_sequential_appends_across_rotation": true,
+    "durable_group_rotated_and_final_flush_failures_fence_without_acknowledging": true,
+    "group_rotation_failure_keeps_the_flushed_prefix_and_fences_the_owner": true,
+    "group_post_flush_stamp_loss_never_recaptures_missing_custody": true,
+    "empty_suffix_after_failed_sync_renews_active_data_before_success": true,
+    "legacy_failed_single_sync_then_reopen_rotation_requires_closed_prefix_renewal": true,
+    "closed_prefix_renewal_rejects_alias_and_stays_fenced_after_restoration": true,
+    "ordinary_append_keeps_original_sync_policy_after_group_success": true,
+    "group_first_validation_is_retryable_but_late_rejection_fences_partial_owner": true,
+    "group_empty_and_none_policy_never_claim_a_flush": true,
+    "group_refreshes_other_handles_and_preserves_own_revision_and_custody_boundaries": true,
+    "input_iterator_unwind_cannot_expose_an_unflushed_live_cursor": true,
+    "rotated_generation_group_preserves_sealed_bytes_publication_boundaries_and_later_appends": true,
+    "installation_input_rejects_wrong_plan_identity_with_valid_quorum_bytes_after_reopen": true,
+    "managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise": true,
+    "managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss": true,
+    "managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers": true,
+    "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed": true,
+    "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt": true,
+    "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input": true,
+    "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries": true,
+    "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair": true,
+    "canonical_commands_reject_every_truncated_prefix_trailing_data_and_unknown_variants": true,
+    "malformed_counts_duplicates_and_oversize_plans_cannot_acquire_an_intent": true,
+    "valid_stale_commands_are_rejected_but_malformed_committed_authority_is_corruption": true,
+    "all_pg_finalization_is_atomic_and_requires_new_control_authority": true,
+    "request_id_reuse_and_identity_rebinding_cannot_mutate_an_existing_plan": true,
+    "a_b_a_membership_keeps_distinct_admission_roots": true,
+    "public_projection_comes_from_committed_live_history_and_survives_cold_replay": true,
+    "uncertain_begin_commit_keeps_its_result_after_survivor_reprepare_and_cold_replay": true,
+    "finalized_catalog_and_admission_survive_an_ordinary_control_election_and_retry": true,
+    "old_control_commit_majority_prevents_begin_reprepare_across_membership": true,
+    "membership_lineage_is_stable_across_ordinary_views_and_exact_across_cold_history": true,
+    "legacy_membership_round_trip_never_aliases_bootstrap_lineage": true,
+    "unpersisted_legacy_bootstrap_does_not_supply_lineage_before_explicit_migration": true,
+    "certified_lineage_does_not_retroactively_certify_legacy_membership_epochs": true,
+    "peer_open_ancestor_barrier_failure_precedes_identity_lock_or_listener": true,
+    "decision_factory_ancestor_barrier_failure_returns_no_owner_or_authority": true,
+    "public_begin_ancestor_barrier_failure_preserves_journal_and_retries_factory": true,
+    "resumed_membership_begin_requires_publication_sync_before_ack_or_journal_binding": true,
+    "strict_existing_replay_does_not_publish_directory_ancestry": true,
+    "create_capable_store_recovery_publishes_fresh_and_existing_routes": true,
+    "public_segment_recovery_publishes_created_file_and_existing_retry": true,
+    "owned_segment_recovery_never_recreates_a_missing_acknowledged_file": true,
+    "ephemeral_segment_lock_does_not_grant_durable_directory_publication": true,
+    "strict_existing_recovery_keeps_missing_store_and_segment_fail_closed": true,
+    "owned_stamp_rejects_missing_truncated_aliased_and_replaced_files_without_repair": true,
+    "own_wal_append_rotation_and_cold_open_establish_new_stamps_without_generic_refresh": true,
+    "generic_second_writer_remains_supported_but_exclusive_stamp_refuses_to_adopt_it": true,
+    "trusted_ancestor_alias_parent_route_is_preserved_but_final_owned_alias_is_rejected": true,
+    "first_unbound_accept_or_choice_requires_publication_before_journal_binding": true,
+    "published_default_history_latches_missing_or_changed_physical_store_custody": true,
+    "managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": true,
+    "finish_recomputes_digest_from_replaced_valid_live_stage_bytes": true,
+    "finish_missing_live_stage_custody_does_not_recreate_it": true,
+    "finish_revalidates_torn_live_tail_before_resumable_retry": true,
+    "concurrent_same_name_same_clock_fixtures_preserve_existing_custody_and_isolation": true,
+    "created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry": true,
+    "bound_choice_uses_live_custody_but_cold_owner_still_renews_ancestors": true,
+    "selected_inbox_begin_reuses_owner_but_still_requires_input_publication": true,
+    "selected_inbox_begin_rejects_missing_manifest_without_recreating_input": true,
+    "ordinary_history_without_learned_exceptions_keeps_public_prepare_validation": true,
+    "learned_exception_binds_the_complete_prepare_after_real_installation_and_restart": true,
+    "chosen_finish_revalidates_missing_and_valid_short_input_before_first_choice": true,
+    "chosen_finish_valid_retry_keeps_one_journal_entry_and_checks_custody_again": true,
+    "membership_cold_validator_visits_each_distinct_complete_input_once_with_replayed_identity": true,
+    "membership_cold_validator_leaves_staged_only_prefix_resumable_without_approval": true,
+    "membership_cold_host_validator_rejection_preserves_promises_and_all_retained_bytes": true,
+    "membership_cold_dedup_never_downgrades_a_complete_bound_input_to_partial": true,
+    "membership_cold_validator_rejects_input_alias_without_touching_its_target": true,
+    "real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry": true,
+    "real_tls_cached_learner_ack_rejects_lost_custody_until_validated_restart": true,
+    "managed_anchor_validation_survives_temporarily_taken_recovery": true,
+    "real_tls_managed_cached_stage_rejects_lost_learner_without_receipt_or_application_work": true,
+    "real_tls_managed_cached_stage_survives_auxiliary_journal_loss_but_not_hosted_loss": true,
+    "real_tls_managed_changed_learner_revalidates_original_authority_before_caching": true,
+    "real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receipt": true,
+    "real_tls_managed_new_choice_revalidates_b_even_when_learner_token_is_unchanged": true,
+    "real_tls_managed_promise_and_accept_reject_lost_learner_before_journal_mutation": true,
+    "real_tls_managed_decision_retries_reject_warm_journal_loss_before_durable_ack": true,
+    "managed_startup_handoff_cannot_substitute_a_for_distinct_chosen_b": true,
+    "managed_startup_handoff_reuses_exact_a_without_rereading_its_wal": true,
+    "real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": true,
+    "real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise": true,
+    "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": true,
+    "owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation": true,
+    "owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix": true,
+    "owned_group_releases_each_payload_before_polling_next_and_fences_unwind": true,
+    "owned_groups_keep_real_sync_fault_and_rotation_boundaries": true,
+    "owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error": true,
+    "same_clock_fixture_drop_preserves_another_owned_store": true,
+    "local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes": true,
+    "local_copy_late_encoding_error_fences_store_and_existing_caller_latch": true,
+    "local_copy_failure_guard_survives_unwind_without_reenabling_caller": true,
+    "local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries": true,
+    "unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal": true,
+    "complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected": true,
+    "real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched": true,
+    "real_tls_stage_loss_cannot_block_independently_backed_historical_publication": true,
+    "immutable_capture_rejects_equal_byte_replacement_before_scanning": true,
+    "immutable_custody_rejects_replacement_alias_and_hardlink_without_reading_wal_on_validation": true,
+    "immutable_recovery_never_repairs_torn_active_tail_or_creates_missing_sidecars": true,
+    "fixed_metadata_preserves_default_missing_pointer_and_valid_installed_generation": true,
+    "fixed_pointer_seal_and_marker_reject_sparse_trailing_truncated_and_corrupt_files_without_repair": true,
+    "fixed_publication_reader_bounds_even_an_unending_source_to_one_extra_byte": true,
+    "fixed_publication_reader_propagates_io_failure_without_returning_partial_success": true,
+    "cached_published_learner_success_requires_outer_and_inner_custody_before_mutation": true,
+    "unpublished_token_error_does_not_poison_later_valid_publication_and_retries": true,
+    "membership_decision_exact_retries_reject_lost_journal_with_complete_input_intact": true,
+    "membership_decision_metadata_preserves_historical_acceptance_without_scrubbing_input_data": true,
+    "membership_decision_post_append_custody_failure_returns_no_ack_or_logical_swap": true,
+    "membership_decision_read_only_failure_latches_even_after_exact_path_restoration": true,
+    "each_stage_effect_rejects_its_first_custody_fault_before_callback_or_target_publication": true,
+    "sealed_stage_cold_recovery_never_truncates_source_or_selected_torn_tail": true,
+    "stage_callback_and_publication_hook_cannot_repair_or_acknowledge_lost_custody": true,
+    "stage_own_receipt_and_publication_transitions_preserve_first_proof_and_need_no_wal_read": true,
+    "stage_report_first_observes_each_owned_loss_and_stays_failed_after_original_inode_restore": true,
+    "stage_root_replacement_and_retained_publication_loss_require_fresh_owner": true,
+    "actual_promoted_pointer_and_owner_fixed_metadata_reject_damage_and_preserve_cold_replay": true,
+    "stage_lock_creation_never_follows_a_symlink_substituted_after_precheck": true,
+    "stage_lock_rejects_existing_symlink_and_hardlink_without_changing_target": true,
+    "stage_owner_keeps_original_descriptor_locked_and_rejects_renamed_path_replacement": true
+  },
+  "native_membership_cases": [
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 14.87s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 2.86s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 1.47s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 9.05s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 2.42s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 1.25s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 14.76s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 27.04s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 292.38s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 72.02s"
+      ]
+    },
+    {
+      "profile": "debug",
+      "arguments": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 14.69s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 8.68s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 16.49s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 22.62s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 61.13s"
+      ]
+    },
+    {
+      "profile": "release",
+      "arguments": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+        "--",
+        "--nocapture"
+      ],
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 4.09s"
+      ]
+    }
+  ],
+  "workload_metrics": {
+    "daemon-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 198,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 14.884677472684098,
+      "elapsed_ms": 57610,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 438100,
+        "p50": 260186,
+        "p95": 315517,
+        "p99": 429761
+      },
+      "payload_bytes": 442587,
+      "profile": "debug",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    },
+    "release-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 774,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 22.670374059991243,
+      "elapsed_ms": 91662,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 348955,
+        "p50": 176073,
+        "p95": 214130,
+        "p99": 276748
+      },
+      "payload_bytes": 1769691,
+      "profile": "release",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    }
+  },
+  "automatic_client_metrics": {
+    "debug": {
+      "acknowledged_before_crash": 4,
+      "active_sql_session_resumed": true,
+      "client_transport_retries": 0,
+      "commit_confirmation_retries": 0,
+      "concurrent_clients": 4,
+      "coordinator_recoveries_before_crash": 3,
+      "coordinator_reuses_before_crash": 150,
+      "disjoint_sql_sessions_committed": true,
+      "elapsed_ms": 68167,
+      "history_growth_ms": 33127,
+      "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
+      "precrash_sql_read_dependency_recovered": true,
+      "primary_state_deleted": true,
+      "profile": "debug",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "serializable_sql_phantom_rejected": true,
+      "sql_key_components_isolated": true,
+      "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 162,
+      "workload": "automatic-client-takeover"
+    },
+    "release": {
+      "acknowledged_before_crash": 4,
+      "active_sql_session_resumed": true,
+      "client_transport_retries": 0,
+      "commit_confirmation_retries": 0,
+      "concurrent_clients": 4,
+      "coordinator_recoveries_before_crash": 3,
+      "coordinator_reuses_before_crash": 150,
+      "disjoint_sql_sessions_committed": true,
+      "elapsed_ms": 57853,
+      "history_growth_ms": 28135,
+      "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
+      "precrash_sql_read_dependency_recovered": true,
+      "primary_state_deleted": true,
+      "profile": "release",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "serializable_sql_phantom_rejected": true,
+      "sql_key_components_isolated": true,
+      "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 162,
+      "workload": "automatic-client-takeover"
+    }
+  },
+  "sql_stream_metrics": {
+    "debug": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 38962,
+      "indexed_queries_verified": true,
+      "profile": "debug",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    },
+    "release": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 16448,
+      "indexed_queries_verified": true,
+      "profile": "release",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    }
+  },
+  "coverage_per_domain": [
+    "five-run doctor",
+    "strict deterministic test",
+    "real host recorded run",
+    "strict trace verification",
+    "replay",
+    "CI"
+  ],
+  "trace_manifest": {
+    "authentication": {
+      "path": "artifacts/verification.custody-group-20261103-v1/authentication.trace.fozzy",
+      "sha256": "0a8be02a74a87006cb3dd9cdc1e50d778d98c09d1de1a4fb20dd2a53160cfa73",
+      "attempt": 1
+    },
+    "automatic-client": {
+      "path": "artifacts/verification.custody-group-20261103-v1/automatic-client.trace.fozzy",
+      "sha256": "b45632235ce3a9e0a8e1a4562a0abbc9f01c00249e226602e5d480039bd82750",
+      "attempt": 1
+    },
+    "control-state": {
+      "path": "artifacts/verification.custody-group-20261103-v1/control-state.trace.fozzy",
+      "sha256": "75f155012cf1fa72b79f20177ac443c096c623bf7972c1874ded688ddca7597e",
+      "attempt": 1
+    },
+    "daemon": {
+      "path": "artifacts/verification.custody-group-20261103-v1/daemon.trace.fozzy",
+      "sha256": "88351b672926534672646f18edf835441c03f9cc221e261c00f97304fd8cd702",
+      "attempt": 1
+    },
+    "daemon-stress": {
+      "path": "artifacts/verification.custody-group-20261103-v1/daemon-stress.trace.fozzy",
+      "sha256": "783dd2197b73902d95a3e51a152c5224980417b0f0461f2bbc5fb87c95414caf",
+      "attempt": 1
+    },
+    "end-to-end": {
+      "path": "artifacts/verification.custody-group-20261103-v1/end-to-end.trace.fozzy",
+      "sha256": "2b5709438bee39773184fda3b8b279ce09b031ad17eccb3b7d3f9ff4dbc343c2",
+      "attempt": 1
+    },
+    "kv-transactions": {
+      "path": "artifacts/verification.custody-group-20261103-v1/kv-transactions.trace.fozzy",
+      "sha256": "8a411fe1d21f9bc50da1cc21a1f82e2de07691e00808f5f8e9fc59968994f121",
+      "attempt": 1
+    },
+    "membership": {
+      "path": "artifacts/verification.custody-group-20261103-v1/membership.trace.fozzy",
+      "sha256": "8faae0aa95e2985754730bdea48459a84a1c2d0ed40662f03140f308a8970a4a",
+      "attempt": 1
+    },
+    "membership-activation": {
+      "path": "artifacts/verification.custody-group-20261103-v1/membership-activation.trace.fozzy",
+      "sha256": "68bcc2b3cc8917e6ffb4b13c55906c6ce101c454bdf9a424d32a3725628e6d55",
+      "attempt": 1
+    },
+    "membership-decision": {
+      "path": "artifacts/verification.custody-group-20261103-v1/membership-decision.trace.fozzy",
+      "sha256": "c51e228c93eea043e54c68b78cb425831caa61101dd846348fc833a12e8f531a",
+      "attempt": 1
+    },
+    "membership-peer": {
+      "path": "artifacts/verification.custody-group-20261103-v1/membership-peer.trace.fozzy",
+      "sha256": "75717de402b90f35bb004b81cba1e59277fb22b02f34637978c61c5e467f95c8",
+      "attempt": 1
+    },
+    "membership-staging": {
+      "path": "artifacts/verification.custody-group-20261103-v1/membership-staging.trace.fozzy",
+      "sha256": "3c964361f821a8d6ab38f8cd5a06609574921128efde2e3fbb03c5ab76a92b95",
+      "attempt": 1
+    },
+    "native-membership": {
+      "path": "artifacts/verification.custody-group-20261103-v1/native-membership.trace.fozzy",
+      "sha256": "edda1e34682cf33360835c59afd7ac2926a47525e99b17db7711c37f9546bafb",
+      "attempt": 1
+    },
+    "object-blob": {
+      "path": "artifacts/verification.custody-group-20261103-v1/object-blob.trace.fozzy",
+      "sha256": "ba4067481d76f050c87c6dbef53eaf7981d59d28b1e832afd4cfb897535c26a2",
+      "attempt": 1
+    },
+    "peer-rpc": {
+      "path": "artifacts/verification.custody-group-20261103-v1/peer-rpc.trace.fozzy",
+      "sha256": "0b1aa9b6e5b115580f2c1a1366406fca1149546ce7cc9cf290e1bda716833965",
+      "attempt": 1
+    },
+    "policy": {
+      "path": "artifacts/verification.custody-group-20261103-v1/policy.trace.fozzy",
+      "sha256": "418613015da1cab846198f2152908bbf5d579059cfd03f1117e861e146c91ae8",
+      "attempt": 1
+    },
+    "protocol": {
+      "path": "artifacts/verification.custody-group-20261103-v1/protocol.trace.fozzy",
+      "sha256": "114c35f4f5e4e73a59bd3448f94bcad3d6fe701a6746e5e21aa3eb509e81af24",
+      "attempt": 1
+    },
+    "recovery": {
+      "path": "artifacts/verification.custody-group-20261103-v1/recovery.trace.fozzy",
+      "sha256": "0e7e685f51b4d9140bb2bb335dc179b7e95eb4299ec0c4589dda4f34f01e5571",
+      "attempt": 1
+    },
+    "release-stress": {
+      "path": "artifacts/verification.custody-group-20261103-v1/release-stress.trace.fozzy",
+      "sha256": "0d791e366ab40748ab1e624e738dc653da05ea678a4e0ee07c93bd92b892abbf",
+      "attempt": 1
+    },
+    "sql": {
+      "path": "artifacts/verification.custody-group-20261103-v1/sql.trace.fozzy",
+      "sha256": "7bd7844be3824af7f750d505a5b7751c2321c0b2524b204a2fd99835363260ab",
+      "attempt": 1
+    },
+    "sql-stream": {
+      "path": "artifacts/verification.custody-group-20261103-v1/sql-stream.trace.fozzy",
+      "sha256": "8fcdb070a810be7e26873e2e33c5bea168eaf7c24cded25920ed0e8d1565eb59",
+      "attempt": 1
+    },
+    "storage": {
+      "path": "artifacts/verification.custody-group-20261103-v1/storage.trace.fozzy",
+      "sha256": "8d29c4524b2f3b8cf89926fc3abc20b26810b3a6aaf8d1a9fcbe65af9566fc8c",
+      "attempt": 1
+    },
+    "tenancy": {
+      "path": "artifacts/verification.custody-group-20261103-v1/tenancy.trace.fozzy",
+      "sha256": "993b72430051578c1b8844d1c745f963dae3add412cb5949e98cd758a44d30bd",
+      "attempt": 1
+    },
+    "vsr": {
+      "path": "artifacts/verification.custody-group-20261103-v1/vsr.trace.fozzy",
+      "sha256": "87fb86168aeb7be247bab5e793e9227308cfc5d9b3cf19e771e328f4b275b4e8",
+      "attempt": 1
+    },
+    "workspace": {
+      "path": "artifacts/verification.custody-group-20261103-v1/workspace.trace.fozzy",
+      "sha256": "bf45b643f7a818330393343c0ee5799d1b2453291b546f97905af91e42f91630",
+      "attempt": 1
+    }
+  },
+  "summary": {
+    "path": "artifacts/verification.custody-group-20261103-v1/summary.json",
+    "sha256": "c4de1745c1740f33e6d415e16909d380ce696b82584f34cb084ed58d26574169"
+  },
+  "checkpoint": {
+    "path": "artifacts/verification.custody-group-20261103-v1/checkpoint.json",
+    "sha256": "4b8270112aa57934ee04e78c2a7a96c338700a6fe5c0f40f179558d427101b47"
+  },
+  "source_base_commit": "e6b8f7bd6b2551e9290867d898686dd8ac9bc070",
+  "scoped_regression_reports": [
+    "docs/custody-regression-verification-2026-11-03.json",
+    "docs/membership-group-verification-2026-11-03.json"
+  ],
+  "installed_engine_replaced": false,
+  "cicd_used": false,
+  "verification_limits": [
+    "Strict doctor/test validate scripted scenario orchestration. Actual tests execute in the separately recorded host run.",
+    "Trace replay verifies recorded observations; it is not another native test execution and does not make host scheduling deterministic.",
+    "All processes run on one host. These measurements do not certify independent-host, region, machine-power-loss or production capacity targets.",
+    "Managed control initiation/admission and other release blockers remain in WORK.md.",
+    "Linux is the sole production target; these development-host results do not qualify Linux. No hosted CI/CD is authorized.",
+    "Prior full and affected failures remain preserved. Subsequent passes do not establish their exact causes. Streaming group copy reduces required data-sync calls without changing deadlines, retries, workloads or concurrency; the deterministic fixture regression establishes a separate helper naming defect."
+  ],
+  "earlier_attempts": [
+    "docs/custody-affected-attempt-2026-11-03.json",
+    "docs/custody-full-v1-attempt-2026-11-03.json"
+  ],
+  "diagnostic_cache_note": {
+    "path": "artifacts/verification.custody-group-20261103-v1/root-diagnostic-bytecode-cache/record.json",
+    "sha256": "1c5d987717ccd1d1142f706289e3e6fd987c8654bb1214747a58b726a8ad046b",
+    "record": {
+      "scope": "Transient interpreter cache from root read-only fingerprint diagnostic, not source edits",
+      "path": "scripts/__pycache__/verify-fozzy.cpython-314.pyc",
+      "sha256": "ae001e15076ccce49a7a0f1a95614645d2e07d06b798a80f9dbd3b14a2f44719",
+      "mtime_ns": 1793749127456754426,
+      "source_without_only_this_cache": "97b195e9157471d7aa59c3e22b4ac389aa2f41405b3d205447a37d43269b47f5",
+      "reason": "Root imported verifier without -B. Python wrote this single cache file, which conservative source fingerprint includes. No Rust/source/scenario bytes changed. Native-membership host test was active; verifier runs as a Python -B main script and does not import this cache.",
+      "action": "Preserve exact cache as artifact, remove only root-generated cache, recheck complete fingerprint. Use python3 -B for imports henceforth.",
+      "recorded_utc": "2026-11-03T23:39:11Z"
+    }
+  }
+}

@@ -164,6 +164,7 @@ pub fn send(
 ) -> std::io::Result<String> {
     use std::io::{Read, Write};
     let socket = std::net::TcpStream::connect(addr)?;
+    socket.set_nodelay(true)?;
     socket.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
     socket.set_write_timeout(Some(std::time::Duration::from_secs(3)))?;
     let conn = rustls::ClientConnection::new(config, "localhost".try_into().unwrap()).unwrap();

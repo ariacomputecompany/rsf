@@ -134,6 +134,10 @@ impl DmlOperation {
 pub struct SqlDmlPipeline;
 
 impl SqlDmlPipeline {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing borrowed execution ports explicit in the public pipeline API"
+    )]
     pub fn execute(
         &self,
         catalog: &CatalogEngine,
@@ -951,7 +955,11 @@ mod tests {
             SqlDmlPipelineDecision::SessionStaged { mutations: 2, .. }
         ));
         let overlay = session_transactions
-            .read("session-sqldml", &kv, b"table/users/pk/7".to_vec())
+            .read(
+                "session-sqldml",
+                &kv,
+                rsf_core::relational_key::RelationalKeyFormat::default().row_key("users", "7"),
+            )
             .unwrap();
         assert!(matches!(
             overlay,

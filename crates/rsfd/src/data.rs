@@ -1,6 +1,11 @@
+mod cache;
+mod deadline;
+pub(crate) mod execution;
+mod sql_stream;
 use crate::replication::ReplicationTransport;
 type DataRouter = VsrBackedFabricRouter<ReplicationTransport>;
 
+use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -17,7 +22,9 @@ use rsf_wire::{
     RequestEnvelope, WireAdapter, WireCodec, WireDecision, WireOperationKind, WireProtocol,
 };
 
+pub(crate) const DATA_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_DATA_FRAME_BYTES: u32 = 64 * 1024;
+const MAX_DATA_REQUESTS_PER_TICK: usize = 64;
 
 pub struct DataPlaneListener {
     listener: TcpListener,
@@ -52,6 +59,37 @@ impl DataPlaneListener {
     }
 
     pub fn serve_pending(&self, out: &mut impl Write) -> Result<usize, String> {
+        let result = self.serve_with(
+            MAX_DATA_REQUESTS_PER_TICK,
+            &mut |envelope, fingerprint, output| {
+                self.executor
+                    .execute_with_output(envelope, fingerprint, output)
+            },
+            out,
+        );
+        // Keep one application writer warm, but relinquish protocol ownership
+        // before health/status recovery and independently configured observers.
+        self.executor
+            .park_application()
+            .map_err(|err| err.message)?;
+        result
+    }
+
+    /// One connection per peer-control tick bounds application admission work.
+    pub(crate) fn serve_one_with(
+        &self,
+        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
+        out: &mut impl Write,
+    ) -> Result<usize, String> {
+        self.serve_with(1, executor, out)
+    }
+
+    fn serve_with(
+        &self,
+        limit: usize,
+        executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
+        out: &mut impl Write,
+    ) -> Result<usize, String> {
         let mut served = 0_usize;
         loop {
             match self.listener.accept() {
@@ -60,15 +98,21 @@ impl DataPlaneListener {
                         stream,
                         &self.codec,
                         &self.adapter,
-                        &self.executor,
+                        executor,
                         self.tls.clone(),
                     )
                     .unwrap_or_else(|err| DataPlaneResponse::Rejected {
                         protocol: "tls",
-                        reason: format!("secure connection failed: {err}"),
+                        // This may be a response-write failure after execution,
+                        // not just a handshake/read failure before admission.
+                        mutation: MutationOutcome::Unknown,
+                        reason: format!("connection failed: {err}"),
                     });
                     emit_data_plane_response(out, peer, &response)?;
                     served = served.saturating_add(1);
+                    if served == limit {
+                        return Ok(served);
+                    }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(served),
                 Err(err) => return Err(format!("failed to accept daemon data request: {err}")),
@@ -78,7 +122,28 @@ impl DataPlaneListener {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MutationOutcome {
+    NotAttempted,
+    Unknown,
+}
+
+impl MutationOutcome {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotAttempted => "not-attempted",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataPlaneResponse {
+    Streamed {
+        protocol: &'static str,
+        rows: usize,
+        bytes: u64,
+        version: u64,
+    },
     Executed {
         protocol: &'static str,
         operation_kind: &'static str,
@@ -90,343 +155,142 @@ pub enum DataPlaneResponse {
     },
     Rejected {
         protocol: &'static str,
+        mutation: MutationOutcome,
         reason: String,
+    },
+    Redirect {
+        protocol: &'static str,
+        primary: u64,
+        address: SocketAddr,
     },
     Corrupt {
         reason: String,
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct DataPlaneExecutor {
     state: PathBuf,
+    cached: RefCell<Option<CachedRuntime>>,
+    parked: RefCell<Option<cache::ParkedApplication>>,
+    cache_failure: RefCell<Option<String>>,
 }
 
 impl DataPlaneExecutor {
     pub fn new(state: impl Into<PathBuf>) -> Self {
         Self {
             state: state.into(),
+            cached: RefCell::new(None),
+            parked: RefCell::new(None),
+            cache_failure: RefCell::new(None),
         }
     }
 
+    #[cfg(test)]
     fn execute(&self, envelope: RequestEnvelope, fingerprint: &[u8; 32]) -> DataPlaneResponse {
+        self.execute_with_output(envelope, fingerprint, &mut std::io::sink())
+    }
+    fn execute_with_output(
+        &self,
+        envelope: RequestEnvelope,
+        fingerprint: &[u8; 32],
+        output: &mut dyn Write,
+    ) -> DataPlaneResponse {
         if let Err(err) = crate::security::authorize(&self.state, fingerprint, &envelope) {
             return DataPlaneResponse::Rejected {
                 protocol: envelope.protocol.as_str(),
+                mutation: MutationOutcome::NotAttempted,
                 reason: err.message,
             };
         }
-        match envelope.protocol {
-            WireProtocol::Sql => {
-                self.execute_sql(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Sql.as_str(),
-                        reason: err.message,
-                    })
-            }
-            WireProtocol::Kv => {
-                self.execute_kv(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Kv.as_str(),
-                        reason: err.message,
-                    })
-            }
-            WireProtocol::Blob => {
-                self.execute_blob(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Blob.as_str(),
-                        reason: err.message,
-                    })
-            }
-            WireProtocol::Object => {
-                self.execute_object(envelope)
-                    .unwrap_or_else(|err| DataPlaneResponse::Rejected {
-                        protocol: WireProtocol::Object.as_str(),
-                        reason: err.message,
-                    })
-            }
-            protocol => DataPlaneResponse::Rejected {
+        if let Some(reason) = self.cache_failure.borrow().as_ref() {
+            return DataPlaneResponse::Rejected {
+                protocol: envelope.protocol.as_str(),
+                mutation: MutationOutcome::NotAttempted,
+                reason: format!("application cache is fenced; reopen before continuing: {reason}"),
+            };
+        }
+        let protocol = envelope.protocol;
+        // Once an authorized mutation enters execution, storage/replication may
+        // have persisted an intent before an error. No generic error code can
+        // prove that it was rolled back, including an I/O error during fsync.
+        let mutation = match envelope.operation_kind {
+            WireOperationKind::Read => MutationOutcome::NotAttempted,
+            WireOperationKind::Write | WireOperationKind::Admin => MutationOutcome::Unknown,
+        };
+        let result = match protocol {
+            WireProtocol::Sql => self.execute_sql(envelope, output),
+            WireProtocol::Kv => self.execute_kv(envelope),
+            WireProtocol::Blob => self.execute_blob(envelope),
+            WireProtocol::Object => self.execute_object(envelope),
+            protocol => return DataPlaneResponse::Rejected {
                 protocol: protocol.as_str(),
+                mutation: MutationOutcome::NotAttempted,
                 reason: "data-plane execution handoff is currently available for sql, kv, blob, and object requests"
                     .to_string(),
             },
-        }
-    }
-
-    fn execute_sql(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        ensure_empty_body(&envelope.body, "sql")?;
-        let request_client = sql_request_client_from_envelope(&envelope)?;
-        let mut runtime = self.open_sql_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
-        if envelope.operation_kind == WireOperationKind::Read
-            && runtime.router.transport_mut().is_network()
-        {
-            runtime.router.confirm_read_quorum()?;
-        }
-        let execution = runtime.sql.execute(
-            &mut runtime.router,
-            PlacementGroupId(1),
-            &envelope.operation,
-            request_client,
-        )?;
-        let payload = match &execution.outcome {
-            SqlOutcome::Selected { rows } => {
-                serde_json::to_vec(&rows.iter().map(|row| &row.columns).collect::<Vec<_>>())
-                    .map_err(|err| invalid(format!("failed to encode SQL result: {err}")))?
-            }
-            _ => Vec::new(),
         };
-        Ok(DataPlaneResponse::Executed {
-            protocol: envelope.protocol.as_str(),
-            operation_kind: operation_kind_label(envelope.operation_kind),
-            surface: "sql",
-            version: execution.version.map(|version| version.0),
-            bytes: payload.len() as u64,
-            payload,
-            detail: format!(
-                "{} replayed={}",
-                sql_outcome_detail(&execution.outcome),
-                execution.replayed
-            ),
+        result.unwrap_or_else(|err| DataPlaneResponse::Rejected {
+            protocol: protocol.as_str(),
+            mutation,
+            reason: err.message,
         })
     }
 
+    fn execute_sql(
+        &self,
+        envelope: RequestEnvelope,
+        output: &mut dyn Write,
+    ) -> RsfResult<DataPlaneResponse> {
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_sql_runtime(namespace)?;
+        let response = execution::sql(&envelope, &mut runtime.router, &mut runtime.sql, output);
+        self.remember(namespace, Runtime::Sql(Box::new(runtime)));
+        response
+    }
+
     fn execute_kv(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_kv_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_kv_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
-        if matches!(&command, KvCommand::Get { .. }) && runtime.router.transport_mut().is_network()
-        {
-            runtime.router.confirm_read_quorum()?;
-        }
-        match command {
-            KvCommand::Get { key } => {
-                let value = runtime.kv.get(key.as_bytes());
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "kv",
-                    version: value.map(|value| value.version.0),
-                    bytes: value.map_or(0, |value| value.value.len() as u64),
-                    payload: value.map_or_else(Vec::new, |value| value.value.clone()),
-                    detail: match value {
-                        Some(value) => format!(
-                            "hit key={} version={} deleted={}",
-                            key, value.version.0, value.deleted
-                        ),
-                        None => format!("miss key={key}"),
-                    },
-                })
-            }
-            KvCommand::Set { key, value } => {
-                let request = client_request_from_envelope(&envelope)?;
-                let snapshot = runtime.kv.snapshot(&runtime.router);
-                let result = runtime.kv.commit_batch_routed(
-                    &mut runtime.router,
-                    KvBatch {
-                        client_request: Some(request),
-                        snapshot,
-                        mutations: vec![KvMutation::Set {
-                            key: key.as_bytes().to_vec(),
-                            value: value.clone(),
-                        }],
-                    },
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "kv",
-                    version: Some(result.version.0),
-                    bytes: value.len() as u64,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "set key={} replayed={} placement_group={} log_index={}",
-                        key,
-                        result.replayed,
-                        result.evidence.placement_group.0,
-                        result.evidence.log_index.0
-                    ),
-                })
-            }
-            KvCommand::Clear { key } => {
-                let request = client_request_from_envelope(&envelope)?;
-                let snapshot = runtime.kv.snapshot(&runtime.router);
-                let result = runtime.kv.commit_batch_routed(
-                    &mut runtime.router,
-                    KvBatch {
-                        client_request: Some(request),
-                        snapshot,
-                        mutations: vec![KvMutation::Clear {
-                            key: key.as_bytes().to_vec(),
-                        }],
-                    },
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "kv",
-                    version: Some(result.version.0),
-                    bytes: 0,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "clear key={} replayed={} placement_group={} log_index={}",
-                        key,
-                        result.replayed,
-                        result.evidence.placement_group.0,
-                        result.evidence.log_index.0
-                    ),
-                })
-            }
-        }
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_kv_runtime(namespace)?;
+        let response = execution::kv(&envelope, &mut runtime.router, &mut runtime.kv);
+        self.remember(namespace, Runtime::Kv(Box::new(runtime)));
+        response
     }
 
     fn execute_blob(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_blob_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_blob_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
-        match command {
-            BlobCommand::Put { name: _, bytes } => {
-                let record = runtime.blobs.put_request(
-                    &mut runtime.router,
-                    PlacementGroupId(1),
-                    client_request_from_envelope_for_surface(&envelope, "blob")?,
-                    bytes,
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "blob",
-                    version: Some(record.pin_version.0),
-                    bytes: record.bytes,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "put id=blake3:{} deduped={} pins={} placement_group={} log_index={}",
-                        hex_bytes(record.id.as_bytes()),
-                        record.deduped,
-                        record.pins,
-                        record.pin_evidence.placement_group.0,
-                        record.pin_evidence.log_index.0
-                    ),
-                })
-            }
-            BlobCommand::Get { id } => {
-                let bytes = runtime.blobs.read_verified(&id)?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "blob",
-                    version: None,
-                    bytes: bytes.len() as u64,
-                    payload: bytes,
-                    detail: format!("hit id=blake3:{}", hex_bytes(id.as_bytes())),
-                })
-            }
-        }
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_blob_runtime(namespace)?;
+        let response = execution::blob(&envelope, &mut runtime.router, &mut runtime.blobs);
+        self.remember(namespace, Runtime::Blob(Box::new(runtime)));
+        response
     }
 
     fn execute_object(&self, envelope: RequestEnvelope) -> RsfResult<DataPlaneResponse> {
-        let command = parse_object_command(&envelope.operation, &envelope.body)?;
-        let mut runtime = self.open_object_runtime(
-            envelope
-                .namespace
-                .as_deref()
-                .ok_or_else(|| invalid("namespace is required"))?,
-        )?;
-        if matches!(&command, ObjectCommand::Get { .. })
-            && runtime.router.transport_mut().is_network()
-        {
-            runtime.router.confirm_read_quorum()?;
-        }
-        match command {
-            ObjectCommand::CreateBucket { bucket } => {
-                let record = runtime.objects.create_bucket_request(
-                    &mut runtime.router,
-                    PlacementGroupId(1),
-                    client_request_from_envelope_for_surface(&envelope, "object")?,
-                    bucket,
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "object",
-                    version: Some(record.version.0),
-                    bytes: 0,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "create_bucket bucket={} placement_group={} log_index={}",
-                        record.name, record.evidence.placement_group.0, record.evidence.log_index.0
-                    ),
-                })
-            }
-            ObjectCommand::Put { bucket, key, bytes } => {
-                let request = client_request_from_envelope_for_surface(&envelope, "object")?;
-                let put = runtime.objects.put(
-                    &mut runtime.router,
-                    PlacementGroupId(1),
-                    PlacementGroupId(1),
-                    request,
-                    bucket,
-                    key,
-                    bytes,
-                )?;
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "object",
-                    version: Some(put.head.version.0),
-                    bytes: put.head.bytes,
-                    payload: Vec::new(),
-                    detail: format!(
-                        "put bucket={} key={} id=blake3:{} manifest=blake3:{} deduped={} pins={} placement_group={} log_index={}",
-                        put.head.bucket,
-                        put.head.key,
-                        hex_bytes(put.head.content.as_bytes()),
-                        hex_bytes(put.head.manifest_digest.as_bytes()),
-                        put.deduped,
-                        put.pins,
-                        put.head.evidence.placement_group.0,
-                        put.head.evidence.log_index.0
-                    ),
-                })
-            }
-            ObjectCommand::Get { bucket, key } => {
-                let bytes = runtime.objects.read_verified(&bucket, &key)?;
-                let head = runtime
-                    .objects
-                    .head(&bucket, &key)
-                    .expect("object head exists after verified read");
-                Ok(DataPlaneResponse::Executed {
-                    protocol: envelope.protocol.as_str(),
-                    operation_kind: operation_kind_label(envelope.operation_kind),
-                    surface: "object",
-                    version: Some(head.version.0),
-                    bytes: bytes.len() as u64,
-                    payload: bytes,
-                    detail: format!(
-                        "hit bucket={} key={} id=blake3:{} manifest=blake3:{}",
-                        bucket,
-                        key,
-                        hex_bytes(head.content.as_bytes()),
-                        hex_bytes(head.manifest_digest.as_bytes())
-                    ),
-                })
-            }
-        }
+        let namespace = envelope
+            .namespace
+            .as_deref()
+            .ok_or_else(|| invalid("namespace is required"))?;
+        let mut runtime = self.open_object_runtime(namespace)?;
+        let response = execution::object(&envelope, &mut runtime.router, &mut runtime.objects);
+        self.remember(namespace, Runtime::Object(Box::new(runtime)));
+        response
     }
 
     fn open_kv_runtime(&self, namespace: &str) -> RsfResult<KvRuntime> {
+        if let Some(Runtime::Kv(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Kv)?
+        {
+            return Ok(*runtime);
+        }
         let (mut router, epoch) = self.open_router()?;
         let mut kv = DurableKvEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("kv"),
@@ -445,6 +309,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_sql_runtime(&self, namespace: &str) -> RsfResult<SqlRuntime> {
+        if let Some(Runtime::Sql(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Sql)?
+        {
+            return Ok(*runtime);
+        }
         let (mut router, _) = self.open_router()?;
         let mut sql = DurableSqlEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("sql"),
@@ -462,6 +331,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_blob_runtime(&self, namespace: &str) -> RsfResult<BlobRuntime> {
+        if let Some(Runtime::Blob(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Blob)?
+        {
+            return Ok(*runtime);
+        }
         let (router, _) = self.open_router()?;
         let mut blobs = DurableBlobEngine::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("blob"),
@@ -478,6 +352,11 @@ impl DataPlaneExecutor {
     }
 
     fn open_object_runtime(&self, namespace: &str) -> RsfResult<ObjectRuntime> {
+        if let Some(Runtime::Object(runtime)) =
+            self.take_runtime(namespace, rsf_protocol::ApplicationSurface::Object)?
+        {
+            return Ok(*runtime);
+        }
         let (mut router, _) = self.open_router()?;
         let mut objects = DurableObjectStore::open_replicated(
             crate::security::namespace_root(&self.state, namespace).join("object"),
@@ -492,6 +371,72 @@ impl DataPlaneExecutor {
         }
         objects.reconcile(&mut router)?;
         Ok(ObjectRuntime { router, objects })
+    }
+
+    fn remember(&self, namespace: &str, runtime: Runtime) {
+        *self.cached.borrow_mut() = Some(CachedRuntime {
+            namespace: namespace.to_owned(),
+            runtime,
+        });
+    }
+
+    fn take_runtime(
+        &self,
+        namespace: &str,
+        surface: rsf_protocol::ApplicationSurface,
+    ) -> RsfResult<Option<Runtime>> {
+        let cached = self.cached.borrow_mut().take();
+        let Some(mut cached) = cached else {
+            let parked = self.parked.borrow_mut().take();
+            return match parked {
+                Some(parked) if parked.matches(namespace, surface) => {
+                    let (router, _) = self.open_router()?;
+                    let restored = parked.restore(router);
+                    if let Err(error) = &restored
+                        && error.code == ErrorCode::CorruptionDetected
+                    {
+                        *self.cache_failure.borrow_mut() = Some(error.message.clone());
+                    }
+                    restored.map(Some)
+                }
+                _ => Ok(None),
+            };
+        };
+        if cached.namespace != namespace || cached.runtime.surface() != surface {
+            return Ok(None);
+        }
+        let router = cached.runtime.router();
+        if !router.control_metadata_matches_disk()? {
+            return Ok(None);
+        }
+        // Authorization is still performed by execute for each request. The
+        // transport and admitted membership are also refreshed, so a live burst
+        // cannot bypass a revoked identity or changed endpoint configuration.
+        let admin = AdminPlane::recover(self.state.join("admin"))?;
+        let voters = admin
+            .membership_view()
+            .ok_or_else(|| invalid("missing promoted voters"))?
+            .voter_nodes();
+        let primary = *voters
+            .first()
+            .ok_or_else(|| invalid("missing promoted voter"))?;
+        if router.coordination_epoch() != Epoch(admin.cluster_map().epoch.0.max(1))
+            || !crate::protocol_membership_matches(router, &voters)
+            || router.placement_map().groups.iter().any(|pg| {
+                router
+                    .membership(*pg)
+                    .map_or(true, |(_, current, _)| current != primary)
+            })
+        {
+            return Ok(None);
+        }
+        *router.transport_mut() =
+            ReplicationTransport::load(&self.state, &admin, primary).map_err(invalid)?;
+        if router.reconcile_application_commands()? != 0 {
+            // An interrupted command needs full materializer reconciliation.
+            return Ok(None);
+        }
+        Ok(Some(cached.runtime))
     }
 
     fn open_router(&self) -> RsfResult<(DataRouter, Epoch)> {
@@ -538,21 +483,58 @@ impl DataPlaneExecutor {
     }
 }
 
+#[derive(Debug)]
+struct CachedRuntime {
+    namespace: String,
+    runtime: Runtime,
+}
+
+#[derive(Debug)]
+enum Runtime {
+    Kv(Box<KvRuntime>),
+    Sql(Box<SqlRuntime>),
+    Blob(Box<BlobRuntime>),
+    Object(Box<ObjectRuntime>),
+}
+
+impl Runtime {
+    fn surface(&self) -> rsf_protocol::ApplicationSurface {
+        match self {
+            Self::Kv(_) => rsf_protocol::ApplicationSurface::Kv,
+            Self::Sql(_) => rsf_protocol::ApplicationSurface::Sql,
+            Self::Blob(_) => rsf_protocol::ApplicationSurface::Blob,
+            Self::Object(_) => rsf_protocol::ApplicationSurface::Object,
+        }
+    }
+    fn router(&mut self) -> &mut DataRouter {
+        match self {
+            Self::Kv(runtime) => &mut runtime.router,
+            Self::Sql(runtime) => &mut runtime.router,
+            Self::Blob(runtime) => &mut runtime.router,
+            Self::Object(runtime) => &mut runtime.router,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct KvRuntime {
     router: DataRouter,
     kv: DurableKvEngine,
 }
 
+#[derive(Debug)]
 struct SqlRuntime {
     router: DataRouter,
     sql: DurableSqlEngine,
 }
 
+#[derive(Debug)]
 struct BlobRuntime {
     router: DataRouter,
     blobs: DurableBlobEngine,
 }
 
+#[derive(Debug)]
 struct ObjectRuntime {
     router: DataRouter,
     objects: DurableObjectStore,
@@ -588,21 +570,19 @@ enum ObjectCommand {
 }
 
 fn serve_data_stream(
-    mut stream: TcpStream,
+    stream: TcpStream,
     codec: &WireCodec,
     adapter: &WireAdapter,
-    executor: &DataPlaneExecutor,
+    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
     tls: std::sync::Arc<rustls::ServerConfig>,
 ) -> Result<DataPlaneResponse, String> {
     stream
         .set_nonblocking(false)
         .map_err(|err| format!("failed to configure data socket: {err}"))?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .map_err(|err| format!("failed to configure data read timeout: {err}"))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .map_err(|err| format!("failed to configure data write timeout: {err}"))?;
+        .set_nodelay(true)
+        .map_err(|err| format!("failed to configure data socket latency: {err}"))?;
+    let mut stream = deadline::DeadlineStream::new(stream, DATA_CONNECTION_TIMEOUT);
 
     let mut connection = rustls::ServerConnection::new(tls).map_err(|err| err.to_string())?;
     while connection.is_handshaking() {
@@ -616,18 +596,27 @@ fn serve_data_stream(
         .ok_or("TLS peer certificate is required")?;
     let fingerprint = crate::tls::certificate_fingerprint(certificate.as_ref());
     let mut stream = rustls::StreamOwned::new(connection, stream);
-    let response = read_data_frame(&mut stream)
-        .and_then(|frame| {
-            codec
-                .decode_and_admit(&frame, adapter)
-                .map_err(|err| err.message)
-        })
-        .map(|decision| data_plane_response(decision, executor, &fingerprint))
-        .unwrap_or_else(|reason| DataPlaneResponse::Corrupt { reason });
-    let body = render_data_plane_response(&response);
-    stream
-        .write_all(body.as_bytes())
-        .map_err(|err| format!("failed to write daemon data response: {err}"))?;
+    let admitted = read_data_frame(&mut stream).and_then(|frame| {
+        codec
+            .decode_and_admit(&frame, adapter)
+            .map_err(|err| err.message)
+    });
+    let response = match admitted {
+        Ok(decision) => {
+            let _execution = stream
+                .sock
+                .application_guard()
+                .map_err(|err| format!("data I/O deadline expired before execution: {err}"))?;
+            data_plane_response(decision, executor, &fingerprint, &mut stream)
+        }
+        Err(reason) => DataPlaneResponse::Corrupt { reason },
+    };
+    if !matches!(response, DataPlaneResponse::Streamed { .. }) {
+        let body = render_data_plane_response(&response);
+        stream
+            .write_all(body.as_bytes())
+            .map_err(|err| format!("failed to write daemon data response: {err}"))?;
+    }
     stream.conn.send_close_notify();
     stream
         .flush()
@@ -659,13 +648,15 @@ fn read_data_frame(stream: &mut impl Read) -> Result<Vec<u8>, String> {
 
 fn data_plane_response(
     decision: WireDecision,
-    executor: &DataPlaneExecutor,
+    executor: &mut impl FnMut(RequestEnvelope, &[u8; 32], &mut dyn Write) -> DataPlaneResponse,
     fingerprint: &[u8; 32],
+    output: &mut dyn Write,
 ) -> DataPlaneResponse {
     match decision {
-        WireDecision::Accepted(envelope) => executor.execute(envelope, fingerprint),
+        WireDecision::Accepted(envelope) => executor(envelope, fingerprint, output),
         WireDecision::Rejected { protocol, reason } => DataPlaneResponse::Rejected {
             protocol: protocol.as_str(),
+            mutation: MutationOutcome::NotAttempted,
             reason,
         },
     }
@@ -939,6 +930,15 @@ fn operation_kind_label(kind: WireOperationKind) -> &'static str {
 
 fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
     match outcome {
+        SqlOutcome::SchemaStaged {
+            session_id,
+            snapshot,
+            table,
+            item,
+        } => format!(
+            "schema_staged session={} snapshot={} table={} item={}",
+            session_id, snapshot.0, table, item
+        ),
         SqlOutcome::TableCreated {
             table, evidence, ..
         } => format!(
@@ -955,17 +955,19 @@ fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
             table, column, evidence.placement_group.0, evidence.log_index.0
         ),
         SqlOutcome::Inserted { row, evidence } => {
-            let evidence = committed_sql_evidence(evidence);
             format!(
-                "insert table={} primary_key={} placement_group={} log_index={}",
-                row.table, row.primary_key, evidence.placement_group.0, evidence.log_index.0
+                "insert table={} primary_key={} {}",
+                row.table,
+                row.primary_key,
+                sql_mutation_detail(evidence)
             )
         }
         SqlOutcome::Updated { row, evidence } => {
-            let evidence = committed_sql_evidence(evidence);
             format!(
-                "update table={} primary_key={} placement_group={} log_index={}",
-                row.table, row.primary_key, evidence.placement_group.0, evidence.log_index.0
+                "update table={} primary_key={} {}",
+                row.table,
+                row.primary_key,
+                sql_mutation_detail(evidence)
             )
         }
         SqlOutcome::Deleted {
@@ -973,10 +975,11 @@ fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
             primary_key,
             evidence,
         } => {
-            let evidence = committed_sql_evidence(evidence);
             format!(
-                "delete table={} primary_key={} placement_group={} log_index={}",
-                table, primary_key, evidence.placement_group.0, evidence.log_index.0
+                "delete table={} primary_key={} {}",
+                table,
+                primary_key,
+                sql_mutation_detail(evidence)
             )
         }
         SqlOutcome::Selected { rows } => format!("select rows={}", rows.len()),
@@ -1015,8 +1018,17 @@ fn sql_outcome_detail(outcome: &SqlOutcome) -> String {
     }
 }
 
-fn committed_sql_evidence(evidence: &SqlMutationEvidence) -> &rsf_core::CommitEvidence {
-    evidence.expect_committed("daemon sql data-plane autocommit")
+fn sql_mutation_detail(evidence: &SqlMutationEvidence) -> String {
+    match evidence {
+        SqlMutationEvidence::Committed(evidence) => format!(
+            "placement_group={} log_index={}",
+            evidence.placement_group.0, evidence.log_index.0
+        ),
+        SqlMutationEvidence::Staged {
+            session_id,
+            snapshot,
+        } => format!("staged=true session={} snapshot={}", session_id, snapshot.0),
+    }
 }
 
 fn single_line(value: &str) -> String {
@@ -1033,6 +1045,14 @@ fn single_line(value: &str) -> String {
 
 fn render_data_plane_response(response: &DataPlaneResponse) -> String {
     match response {
+        DataPlaneResponse::Streamed {
+            protocol,
+            rows,
+            bytes,
+            version,
+        } => format!(
+            "RSF/1 completed protocol={protocol} surface=sql version={version} rows={rows} bytes={bytes}\n"
+        ),
         DataPlaneResponse::Executed {
             protocol,
             operation_kind,
@@ -1051,13 +1071,26 @@ fn render_data_plane_response(response: &DataPlaneResponse) -> String {
             hex_bytes(payload),
             single_line(detail)
         ),
-        DataPlaneResponse::Rejected { protocol, reason } => {
+        DataPlaneResponse::Rejected {
+            protocol,
+            mutation,
+            reason,
+        } => {
             format!(
-                "RSF/1 rejected protocol={} reason={}\n",
+                "RSF/1 rejected protocol={} mutation={} reason={}\n",
                 protocol,
+                mutation.as_str(),
                 single_line(reason)
             )
         }
+        DataPlaneResponse::Redirect {
+            protocol,
+            primary,
+            address,
+        } => format!(
+            "RSF/1 redirect protocol={} mutation=not-attempted primary={} address={}\n",
+            protocol, primary, address
+        ),
         DataPlaneResponse::Corrupt { reason } => {
             format!("RSF/1 corrupt reason={}\n", single_line(reason))
         }
@@ -1070,6 +1103,7 @@ fn emit_data_plane_response(
     response: &DataPlaneResponse,
 ) -> Result<(), String> {
     match response {
+        DataPlaneResponse::Streamed { protocol, rows, bytes, version } => writeln!(out, "daemon data peer={peer} status=streamed protocol={protocol} surface=sql version={version} rows={rows} bytes={bytes}"),
         DataPlaneResponse::Executed {
             protocol,
             operation_kind,
@@ -1089,10 +1123,14 @@ fn emit_data_plane_response(
             bytes,
             single_line(detail)
         ),
-        DataPlaneResponse::Rejected { protocol, reason } => writeln!(
+        DataPlaneResponse::Rejected { protocol, mutation, reason } => writeln!(
             out,
-            "daemon data peer={} status=rejected protocol={} reason={}",
-            peer, protocol, single_line(reason)
+            "daemon data peer={} status=rejected protocol={} mutation={} reason={}",
+            peer, protocol, mutation.as_str(), single_line(reason)
+        ),
+        DataPlaneResponse::Redirect { protocol, primary, address } => writeln!(
+            out, "daemon data peer={} status=redirect protocol={} primary={} address={}",
+            peer, protocol, primary, address
         ),
         DataPlaneResponse::Corrupt { reason } => {
             writeln!(
@@ -1109,6 +1147,127 @@ fn emit_data_plane_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_execution_still_delivers_complete_tls_response_and_close_notification() {
+        use std::io::Read;
+        let state = crate::tests::test_path("io-budget-execution");
+        crate::test_support::provision(&state);
+        let tls = crate::tls::server_config(&state).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let socket = listener.accept().unwrap().0;
+            serve_data_stream(
+                socket,
+                &WireCodec,
+                &WireAdapter,
+                &mut |_, _, _| {
+                    std::thread::sleep(DATA_CONNECTION_TIMEOUT + Duration::from_millis(100));
+                    DataPlaneResponse::Executed {
+                        protocol: "kv",
+                        operation_kind: "read",
+                        surface: "kv",
+                        version: None,
+                        bytes: 8,
+                        payload: b"finished".to_vec(),
+                        detail: "completed".into(),
+                    }
+                },
+                tls,
+            )
+            .unwrap()
+        });
+        let socket = TcpStream::connect(address).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let connection = rustls::ClientConnection::new(
+            crate::test_support::pki().client.clone(),
+            "localhost".try_into().unwrap(),
+        )
+        .unwrap();
+        let mut stream = rustls::StreamOwned::new(connection, socket);
+        let frame = WireCodec
+            .encode(&rsf_wire::RawFrame::with_body(
+                WireProtocol::Kv,
+                "app-client",
+                Some("app".into()),
+                "GET key",
+                Some("slow-read".into()),
+                vec![],
+            ))
+            .unwrap();
+        stream
+            .write_all(&(frame.len() as u32).to_le_bytes())
+            .unwrap();
+        stream.write_all(&frame).unwrap();
+        stream.flush().unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("RSF/1 executed"), "{response}");
+        assert!(response.contains("payload_hex=66696e6973686564"));
+        assert!(matches!(
+            server.join().unwrap(),
+            DataPlaneResponse::Executed { .. }
+        ));
+    }
+
+    #[test]
+    fn a_warm_runtime_rechecks_certificate_revocation_and_replication_configuration() {
+        let state = crate::tests::test_path("warm-runtime-security");
+        crate::tests::bootstrap_one_node(state.to_str().unwrap());
+        let executor = DataPlaneExecutor::new(&state);
+        let fingerprint = crate::test_support::pki().fingerprint;
+        let envelope = |key: &str| RequestEnvelope {
+            protocol: WireProtocol::Kv,
+            principal: "app-client".into(),
+            namespace: Some("app".into()),
+            operation: format!("SET {key}"),
+            operation_kind: WireOperationKind::Write,
+            idempotency_key: Some(key.into()),
+            body_bytes: 5,
+            body: b"value".to_vec(),
+        };
+        assert!(matches!(
+            executor.execute(envelope("first"), &fingerprint),
+            DataPlaneResponse::Executed { .. }
+        ));
+        let kv_path = crate::security::namespace_root(&state, "app").join("kv");
+        assert!(DurableKvEngine::open_replicated(&kv_path, Epoch(1), "app").is_err());
+
+        let mut auth = rsf_auth::DurableAuthEngine::open(state.join("auth"), Epoch(1)).unwrap();
+        auth.revoke_certificate(fingerprint).unwrap();
+        assert!(matches!(
+            executor.execute(envelope("denied"), &fingerprint),
+            DataPlaneResponse::Rejected {
+                mutation: MutationOutcome::NotAttempted,
+                ..
+            }
+        ));
+        auth.bind_certificate(fingerprint, rsf_auth::PrincipalId("app-client".into()))
+            .unwrap();
+        drop(auth);
+        std::fs::write(state.join("replication.json"), b"invalid configuration").unwrap();
+        assert!(matches!(
+            executor.execute(envelope("bad-config"), &fingerprint),
+            DataPlaneResponse::Rejected {
+                mutation: MutationOutcome::Unknown,
+                ..
+            }
+        ));
+        drop(executor);
+        let kv = DurableKvEngine::open_replicated(&kv_path, Epoch(1), "app").unwrap();
+        assert_eq!(kv.get(b"first").unwrap().value, b"value");
+        assert!(kv.get(b"denied").is_none());
+        assert!(kv.get(b"bad-config").is_none());
+        assert_eq!(kv.changes_since(rsf_core::CommitVersion(0)).len(), 1);
+        drop(kv);
+        std::fs::remove_dir_all(state).unwrap();
+    }
 
     #[test]
     fn sql_request_identity_separates_reads_and_delimiter_containing_scopes() {
@@ -1153,6 +1312,7 @@ mod tests {
         for response in [
             DataPlaneResponse::Rejected {
                 protocol: "sql-wire",
+                mutation: MutationOutcome::Unknown,
                 reason: "bad\ninput".to_string(),
             },
             DataPlaneResponse::Corrupt {

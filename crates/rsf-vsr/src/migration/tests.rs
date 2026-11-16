@@ -190,7 +190,7 @@ fn migration_decoder_rejects_wrong_prefix_duplicate_and_truncated_records() {
     let last = records.last().unwrap().clone();
     for end in 5..last.payload.len() {
         let mut damaged = records.clone();
-        damaged.last_mut().unwrap().payload = last.payload[..end].to_vec().into();
+        damaged.last_mut().unwrap().payload = last.payload[..end].to_vec();
         assert!(
             recover_bootstrap(&damaged.iter().collect::<Vec<_>>(), PlacementGroupId(1)).is_err()
         );
@@ -200,9 +200,11 @@ fn migration_decoder_rejects_wrong_prefix_duplicate_and_truncated_records() {
     let mut payload = payload;
     let n = payload.len();
     payload[n - 1] ^= 1;
-    damaged.last_mut().unwrap().payload = payload.into();
+    damaged.last_mut().unwrap().payload = payload;
     assert!(recover_bootstrap(&damaged.iter().collect::<Vec<_>>(), PlacementGroupId(1)).is_err());
     let mut damaged = records.clone();
     damaged.push(last);
     assert!(recover_bootstrap(&damaged.iter().collect::<Vec<_>>(), PlacementGroupId(1)).is_err());
 }
+
+mod bounded_voter;

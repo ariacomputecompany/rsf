@@ -245,7 +245,26 @@ impl DurableBlobEngine {
         pg: PlacementGroupId,
         bytes: impl Into<Bytes>,
     ) -> RsfResult<DurableBlobRecord> {
-        let bytes = bytes.into();
+        self.put_with_purpose(router, pg, bytes.into(), false)
+    }
+
+    /// Stage bytes locally and record an internal immutable dependency. The
+    /// containing object command must replicate the payload before user success.
+    pub fn put_dependency(
+        &mut self,
+        router: &mut impl FabricRouterPort,
+        pg: PlacementGroupId,
+        bytes: impl Into<Bytes>,
+    ) -> RsfResult<DurableBlobRecord> {
+        self.put_with_purpose(router, pg, bytes.into(), true)
+    }
+    fn put_with_purpose(
+        &mut self,
+        router: &mut impl FabricRouterPort,
+        pg: PlacementGroupId,
+        bytes: Bytes,
+        dependency: bool,
+    ) -> RsfResult<DurableBlobRecord> {
         if let Some(namespace) = &self.replication.namespace {
             let request = ClientRequestId::new(
                 format!(
@@ -262,14 +281,18 @@ impl DurableBlobEngine {
         let stored_bytes = staged.bytes;
         let deduped = staged.deduped;
         let pins = staged.pins;
-        let commit = router.commit_request_with_mode(
-            pg,
-            content_pin_request(&id),
-            ConsistencyMode::AvailabilityFirst,
-            FabricOperation::BlobPin {
-                digest: *id.as_bytes(),
-            },
-        )?;
+        let commit = if dependency {
+            router.commit_immutable_dependency(pg, content_pin_request(&id), *id.as_bytes())?
+        } else {
+            router.commit_request_with_mode(
+                pg,
+                content_pin_request(&id),
+                ConsistencyMode::AvailabilityFirst,
+                FabricOperation::BlobPin {
+                    digest: *id.as_bytes(),
+                },
+            )?
+        };
         let certificate = &commit.certificate;
         if certificate.pg != pg
             || certificate.mode != ConsistencyMode::AvailabilityFirst
@@ -311,14 +334,7 @@ impl DurableBlobEngine {
                 "bound blob stores require complete commands",
             ));
         }
-        router.validate_request(
-            pg,
-            &content_pin_request(content),
-            ConsistencyMode::AvailabilityFirst,
-            &FabricOperation::BlobPin {
-                digest: *content.as_bytes(),
-            },
-        )
+        router.validate_immutable_dependency(pg, &content_pin_request(content), *content.as_bytes())
     }
 
     /// Persist and verify immutable payload before journaling an object intent.

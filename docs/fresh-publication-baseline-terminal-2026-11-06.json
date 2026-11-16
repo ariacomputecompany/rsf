@@ -1,0 +1,1873 @@
+{
+  "version": 1,
+  "date": "2026-11-06",
+  "source_sha256": "bed28a03ae0e0698a61caf67bbb18a7c0bf7b83400e1add1e7fa48138e38fd2b",
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "checkpoint_sha256": "8de41a084dad2357999f56db55d246a3e721b7b9f1403aaa683f8dd9c3f1d630",
+  "summary_sha256": "e46f1f9f04f995be15aa61b06a47b5708e69b83a274bb0607d4795e1bf7a41f6",
+  "summary": {
+    "all_pass": false,
+    "source_unchanged": true,
+    "source_sha256_before": "bed28a03ae0e0698a61caf67bbb18a7c0bf7b83400e1add1e7fa48138e38fd2b",
+    "source_sha256_after": "bed28a03ae0e0698a61caf67bbb18a7c0bf7b83400e1add1e7fa48138e38fd2b",
+    "seed": 20260912,
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "control-state",
+      "membership",
+      "membership-decision",
+      "membership-peer",
+      "protocol",
+      "peer-rpc",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy",
+      "daemon",
+      "native-membership",
+      "automatic-client",
+      "sql-stream",
+      "daemon-stress",
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end"
+    ],
+    "failed_domains": [
+      "membership-staging",
+      "membership-activation",
+      "workspace"
+    ],
+    "trace_directory": "/Users/deepsaint/Desktop/rsf/artifacts/verification.fresh-publication-20261106-v1",
+    "bounded_control_evidence_valid": false,
+    "bounded_control_regressions": {
+      "accepted_business_rejections_reconcile_in_order_without_fabricating_a_committed_intent": false,
+      "accepted_callback_error_still_latches_root_active_and_inner_custody_loss": false,
+      "active_renewal_changed_torn_tail_never_scans_or_repairs_and_restoration_stays_fenced": false,
+      "active_renewal_empty_and_none_policy_never_claim_a_data_flush_or_adopt_foreign_stamp": false,
+      "active_renewal_incomplete_bytes_on_held_inode_reject_without_tail_repair": false,
+      "active_renewal_injected_sync_unwind_keeps_owner_fenced_without_claiming_syscall_completion": false,
+      "active_renewal_oversized_manifest_rejects_without_parser_read_refresh_or_repair": false,
+      "active_renewal_real_sync_boundary_failure_returns_no_success_and_cannot_clear_prior_latch": false,
+      "active_renewal_syncs_only_actual_nonempty_descriptor_and_preserves_cursor_without_reads": false,
+      "actual_published_learner_relays_after_source_loss_and_cold_partial_resume": false,
+      "application_borrow_restores_exact_control_owner_on_error_panic_and_collision": false,
+      "bounded_active_renewal_rejects_new_incomplete_tail_without_repair_or_marker": false,
+      "bounded_append_rejects_mid_call_torn_tail_without_repair_or_ack": false,
+      "bounded_caller_budget_tightens_every_frame_before_payload_allocation": false,
+      "bounded_captured_pointer_or_held_writer_lock_loss_after_replay_cannot_complete_marker": false,
+      "bounded_cold_admission_cannot_certify_replacement_or_mask_it_as_capacity": false,
+      "bounded_cold_begin_rejects_tail_loss_between_closed_and_active_renewal_without_repair": false,
+      "bounded_cold_published_open_never_resolves_late_real_generation_or_truncates_marker_alias": false,
+      "bounded_compacted_prefix_is_typed_unsupported_without_payload_reads": false,
+      "bounded_compacted_storage_is_explicitly_unsupported_before_semantic_replay": false,
+      "bounded_custody_change_overrides_visitor_error_stop_and_admission_limit": false,
+      "bounded_empty_existing_store_never_creates_bootstrap_and_owned_root_alias_rejects": false,
+      "bounded_empty_factory_completes_post_manifest_and_post_sidecar_crash_prefixes": false,
+      "bounded_empty_factory_never_repairs_nonempty_or_foreign_shapes": false,
+      "bounded_exact_physical_limits_succeed_and_one_under_stops_before_replay_without_mutation": false,
+      "bounded_existing_rejects_unmigrated_legacy_then_reuses_actual_persisted_migration": false,
+      "bounded_fenced_voter_replays_exact_existing_membership_fence_without_unfencing": false,
+      "bounded_flat_visible_suffix_renews_before_owner_and_preserves_wal_bytes": false,
+      "bounded_flat_voter_preserves_committed_accepted_receipts_and_later_real_commit": false,
+      "bounded_foreign_or_aliased_publication_temporary_is_never_truncated_or_followed": false,
+      "bounded_handoff_keeps_original_closed_inode_across_same_store_move": false,
+      "bounded_installed_missing_damaged_or_aliased_active_metadata_never_repairs": false,
+      "bounded_installed_visible_suffix_renews_before_marker_and_failed_hook_cannot_advance_it": false,
+      "bounded_installed_voter_preserves_sealed_prefix_receipt_tail_and_later_promise": false,
+      "bounded_invalid_policy_is_rejected_before_any_namespace_access": false,
+      "bounded_live_owner_excludes_duplicate_and_latches_observed_inner_loss_after_original_inode_restore": false,
+      "bounded_membership_installed_old_voter_retains_certified_lineage_without_promotion_claim": false,
+      "bounded_missing_owned_files_and_wrong_pg_never_create_or_repair": false,
+      "bounded_owned_custody_rejects_lost_or_replaced_actual_held_sidecars": false,
+      "bounded_prefix_stop_reads_only_the_complete_selected_prefix": false,
+      "bounded_prepared_marker_replacement_cannot_publish_or_modify_foreign_file": false,
+      "bounded_promoted_voter_recovers_actual_role_tail_and_receipts_without_source_or_learner": false,
+      "bounded_promotion_requires_existing_exact_bounded_owner_and_active_pointer": false,
+      "bounded_provisional_completion_does_not_recreate_a_nonempty_wal_sidecar": false,
+      "bounded_published_flat_absence_remains_live_and_observed_loss_is_sticky": false,
+      "bounded_published_marker_error_returns_no_owner_and_cold_retry_retains_exact_history": false,
+      "bounded_published_open_refuses_the_same_missing_sidecar_the_unbound_factory_can_complete": false,
+      "bounded_record_and_aggregate_caps_count_filtered_frames_before_allocation": false,
+      "bounded_renewal_custody_failure_returns_no_owner_and_same_inode_cold_retry_succeeds": false,
+      "bounded_returned_installed_owner_latches_observed_pointer_loss_with_same_inode_restore": false,
+      "bounded_shared_parser_preserves_supported_checksum_formats_and_rejects_bad_headers": false,
+      "bounded_shared_recovery_matches_generic_mixed_records_across_rotations": false,
+      "bounded_size_helpers_and_nonzero_policy_reject_overflow_without_io": false,
+      "bounded_sparse_frame_and_manifest_reject_at_budget_before_checksum_or_replay": false,
+      "bounded_sparse_record_and_manifest_limits_precede_payload_allocation": false,
+      "bounded_stage_finish_never_resolves_late_real_generation_or_truncates_marker_alias": false,
+      "bounded_strict_recovery_preserves_checksum_chain_and_epoch_errors": false,
+      "bounded_strict_writer_rejects_replaced_name_of_reentrant_held_lock": false,
+      "bounded_strict_writer_rejects_torn_tail_without_repair_then_generic_can_repair": false,
+      "bounded_strict_writer_requires_existing_regular_data_and_sidecars": false,
+      "bounded_strict_writer_uses_recovered_cursor_and_preserves_append_sync_policy": false,
+      "bounded_valid_active_completes_only_missing_marker_and_canonical_temporary_prefix": false,
+      "bounded_writer_admission_rejection_cannot_create_a_partial_success": false,
+      "bounds_fail_before_append_and_exact_duplicate_retries_do_not_reallocate_log_indices": false,
+      "cached_prefix_callback_error_and_unwind_obey_same_physical_custody_contract": false,
+      "callback_success_or_error_cannot_hide_replaced_prior_or_candidate_custody": false,
+      "canonical_outcome_distinguishes_exact_rejected_retry_from_uncommitted_request_conflict": false,
+      "clean_semantic_rejection_retains_prior_authority_and_exact_resumable_bytes": false,
+      "cold_ack_zero_resumes_only_provisional_empty_sidecar_while_warm_and_nonempty_loss_reject": false,
+      "committed_callback_error_still_latches_root_active_and_inner_custody_loss": false,
+      "committed_origin_never_moves_on_retry_conflict_reopen_or_publication_and_expires_after_finalize": false,
+      "configured_catalog_rejects_first_fence_authority_and_stage_before_effects": false,
+      "configured_genesis_receive_is_exact_and_does_not_expose_an_empty_control_state": false,
+      "control_only_constructor_rejects_invalid_policy_before_touching_absent_root": false,
+      "control_policy_before_open_refuses_raw_enrollment_and_bounded_cold_history": false,
+      "control_provisioning_rejects_foreign_bootstrap_inventory_and_peer_fingerprints": false,
+      "current_active_begin_cannot_drop_lost_or_replaced_warm_stage_custody": false,
+      "exact_published_prefix_retry_runs_authoritative_control_validator_again": false,
+      "exhausted_receipt_budget_blocks_fresh_writer_but_preserves_accepted_capacity_outcome": false,
+      "existing_decision_is_observable_but_only_exact_enrolled_recovery_can_mutate": false,
+      "finalization_reservation_cannot_exhaust_or_wrap_qualified_history_capacity": false,
+      "genesis_delivery_rejects_actual_certified_control_membership_change": false,
+      "genesis_request_rejects_follower_pending_promise_and_foreign_provisioning_without_append": false,
+      "healthy_committed_and_accepted_callback_errors_preserve_the_same_observation": false,
+      "healthy_current_active_begin_may_reclaim_provisional_stage_after_validation": false,
+      "held_lock_metadata_stays_with_original_inode_after_named_replacement": false,
+      "historical_control_transfer_preserves_begin_origin_and_retained_validation_under_promise": false,
+      "incoming_prepare_checks_exact_index_operation_domain_and_current_authority_without_writes": false,
+      "installed_commit_without_ordinary_boundary_requires_installation_export": false,
+      "installed_invalid_control_prefix_stays_pending_and_cannot_ack_finish_or_probe": false,
+      "intent_operation_digest_distinguishes_operation_ids_at_the_same_index_and_command": false,
+      "invalid_peer_certificate_rejects_before_owner_handoff_and_a_valid_begin_can_follow": false,
+      "learner_publication_guard_rejects_replaced_zero_byte_held_lock": false,
+      "malformed_or_foreign_accepted_control_commands_are_never_repaired_or_skipped": false,
+      "newer_certified_genesis_replaces_older_accepted_id_without_changing_configured_catalog": false,
+      "ordinary_election_materializes_actual_control_owner_and_receiver_before_confirmation": false,
+      "ordinary_reprepare_preserves_full_operation_origin_but_not_the_old_live_token": false,
+      "original_bootstrap_prefix_is_certified_but_legacy_reconfigure_remains_rejected": false,
+      "owned_group_actual_sync_failure_or_producer_unwind_never_returns_authorized_custody": false,
+      "owned_group_clean_first_input_error_keeps_original_owner_but_late_error_is_not_eof": false,
+      "owned_group_empty_retry_renews_active_and_none_policy_never_claims_durability": false,
+      "owned_group_iterator_drop_occurs_before_final_sync_and_its_loss_cannot_be_adopted": false,
+      "owned_group_late_input_error_checks_drop_custody_and_returns_physical_failure": false,
+      "owned_group_matches_sequential_bytes_and_returns_actual_tail_and_authorized_custody": false,
+      "owned_group_observed_physical_fault_stays_failed_when_iterator_drop_restores_original_inode": false,
+      "owned_group_payload_drop_fault_is_detected_before_next_producer_poll": false,
+      "owned_group_preexisting_torn_tail_or_oversized_manifest_never_enters_refresh_or_repair": false,
+      "owned_group_releases_each_owned_payload_before_polling_the_next": false,
+      "owned_rotation_manifest_publication_failure_fences_live_owner_and_exact_empty_orphan_cold_retry_works": false,
+      "owned_rotation_rejects_nonempty_or_aliased_provisional_names_without_foreign_truncation": false,
+      "owned_rotation_resumes_only_empty_next_files_and_exact_canonical_manifest_prefix": false,
+      "pending_binding_survives_a_recovery_promise_only_after_fresh_owned_replay": false,
+      "promised_source_exports_earlier_prefix_without_releasing_promise_or_accepted_suffix": false,
+      "published_control_observation_preserves_first_begin_and_expires_with_real_learner_custody": false,
+      "published_replay_borrows_only_committed_history_and_preserves_cold_lineage": false,
+      "published_replay_checks_outer_custody_at_completion_and_never_recreates_it": false,
+      "real_tls_accepted_genesis_survives_original_primary_loss_and_certified_election": false,
+      "real_tls_accepted_only_follower_cannot_report_local_primary_commit_then_exact_retry_repairs": false,
+      "real_tls_accepted_only_foreign_command_is_rejected_before_control_publication": false,
+      "real_tls_begin_required_rejects_malformed_foreign_and_uncorrelated_responses": false,
+      "real_tls_canonical_rejected_command_and_accepted_receipt_conflict_remain_valid_history": false,
+      "real_tls_cold_accepted_genesis_resumes_without_request_and_empty_poll_never_appends": false,
+      "real_tls_control_bounded_begin_rejects_oversize_then_accepts_valid_descriptor": false,
+      "real_tls_control_cold_record_and_finish_require_begin_even_for_active_id": false,
+      "real_tls_control_genesis_begin_commit_and_transfer_do_not_enter_fabric": false,
+      "real_tls_control_learner_finish_is_observation_only_and_rechecks_same_id_custody": false,
+      "real_tls_control_observation_uses_historical_custody_under_pending_ordinary_promise": false,
+      "real_tls_control_only_constructor_enforces_cold_context_and_semantic_policy": false,
+      "real_tls_control_report_rejects_foreign_identity_mixed_key_and_noncanonical_frames": false,
+      "real_tls_fresh_genesis_distinguishes_accepted_followers_then_cold_recollects_exact_three_roots": false,
+      "real_tls_genesis_conflicting_minority_requires_certified_installation_then_preserves_selected_operation": false,
+      "real_tls_genesis_goal_reconciles_rejected_and_pending_suffix_before_delivery_without_duplicate_genesis": false,
+      "real_tls_genesis_late_prepare_reply_cannot_commit_after_source_view_changes": false,
+      "real_tls_genesis_late_prepare_reply_cannot_revive_lost_then_restored_source": false,
+      "real_tls_genesis_lost_durable_commit_reply_recollects_without_duplicate_operation": false,
+      "real_tls_genesis_lost_durable_prepare_reply_retries_same_operation_before_commit": false,
+      "real_tls_genesis_request_repeats_preserve_flight_and_incompatible_goals_do_not_reset_it": false,
+      "real_tls_invalid_control_commit_cannot_replace_published_active": false,
+      "real_tls_late_prepare_after_local_commit_delivers_to_surviving_majority": false,
+      "real_tls_primary_only_genesis_commit_survives_original_source_loss_from_accepted_survivor": false,
+      "real_tls_rejected_accepted_suffix_reconciles_before_new_begin_and_retries_remain_durable_receipts": false,
+      "real_tls_successful_prepare_reply_is_rejected_after_local_view_changes_before_consumption": false,
+      "real_tls_successful_prepare_reply_never_revives_lost_then_restored_source_custody": false,
+      "real_tls_writer_recovers_commit_reply_lost_after_actual_durable_delivery": false,
+      "real_tls_writer_reprepares_earliest_stable_operation_before_new_request_and_keeps_origin": false,
+      "same_id_bounded_begin_binds_raw_publication_flat_guard_after_semantic_error": false,
+      "same_id_bounded_begin_binds_raw_publication_flat_guard_after_successful_callback": false,
+      "selected_foreign_authority_upload_cannot_mutate_under_another_enrolled_journal": false,
+      "shared_bounded_open_checks_finite_policy_before_provisional_factory_effects": false,
+      "strict_cold_open_rejects_budget_loss_or_alias_without_recreating_authority": false,
+      "valid_candidate_cannot_erase_prior_receipt_and_clean_rejection_can_resume_or_switch": false,
+      "validator_unwind_leaves_live_owner_fenced_and_cold_prior_publication_intact": false,
+      "writer_checks_actual_control_primary_and_fresh_target_before_new_append": false,
+      "writer_never_returns_cached_observation_after_live_control_custody_loss": false,
+      "fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route": false,
+      "fresh_route_replacement_never_adopts_new_ancestors_and_cold_retry_uses_original_locks": false,
+      "fresh_final_segment_and_lock_substitutions_return_no_owner_after_real_publication": false,
+      "fresh_writer_descriptor_cannot_hide_behind_restored_original_segment_name": false,
+      "fresh_same_target_alias_replacement_is_not_new_publication_authority": false,
+      "fresh_publication_rechecks_current_directory_access_without_replacing_original_custody": false,
+      "fresh_publication_errors_and_unwinds_release_original_locks_without_residue_repair": false,
+      "fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route": false,
+      "existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte": false,
+      "torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix": false,
+      "double_alias_store_renews_resolved_directory_before_recovery_and_final_target_routes": false
+    },
+    "bounded_control_scope": "bounded historical replay and owned append, dedicated control learner policy, managed control routing and authenticated Genesis/intent delivery observations; initial receiver, bounded disposal, native persistence and admission remain unfinished",
+    "integrated_recovery_evidence_valid": false,
+    "integrated_recovery_regressions": {
+      "interrupted_mkdir_retries_every_existing_ancestor_and_sync_failure": false,
+      "partial_ancestor_creation_and_existing_bytes_are_preserved": false,
+      "file_obstructions_are_errors_without_replacement_or_sync_success": false,
+      "relative_empty_and_parent_components_keep_filesystem_resolution": false,
+      "provisioned_aliases_sync_physical_and_lexical_routes_without_replacement": false,
+      "final_file_alias_publication_covers_both_parents_and_every_failure": false,
+      "process_kill_after_mkdir_requires_barriers_on_visible_retry": false,
+      "newly_created_segment_is_present_before_publication_and_failure_returns_no_writer": false,
+      "existing_segment_failure_preserves_wal_and_releases_lock_before_retry": false,
+      "direct_open_locked_creation_also_executes_publication_before_returning": false,
+      "generic_manifestless_segment_rejection_still_preserves_residue": false,
+      "published_learner_token_rejects_warm_missing_or_corrupt_outer_custody_without_repair": false,
+      "published_learner_token_rejects_changed_inner_generation_and_outer_aliases": false,
+      "newer_legitimate_learner_publication_changes_opaque_token_without_voting_authority": false,
+      "published_learner_token_rejects_missing_inner_directory_and_trailing_dot_root_alias": false,
+      "accepted_majority_reconstruction_never_mixes_rounds_or_inputs": false,
+      "relayed_or_unchanged_promises_do_not_keep_dead_coordinator_preferred": false,
+      "recovery_grace_covers_global_fair_cycles_and_checks_arithmetic": false,
+      "durable_driver_preserves_minority_b_across_partial_copy_restart": false,
+      "delayed_older_state_never_downgrades_or_renews_newer_direct_activity": false,
+      "another_survivor_restarts_phase_one_after_unaccepted_selected_source_dies": false,
+      "additional_copy_source_is_promised_without_replacing_frozen_phase_one_proof": false,
+      "lost_accept_reply_then_metadata_majority_rebinds_complete_copy_as_chosen": false,
+      "real_tls_round_bound_copy_activity_rejects_stale_reads_and_keeps_observers_inert": false,
+      "managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody": false,
+      "real_tls_two_group_recovery_serves_inbound_and_rotates_past_a_blackhole": false,
+      "real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live": false,
+      "durable_group_flushes_each_dirty_segment_before_successor_manifest_and_return": false,
+      "durable_group_is_byte_identical_to_sequential_appends_across_rotation": false,
+      "durable_group_rotated_and_final_flush_failures_fence_without_acknowledging": false,
+      "group_rotation_failure_keeps_the_flushed_prefix_and_fences_the_owner": false,
+      "group_post_flush_stamp_loss_never_recaptures_missing_custody": false,
+      "empty_suffix_after_failed_sync_renews_active_data_before_success": false,
+      "legacy_failed_single_sync_then_reopen_rotation_requires_closed_prefix_renewal": false,
+      "closed_prefix_renewal_rejects_alias_and_stays_fenced_after_restoration": false,
+      "ordinary_append_keeps_original_sync_policy_after_group_success": false,
+      "group_first_validation_is_retryable_but_late_rejection_fences_partial_owner": false,
+      "group_empty_and_none_policy_never_claim_a_flush": false,
+      "group_refreshes_other_handles_and_preserves_own_revision_and_custody_boundaries": false,
+      "input_iterator_unwind_cannot_expose_an_unflushed_live_cursor": false,
+      "rotated_generation_group_preserves_sealed_bytes_publication_boundaries_and_later_appends": false,
+      "installation_input_rejects_wrong_plan_identity_with_valid_quorum_bytes_after_reopen": false,
+      "managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise": false,
+      "managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss": false,
+      "managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers": false,
+      "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed": false,
+      "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt": false,
+      "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input": false,
+      "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries": false,
+      "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair": false,
+      "canonical_commands_reject_every_truncated_prefix_trailing_data_and_unknown_variants": false,
+      "malformed_counts_duplicates_and_oversize_plans_cannot_acquire_an_intent": false,
+      "valid_stale_commands_are_rejected_but_malformed_committed_authority_is_corruption": false,
+      "all_pg_finalization_is_atomic_and_requires_new_control_authority": false,
+      "request_id_reuse_and_identity_rebinding_cannot_mutate_an_existing_plan": false,
+      "a_b_a_membership_keeps_distinct_admission_roots": false,
+      "public_projection_comes_from_committed_live_history_and_survives_cold_replay": false,
+      "uncertain_begin_commit_keeps_its_result_after_survivor_reprepare_and_cold_replay": false,
+      "finalized_catalog_and_admission_survive_an_ordinary_control_election_and_retry": false,
+      "old_control_commit_majority_prevents_begin_reprepare_across_membership": false,
+      "membership_lineage_is_stable_across_ordinary_views_and_exact_across_cold_history": false,
+      "legacy_membership_round_trip_never_aliases_bootstrap_lineage": false,
+      "unpersisted_legacy_bootstrap_does_not_supply_lineage_before_explicit_migration": false,
+      "certified_lineage_does_not_retroactively_certify_legacy_membership_epochs": false,
+      "peer_open_ancestor_barrier_failure_precedes_identity_lock_or_listener": false,
+      "decision_factory_ancestor_barrier_failure_returns_no_owner_or_authority": false,
+      "public_begin_ancestor_barrier_failure_preserves_journal_and_retries_factory": false,
+      "resumed_membership_begin_requires_publication_sync_before_ack_or_journal_binding": false,
+      "strict_existing_replay_does_not_publish_directory_ancestry": false,
+      "create_capable_store_recovery_publishes_fresh_and_existing_routes": false,
+      "public_segment_recovery_publishes_created_file_and_existing_retry": false,
+      "owned_segment_recovery_never_recreates_a_missing_acknowledged_file": false,
+      "ephemeral_segment_lock_does_not_grant_durable_directory_publication": false,
+      "strict_existing_recovery_keeps_missing_store_and_segment_fail_closed": false,
+      "owned_stamp_rejects_missing_truncated_aliased_and_replaced_files_without_repair": false,
+      "own_wal_append_rotation_and_cold_open_establish_new_stamps_without_generic_refresh": false,
+      "generic_second_writer_remains_supported_but_exclusive_stamp_refuses_to_adopt_it": false,
+      "trusted_ancestor_alias_parent_route_is_preserved_but_final_owned_alias_is_rejected": false,
+      "first_unbound_accept_or_choice_requires_publication_before_journal_binding": false,
+      "published_default_history_latches_missing_or_changed_physical_store_custody": false,
+      "managed_learner_poll_rejects_lost_default_manifest_before_dispatch_or_promise": false,
+      "finish_recomputes_digest_from_replaced_valid_live_stage_bytes": false,
+      "finish_missing_live_stage_custody_does_not_recreate_it": false,
+      "finish_revalidates_torn_live_tail_before_resumable_retry": false,
+      "concurrent_same_name_same_clock_fixtures_preserve_existing_custody_and_isolation": false,
+      "created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry": false,
+      "bound_choice_uses_live_custody_but_cold_owner_still_renews_ancestors": false,
+      "selected_inbox_begin_reuses_owner_but_still_requires_input_publication": false,
+      "selected_inbox_begin_rejects_missing_manifest_without_recreating_input": false,
+      "ordinary_history_without_learned_exceptions_keeps_public_prepare_validation": false,
+      "learned_exception_binds_the_complete_prepare_after_real_installation_and_restart": false,
+      "chosen_finish_revalidates_missing_and_valid_short_input_before_first_choice": false,
+      "chosen_finish_valid_retry_keeps_one_journal_entry_and_checks_custody_again": false,
+      "membership_cold_validator_visits_each_distinct_complete_input_once_with_replayed_identity": false,
+      "membership_cold_validator_leaves_staged_only_prefix_resumable_without_approval": false,
+      "membership_cold_host_validator_rejection_preserves_promises_and_all_retained_bytes": false,
+      "membership_cold_dedup_never_downgrades_a_complete_bound_input_to_partial": false,
+      "membership_cold_validator_rejects_input_alias_without_touching_its_target": false,
+      "real_tls_strict_cold_open_reuses_validated_inputs_without_rejecting_published_b_ancestry": false,
+      "real_tls_cached_learner_ack_rejects_lost_custody_until_validated_restart": false,
+      "managed_anchor_validation_survives_temporarily_taken_recovery": false,
+      "real_tls_managed_cached_stage_rejects_lost_learner_without_receipt_or_application_work": false,
+      "real_tls_managed_cached_stage_survives_auxiliary_journal_loss_but_not_hosted_loss": false,
+      "real_tls_managed_changed_learner_revalidates_original_authority_before_caching": false,
+      "real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receipt": false,
+      "real_tls_managed_new_choice_revalidates_b_even_when_learner_token_is_unchanged": false,
+      "real_tls_managed_promise_and_accept_reject_lost_learner_before_journal_mutation": false,
+      "real_tls_managed_decision_retries_reject_warm_journal_loss_before_durable_ack": false,
+      "managed_startup_handoff_cannot_substitute_a_for_distinct_chosen_b": false,
+      "managed_startup_handoff_reuses_exact_a_without_rereading_its_wal": false,
+      "real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": false,
+      "real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise": false,
+      "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": false,
+      "owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation": false,
+      "owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix": false,
+      "owned_group_releases_each_payload_before_polling_next_and_fences_unwind": false,
+      "owned_groups_keep_real_sync_fault_and_rotation_boundaries": false,
+      "owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error": false,
+      "same_clock_fixture_drop_preserves_another_owned_store": false,
+      "local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes": false,
+      "local_copy_late_encoding_error_fences_store_and_existing_caller_latch": false,
+      "local_copy_failure_guard_survives_unwind_without_reenabling_caller": false,
+      "local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries": false,
+      "unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal": false,
+      "complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected": false,
+      "real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched": false,
+      "real_tls_stage_loss_cannot_block_independently_backed_historical_publication": false,
+      "immutable_capture_rejects_equal_byte_replacement_before_scanning": false,
+      "immutable_custody_rejects_replacement_alias_and_hardlink_without_reading_wal_on_validation": false,
+      "immutable_recovery_never_repairs_torn_active_tail_or_creates_missing_sidecars": false,
+      "fixed_metadata_preserves_default_missing_pointer_and_valid_installed_generation": false,
+      "fixed_pointer_seal_and_marker_reject_sparse_trailing_truncated_and_corrupt_files_without_repair": false,
+      "fixed_publication_reader_bounds_even_an_unending_source_to_one_extra_byte": false,
+      "fixed_publication_reader_propagates_io_failure_without_returning_partial_success": false,
+      "cached_published_learner_success_requires_outer_and_inner_custody_before_mutation": false,
+      "unpublished_token_error_does_not_poison_later_valid_publication_and_retries": false,
+      "membership_decision_exact_retries_reject_lost_journal_with_complete_input_intact": false,
+      "membership_decision_metadata_preserves_historical_acceptance_without_scrubbing_input_data": false,
+      "membership_decision_post_append_custody_failure_returns_no_ack_or_logical_swap": false,
+      "membership_decision_read_only_failure_latches_even_after_exact_path_restoration": false,
+      "each_stage_effect_rejects_its_first_custody_fault_before_callback_or_target_publication": false,
+      "sealed_stage_cold_recovery_never_truncates_source_or_selected_torn_tail": false,
+      "stage_callback_and_publication_hook_cannot_repair_or_acknowledge_lost_custody": false,
+      "stage_own_receipt_and_publication_transitions_preserve_first_proof_and_need_no_wal_read": false,
+      "stage_report_first_observes_each_owned_loss_and_stays_failed_after_original_inode_restore": false,
+      "stage_root_replacement_and_retained_publication_loss_require_fresh_owner": false,
+      "actual_promoted_pointer_and_owner_fixed_metadata_reject_damage_and_preserve_cold_replay": false,
+      "stage_lock_creation_never_follows_a_symlink_substituted_after_precheck": false,
+      "stage_lock_rejects_existing_symlink_and_hardlink_without_changing_target": false,
+      "stage_owner_keeps_original_descriptor_locked_and_rejects_renamed_path_replacement": false
+    },
+    "integrated_recovery_scope": "automatic pre-choice scheduling, learner custody, retry-safe directory publication and replay-derived control state; managed control initiation/admission and deployment qualification remain unfinished",
+    "prechoice_prerequisites_evidence_valid": false,
+    "prechoice_prerequisites_regressions": {
+      "resumed_membership_begin_requires_publication_sync_before_ack_or_journal_binding": false,
+      "exact_factory_prefixes_are_read_only_until_explicit_resume": false,
+      "manifestless_empty_segment_stays_invalid_to_generic_recovery": false,
+      "final_manifest_presence_never_enters_initialization_and_options_are_not_inferred": false,
+      "nonempty_foreign_and_noncanonical_factory_states_are_never_repaired": false,
+      "symlink_and_hardlink_factory_files_cannot_redirect_reads_or_writes": false,
+      "every_factory_interruption_resumes_or_is_already_published_without_data_reset": false,
+      "empty_factory_requires_existing_parent_and_excludes_an_active_manifest_owner": false,
+      "killed_factory_owner_releases_custody_and_preserves_resumable_physical_state": false,
+      "membership_recovery_metadata_reconstructs_accepted_majority_without_chosen_survivor": false,
+      "membership_recovery_round_floor_uses_lexicographic_order_and_rejects_exhaustion": false,
+      "membership_chosen_import_resumes_exact_unbound_prefix_across_restart_without_lowering_promise": false,
+      "membership_recovery_never_repairs_missing_or_corrupt_acknowledged_input": false,
+      "membership_recovery_rejects_valid_but_incomplete_acknowledged_prefix_even_on_old_append_path": false,
+      "membership_recovery_rejects_malformed_unbound_custody_and_failed_handle_metadata": false,
+      "membership_recovery_codecs_bound_variants_and_reject_impossible_facts": false,
+      "membership_input_factory_prefixes_resume_only_while_unbound_and_never_grant_a_vote": false,
+      "membership_input_factory_rejects_oversized_temp_foreign_descriptor_and_nonempty_unpublished_wal": false,
+      "real_tls_prechoice_recovers_highest_accepted_input_in_bounded_exchanges_after_coordinator_loss": false,
+      "real_tls_chosen_import_resumes_partial_unbound_input_after_receiver_restart": false,
+      "real_tls_prechoice_rejects_foreign_context_and_missing_acknowledged_custody_without_mutation": false,
+      "real_tls_prechoice_lost_promise_and_chosen_finish_replies_are_idempotent_and_metadata_binds_reporter": false
+    },
+    "prechoice_prerequisites_scope": "strict unpublished empty factory continuation, typed decision and input progress, authenticated bounded higher-round operations and certified input import; native coordinator coverage is checked separately",
+    "native_membership_evidence_valid": false,
+    "native_membership_regressions": {
+      "chosen_input_exact_proof_reuse_preserves_higher_promise_and_first_certificate_cold": false,
+      "chosen_input_proof_reuse_rejects_damaged_acknowledged_input_before_copy_boundary": false,
+      "chosen_input_proof_reuse_rereads_after_copy_and_public_learning_still_replays_full_input": false,
+      "membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal": false,
+      "membership_bound_input_valid_short_prefix_never_repairs_acknowledged_custody": false,
+      "membership_unacknowledged_staged_prefix_still_resumes_after_cold_reopen": false,
+      "authority_input_temporaries_preserve_foreign_targets_warm_and_cold": false,
+      "authority_input_torn_regular_temporary_resumes_without_replacing_authority": false,
+      "authority_input_routes_reject_aliases_before_recovery_or_append_warm_and_cold": false,
+      "authority_input_missing_bound_files_are_not_recreated": false,
+      "accepted_input_is_readable_before_choice_and_imports_a_surviving_certificate_cold": false,
+      "retained_input_never_downgrades_missing_or_corrupt_bound_custody_to_absence": false,
+      "partial_retained_input_is_an_error_and_a_conflicting_choice_cannot_replace_acceptance": false,
+      "inbox_existing_rejects_missing_or_lost_identity_without_initialization": false,
+      "inbox_existing_never_recreates_empty_or_torn_to_zero_identity": false,
+      "inbox_existing_reuses_valid_identity_and_recovers_interrupted_later_selection": false,
+      "inbox_existing_rejects_symlink_and_non_file_custody_without_touching_targets": false,
+      "inbox_retains_complete_proof_across_later_selection_without_finishing_that_upload": false,
+      "inbox_retained_lookup_rejects_missing_corrupt_and_incomplete_input": false,
+      "real_tls_stage_imports_chosen_from_accepted_input_without_old_sender_inbox": false,
+      "real_tls_stage_rejects_corrupt_accepted_custody_without_inbox_fallback_or_repair": false,
+      "real_tls_stage_uses_finished_inbox_b_after_another_upload_selects_a": false,
+      "real_tls_stage_does_not_repair_lost_or_corrupt_nonselected_inbox_b": false,
+      "recovery_rotates_ready_groups_and_peers_without_waiting_for_backoff": false,
+      "staged_rejection_after_one_completed_provision_does_not_loop_upload_or_claim_repair": false,
+      "incremental_authority_batches_preserve_exact_cross_snapshot_order_and_byte_bounds": false,
+      "real_tls_managed_recovery_polls_both_survivors_while_transport_waits": false,
+      "managed_recovery_keeps_exact_proposal_guard_after_caught_materializer_unwind": false,
+      "strict_membership_recovery_paths_do_not_create_a_missing_decision": false,
+      "managed_identity_is_monotonic_and_binding_never_downgrades_policy": false,
+      "managed_identity_rejects_duplicate_unknown_and_noncanonical_policy_fields": false,
+      "managed_identity_rejects_foreign_temporary_paths_without_touching_policy": false,
+      "managed_policy_blocks_flag_removal_and_never_recreates_missing_custody": false,
+      "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy": false,
+      "native_client_rechecks_membership_ancestry_after_live_ordinary_installation": false,
+      "native_published_voters_require_admission_even_with_unmanaged_v1_identity": false
+    },
+    "native_membership_profiles": {
+      "debug": {
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy": true,
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation": true,
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity": true,
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed": true,
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt": true,
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input": true,
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries": true,
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair": true
+      },
+      "release": {
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy": true,
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation": true,
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity": true,
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed": true,
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt": true,
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input": true,
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries": true,
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair": true
+      }
+    },
+    "native_membership_scope": "existing chosen-transition recovery through native peers, retained accepted/input custody, bounded transport scheduling, managed role restart, durable client-admission denial and replay-derived startup/runtime ancestry admission; pre-choice native profiles are required separately; repeated transitions and integrated replicated control admission remain unfinished",
+    "workload_evidence_valid": true,
+    "workload_metrics": {
+      "daemon-stress": {
+        "abrupt_process_shutdowns": 18,
+        "acknowledged": 198,
+        "clients": 4,
+        "concurrent_write_ops_per_second": 17.014740702884257,
+        "elapsed_ms": 46403,
+        "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+        "latency_us": {
+          "max": 396744,
+          "p50": 225545,
+          "p95": 317173,
+          "p99": 346078
+        },
+        "payload_bytes": 442587,
+        "profile": "debug",
+        "rounds": 3,
+        "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+        "uncertain_writes_resolved": 3,
+        "workload": "native-kv-process-stress"
+      },
+      "release-stress": {
+        "abrupt_process_shutdowns": 18,
+        "acknowledged": 774,
+        "clients": 4,
+        "concurrent_write_ops_per_second": 25.369517929609497,
+        "elapsed_ms": 73745,
+        "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+        "latency_us": {
+          "max": 900097,
+          "p50": 144042,
+          "p95": 229257,
+          "p99": 501990
+        },
+        "payload_bytes": 1769691,
+        "profile": "release",
+        "rounds": 3,
+        "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+        "uncertain_writes_resolved": 3,
+        "workload": "native-kv-process-stress"
+      }
+    },
+    "automatic_client_metrics": {
+      "debug": {
+        "acknowledged_before_crash": 4,
+        "active_sql_session_resumed": true,
+        "client_transport_retries": 0,
+        "commit_confirmation_retries": 0,
+        "concurrent_clients": 4,
+        "coordinator_recoveries_before_crash": 3,
+        "coordinator_reuses_before_crash": 150,
+        "disjoint_sql_sessions_committed": true,
+        "elapsed_ms": 57829,
+        "history_growth_ms": 26968,
+        "history_growth_writes": 128,
+        "indexed_sql_after_takeover": true,
+        "precrash_sql_read_dependency_recovered": true,
+        "primary_state_deleted": true,
+        "profile": "debug",
+        "replacement_restarts": 1,
+        "requests_without_acknowledgement": 28,
+        "retried_requests": 32,
+        "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+        "serializable_sql_phantom_rejected": true,
+        "sql_key_components_isolated": true,
+        "sql_session_original_results_replayed": true,
+        "sql_stream_after_takeover": true,
+        "submitted_requests": 32,
+        "surface_count": 4,
+        "surviving_replicas_checked": 2,
+        "verified_logical_kv_writes": 162,
+        "workload": "automatic-client-takeover"
+      },
+      "release": {
+        "acknowledged_before_crash": 4,
+        "active_sql_session_resumed": true,
+        "client_transport_retries": 0,
+        "commit_confirmation_retries": 0,
+        "concurrent_clients": 4,
+        "coordinator_recoveries_before_crash": 3,
+        "coordinator_reuses_before_crash": 150,
+        "disjoint_sql_sessions_committed": true,
+        "elapsed_ms": 51947,
+        "history_growth_ms": 23573,
+        "history_growth_writes": 128,
+        "indexed_sql_after_takeover": true,
+        "precrash_sql_read_dependency_recovered": true,
+        "primary_state_deleted": true,
+        "profile": "release",
+        "replacement_restarts": 1,
+        "requests_without_acknowledgement": 28,
+        "retried_requests": 32,
+        "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+        "serializable_sql_phantom_rejected": true,
+        "sql_key_components_isolated": true,
+        "sql_session_original_results_replayed": true,
+        "sql_stream_after_takeover": true,
+        "submitted_requests": 32,
+        "surface_count": 4,
+        "surviving_replicas_checked": 2,
+        "verified_logical_kv_writes": 162,
+        "workload": "automatic-client-takeover"
+      }
+    },
+    "automatic_client_evidence_valid": true,
+    "client_transport_evidence_valid": false,
+    "client_transport_workspace": false,
+    "client_transport_profile_runs": 2,
+    "client_transport_scope": "real native SQL commit before client timeout and empty TLS response; identical retries, exact result across all daemon restarts and no additional commits",
+    "uncertain_sql_begin_evidence_valid": false,
+    "uncertain_sql_begin_workspace": false,
+    "uncertain_sql_begin_profile_runs": 2,
+    "uncertain_sql_begin_scope": "lost caller observation after real TLS peer commit/materialization; exact retry and changed-payload rejection across two peer restarts; not injected TCP packet loss",
+    "learner_promotion_evidence_valid": false,
+    "learner_promotion_regressions": {
+      "learner_promotion_publishes_owned_new_voter_and_cold_recovers_original_receipts": false,
+      "learner_promotion_retry_preserves_later_quorum_commit_and_ordinary_view_change": false,
+      "learner_promotion_rejects_unowned_overlapping_symlink_and_wrong_reporter_targets": false,
+      "learner_promotion_missing_or_changed_owner_and_pointer_fail_without_republication": false,
+      "killed_learner_promotion_resumes_owned_target_without_exposing_old_authority": false,
+      "learner_promotion_retry_cannot_reactivate_a_voter_removed_by_later_membership": false
+    },
+    "learner_promotion_scope": "owned resumable local voter publication, cold provenance, later-history preservation and real process kills",
+    "publication_recovery_evidence_valid": false,
+    "publication_recovery_regressions": {
+      "membership_publication_ancestry_survives_proof_variants_new_views_and_promises": false,
+      "membership_publication_ancestry_ignores_inactive_generations_and_matching_voters": false,
+      "membership_publication_ancestry_requires_healthy_active_custody": false,
+      "membership_publication_input_codec_and_bound_local_stage_reject_tampering": false,
+      "membership_publication_retention_preserves_first_quorum_and_requires_boot_materialization": false,
+      "membership_publication_retention_rejects_conflicting_authority_without_overwrite": false,
+      "membership_publication_retention_corruption_or_missing_custody_never_recreates_authority": false,
+      "membership_publication_retention_io_failure_fences_handle_and_resumes_durable_input": false,
+      "membership_publication_retention_rejects_foreign_temporary_paths_and_resumes_regular_torn_files": false,
+      "killed_membership_publication_retention_recovers_input_without_activating_or_acknowledging": false,
+      "publication_quorums_require_distinct_majorities_of_one_canonical_transition": false,
+      "publication_codecs_reject_truncation_extra_bytes_and_noncanonical_order": false
+    },
+    "publication_recovery_scope": "replay-proven historical activation, durable staged-quorum input custody and semantic publication receipt codecs",
+    "peer_publication_evidence_valid": false,
+    "peer_publication_regressions": {
+      "published_stage_materialization_applies_current_commits_before_renewing_receipt": false,
+      "real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views": false,
+      "real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner": false,
+      "real_tls_membership_publication_resolves_one_lost_reply_and_binds_reporter": false
+    },
+    "peer_publication_scope": "authenticated publish/query RPC, owned live learner handoff, current-prefix application and historical recovery after candidate loss through real TLS peer processes",
+    "native_role_evidence_valid": false,
+    "native_role_regressions": {
+      "native_peer_recovers_certified_promotion_and_rejects_foreign_owner_or_group": false,
+      "native_peer_keeps_an_unpublished_owned_promotion_nonvoting_then_recovers_after_publication": false,
+      "native_peer_rejects_a_valid_promoted_store_under_another_node_identity": false,
+      "native_peer_rejects_corrupt_publication_without_downgrading_or_recreating_authority": false,
+      "native_peer_requires_explicit_promoted_voter_configuration_for_mixed_group_elections": false,
+      "native_peer_validates_election_budget_against_recovered_membership": false
+    },
+    "native_role_scope": "real native TLS peer restart from certified local promotion, non-voting partial claims, fail-closed provenance and actual recovered election budgets",
+    "membership_capacity_evidence_valid": false,
+    "membership_capacity_regressions": {
+      "membership_capacity_rejects_oversized_transition_before_any_durable_fence": false,
+      "membership_capacity_matches_complete_encoded_input_and_recovery_decision": false,
+      "historical_oversized_membership_fence_remains_readable_and_exact_retry_does_not_rewrite_it": false,
+      "membership_capacity_checks_old_and_new_cardinalities_at_the_publication_boundary": false,
+      "oversized_membership_is_rejected_before_any_tls_voter_is_fenced": false
+    },
+    "membership_capacity_scope": "bounded complete proofs rejected before new old-voter fences; historical fence decoding/retry preserved",
+    "primary_recovery_evidence_valid": false,
+    "primary_recovery_regressions": {
+      "restarted_partial_primary_recovers_above_another_voters_higher_promise": false,
+      "previously_confirmed_primary_recovers_quorum_after_higher_promise": false,
+      "stale_primary_waits_once_for_newer_installed_view_then_recovers_if_repair_never_arrives": false
+    },
+    "primary_recovery_scope": "ordinary quorum election above superseding durable promises; unchanged native takeover deadlines and workload",
+    "idle_application_evidence_valid": false,
+    "idle_application_regressions": {
+      "idle_sql_writer_survives_polls_while_status_and_transport_checks_remain_fresh": false,
+      "idle_application_rejects_same_version_divergent_protocol_history_repeatedly": false
+    },
+    "idle_application_scope": "one owned application writer survives idle polls; protocol ownership is released and reopens against exact history, current authority, transport and per-request authorization",
+    "membership_activation_evidence_valid": false,
+    "membership_activation_regressions": {
+      "membership_activation_preserves_certificates_receipts_pending_data_and_later_commits": false,
+      "membership_activation_requires_boot_materialization_matching_quorum_and_root_fence": false,
+      "membership_activation_replay_rejects_truncation_corrupt_boundaries_and_ordinary_markers": false,
+      "membership_activation_publication_boundaries_recover_old_fence_or_complete_new_authority": false,
+      "copied_membership_activation_history_retains_quorum_authority_guards": false,
+      "killed_membership_activation_recovers_sealed_authority_before_any_reply": false,
+      "successive_membership_activations_preserve_authority_and_fence_removed_voters": false,
+      "copied_view_installation_history_retains_quorum_authority_guards": false,
+      "published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker": false
+    },
+    "membership_activation_scope": "proof-bound active VSR generation publication and replay with owned learner promotion",
+    "membership_staging_evidence_valid": false,
+    "membership_staging_regressions": {
+      "chosen_membership_retention_retry_rejects_missing_input_without_recreation": false,
+      "partial_ancestor_creation_and_existing_bytes_are_preserved": false,
+      "file_obstructions_are_errors_without_replacement_or_sync_success": false,
+      "chosen_membership_stage_merges_commit_and_receipt_evidence_deterministically": false,
+      "membership_stage_materialization_is_boot_scoped_and_preserves_receiver_receipts": false,
+      "staged_membership_quorums_reject_mixed_duplicate_and_invalid_receipts": false,
+      "membership_stage_reopen_rejects_torn_or_missing_sealed_history_without_rewrite": false,
+      "killed_membership_stage_recovers_receipt_and_replays_materialization_before_report": false,
+      "real_tls_staged_membership_requires_materializer_and_survives_peer_restart": false
+    },
+    "membership_staging_scope": "sealed chosen prefixes and boot-scoped materialization receipts",
+    "membership_peer_evidence_valid": false,
+    "membership_peer_regressions": {
+      "membership_authority_inbox_resumes_validated_proof_without_voting_authority": false,
+      "real_tls_membership_plan_choice_survives_old_voter_and_coordinator_data_loss": false,
+      "real_tls_membership_authority_rejects_unpublished_learners_and_foreign_bootstrap": false,
+      "membership_acceptance_resolves_one_lost_tls_reply_without_duplicate_vote": false
+    },
+    "membership_peer_scope": "authenticated peer plan consensus with anchored authority",
+    "membership_decision_evidence_valid": false,
+    "membership_decision_regressions": {
+      "membership_input_and_decision_codecs_bind_exact_quorums_and_reject_truncation": false,
+      "membership_higher_round_retains_minority_nomination_and_chosen_plan_after_old_data_loss": false,
+      "membership_upload_retries_are_atomic_bounded_and_fenced_by_new_rounds": false,
+      "membership_decision_rejects_missing_proofs_wrong_roles_and_malformed_durable_state": false,
+      "killed_membership_coordinator_recovers_synced_nomination_before_reply": false,
+      "every_new_quorum_intersection_preserves_chosen_input_across_recovery_rounds": false,
+      "torn_membership_input_batch_recovers_previous_prefix_and_cannot_be_accepted": false
+    },
+    "membership_decision_scope": "transition-only library plan consensus with peer and staged-kernel integration",
+    "membership_approval_evidence_valid": false,
+    "membership_approval_regressions": {
+      "surviving_minority_report_completes_exact_old_quorum_after_primary_loss": false,
+      "membership_continuation_rejects_spoofed_reports_conflicts_and_election_promises": false,
+      "killed_membership_continuation_recovers_exact_fence_before_acknowledgement": false,
+      "membership_minority_continuation_completes_over_tls_after_initiator_loss": false,
+      "membership_continuation_without_surviving_report_never_initiates_proposal": false,
+      "membership_proposal_codec_binds_old_authority_new_voters_and_target": false,
+      "membership_fence_survives_restart_preserves_prefix_and_blocks_authority_shortcuts": false,
+      "membership_old_quorum_approval_rejects_mixed_duplicate_and_tampered_histories": false,
+      "malformed_membership_fence_envelopes_fail_repeated_recovery_without_rewrite": false,
+      "killed_membership_writer_recovers_synced_fence_before_acknowledgement": false,
+      "membership_approval_recovers_from_real_old_voters_after_primary_loss": false
+    },
+    "membership_approval_scope": "old-quorum approval evidence",
+    "sql_index_evidence_valid": false,
+    "sql_index_regressions": {
+      "borrowed_index_lookup_preserves_order_scope_and_storage_identity": false,
+      "indexed_select_uses_only_matching_candidates_and_stops_at_limit": false,
+      "typed_secondary_index_keys_are_canonical_across_writes_and_recovery": false,
+      "indexed_transaction_overlay_merges_entries_movements_and_savepoint_rewinds": false,
+      "indexed_reads_reject_missing_or_mismatched_committed_entries": false,
+      "query_size_metadata_tracks_physical_writes_transactions_and_recovery": false
+    },
+    "sql_stream_evidence_valid": false,
+    "sql_stream_regressions": {
+      "borrowed_prefix_scans_preserve_order_bounds_and_tombstones": false,
+      "pull_execution_stops_at_limit_and_sink_failure_without_reading_ahead": false,
+      "sql_pull_limit_does_not_decode_later_rows_and_sink_failure_stops": false,
+      "sql_pull_merges_ordered_overlay_and_retains_only_latest_report": false,
+      "sql_pull_index_filter_skips_nonmatching_nullable_rows_before_projection": false,
+      "sql_stream_decoder_requires_complete_ordered_bounded_results": false,
+      "sql_row_chunks_bound_frames_and_preserve_escaped_json": false,
+      "sql_stream_sink_failure_never_publishes_completion": false,
+      "streaming_application_work_cannot_renew_blocked_socket_budget": false,
+      "native_sql_streams_large_results_and_bounds_legacy_responses": false
+    },
+    "sql_stream_metrics": {
+      "debug": {
+        "buffered_overflow_rejected": true,
+        "bytes": 264960,
+        "chunk_bound": 4096,
+        "elapsed_ms": 31289,
+        "indexed_queries_verified": true,
+        "profile": "debug",
+        "quorum_loss_rejected": true,
+        "rows": 128,
+        "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+        "workload": "native-sql-stream"
+      },
+      "release": {
+        "buffered_overflow_rejected": true,
+        "bytes": 264960,
+        "chunk_bound": 4096,
+        "elapsed_ms": 13862,
+        "indexed_queries_verified": true,
+        "profile": "release",
+        "quorum_loss_rejected": true,
+        "rows": 128,
+        "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+        "workload": "native-sql-stream"
+      }
+    },
+    "kv_atomic_batch_evidence_valid": false,
+    "kv_atomic_batch_regressions": {
+      "rejected_committed_batches_preserve_all_values_versions_and_changes": false,
+      "committed_batch_preflight_covers_order_tombstones_and_duplicate_replay": false
+    },
+    "sql_session_evidence_valid": false,
+    "sql_session_regressions": {
+      "replicated_sql_table_and_primary_key_components_cannot_alias": false,
+      "framed_relational_components_are_injective_ordered_and_domain_separated": false,
+      "legacy_key_namespaces_reject_aliasing_before_submission_and_cold_followers_inherit_format": false,
+      "overlapping_legacy_catalog_recovery_fails_repeatedly_without_rewriting_metadata": false,
+      "framed_key_recovery_rejects_mixed_or_unowned_rows_and_format_downgrades": false,
+      "framed_command_key_format_is_bound_and_cannot_switch_a_nonempty_namespace": false,
+      "sql_index_rebuilds_do_not_clear_another_tables_same_named_index": false,
+      "rebuilds_are_scoped_by_table_and_reject_foreign_mutations_before_clearing": false,
+      "tracked_reads_allow_disjoint_commits_and_replay_after_every_follower_restart": false,
+      "savepoint_rewinds_retain_predicates_and_implicit_absence_reads_after_restart": false,
+      "tracked_read_limits_fail_before_intents_and_identical_reads_reuse_certificates": false,
+      "legacy_active_sessions_keep_coarse_validation_and_original_rsfsp2_receipts": false,
+      "killed_session_read_recovers_certified_dependency_and_original_result_before_acknowledgement": false,
+      "serializable_sessions_reject_write_skew_after_restart_and_follower_recovery": false,
+      "serializable_sessions_reject_phantoms_and_tombstones_including_read_only_commits": false,
+      "serializable_upgrade_preserves_legacy_receipts_and_fences_old_pending_commits": false,
+      "durable_sessions_commit_schema_rows_and_savepoints_atomically_and_replay_original_results": false,
+      "durable_sessions_isolate_owners_detect_snapshot_conflicts_and_preserve_unrelated_commits": false,
+      "durable_session_commands_replay_active_transactions_and_indexes_after_each_follower_restart": false,
+      "session_context_rejects_noncanonical_unknown_and_oversized_inputs": false,
+      "session_limits_reject_before_intents_and_leave_transactions_usable": false,
+      "session_recovery_rejects_divergent_state_results_and_catalog_and_allows_schema_abort": false,
+      "killed_session_commit_recovers_atomic_rows_schema_and_original_receipt": false,
+      "bound_v5_checkpoint_upgrades_without_changing_autocommit_receipts": false
+    },
+    "coverage_per_passing_domain": [
+      "five-run doctor",
+      "strict deterministic test",
+      "real host recorded run",
+      "strict trace verification",
+      "replay",
+      "local trace parity (fozzy ci)"
+    ]
+  },
+  "domains": {
+    "authentication": {
+      "status": "passed",
+      "trace_sha256": "ade8f48172052c072a53b97032d9a3066a1171776845be5818374ca8793711a5",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-auth",
+            "-p",
+            "rsf-api",
+            "-p",
+            "rsf-core",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.95s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "automatic-client": {
+      "status": "passed",
+      "trace_sha256": "0772d604d0747692a18952498d769960eb49bdedb8dae14e1c31d43044eee9fe",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "automatic_client_takeover",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 57.84s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "automatic_client_takeover",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 51.96s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "control-state": {
+      "status": "passed",
+      "trace_sha256": "f51d37236374c9e584d95daaa1a3d95b9b3b7e2329d767a742454079afc25f21",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-control-state"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.54s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "daemon": {
+      "status": "passed",
+      "trace_sha256": "f31cca09ad2783ea17efaa3281405e0cdbd0824b99c26475a226a0d9db8cd7ab",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsfd"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.40s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+            "test result: ok. 29 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 233.36s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "daemon-stress": {
+      "status": "passed",
+      "trace_sha256": "853606d2d520da1ae85b99ecfd2eefa60b8cd0a56daa0d4571855a37dd9e30b3",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_kv_stress",
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 47.06s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "end-to-end": {
+      "status": "passed",
+      "trace_sha256": "f388af596a34335882ae6e5812e59263b60683035935c9d493b5a2958f325aa2",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-poc",
+            "--lib",
+            "runner::tests::run_output_writes_full_summary_and_service_logs",
+            "--",
+            "--exact"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.08s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "kv-transactions": {
+      "status": "passed",
+      "trace_sha256": "fa0f8432e74224b71d7a8cad2fc40e441dbd22cd91875ae3d881af978f352235",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-kv",
+            "-p",
+            "rsf-txn",
+            "-p",
+            "rsf-isolation"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "membership": {
+      "status": "passed",
+      "trace_sha256": "ac2f44322095f30864a2b73f2288d7c62d9c6fe8d2323451feefe47d455cc771",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-admin"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "membership-activation": {
+      "status": "failed",
+      "trace_sha256": "4c6a9816eaa571ab3330d87ba4c2e39f0601db95767e92735961852f53a4239a",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-storage",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit_code": 101,
+          "test_summaries": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.06s",
+            "test result: FAILED. 135 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 70.37s"
+          ],
+          "failed_tests": [
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers",
+            "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss"
+          ]
+        }
+      ]
+    },
+    "membership-decision": {
+      "status": "passed",
+      "trace_sha256": "ea04a5310b101d514b5bfab327152dc78ba4b524cdd6feb8b28894aa7cd6be01",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-vsr",
+            "membership::decision",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 229 filtered out; finished in 32.27s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "membership-peer": {
+      "status": "passed",
+      "trace_sha256": "9eb1c1ed6550304563bda7e51f12ae06a27b801b98a061128b14245e08b53a67",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.30s",
+            "test result: ok. 138 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 73.46s",
+            "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 104.36s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "membership-staging": {
+      "status": "failed",
+      "trace_sha256": "b8cd44a7d3c26f26c0e875c517effcda7c997886711a9824bc8972d57ceb2fbe",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-storage",
+            "-p",
+            "rsf-vsr",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit_code": 101,
+          "test_summaries": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.40s",
+            "test result: FAILED. 137 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 79.24s"
+          ],
+          "failed_tests": [
+            "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner"
+          ]
+        }
+      ]
+    },
+    "native-membership": {
+      "status": "passed",
+      "trace_sha256": "06fb0c7e8baeb532db2df16579281f704d49383668482092a14356a571edbbb7",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 13.12s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 2.48s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 1.32s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 8.68s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 2.14s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 1.07s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 12.90s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 23.61s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 220.52s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 68.80s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 11.61s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 8.40s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 15.63s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 17.11s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 60.26s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 3.59s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "object-blob": {
+      "status": "passed",
+      "trace_sha256": "b8d6fc7abbc886feab2921fe9bbfb98f5ddcf8e1c8a20d177b6693f4d26067ab",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-object",
+            "-p",
+            "rsf-objectmeta",
+            "-p",
+            "rsf-blob",
+            "-p",
+            "rsf-chunkstore"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s",
+            "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "peer-rpc": {
+      "status": "passed",
+      "trace_sha256": "20b51175bc777b11bfc97dffb3bb0d010c3f766e7114e8d5473a676c523c576e",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-rpc",
+            "-p",
+            "rsf-core",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 138 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.37s",
+            "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.26s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "policy": {
+      "status": "passed",
+      "trace_sha256": "4cc362d66763d7e077e0590c2f60f11ec93d8b8f9deb68e89a23e7369fa9664f",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-policy",
+            "-p",
+            "rsf-control",
+            "-p",
+            "rsf-gateway"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "protocol": {
+      "status": "passed",
+      "trace_sha256": "1c532777c52f95a5435accb9d881684581fd26ba609fe54285d59af0b065c4ae",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-protocol"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "recovery": {
+      "status": "passed",
+      "trace_sha256": "bdb15b67523034808f870ed4049311c251b746cc9a96a5453eacd8c66afb235f",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-recovery",
+            "-p",
+            "rsf-snapshot",
+            "-p",
+            "rsf-backup",
+            "-p",
+            "rsf-storage",
+            "-p",
+            "rsf-core"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+            "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.87s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "release-stress": {
+      "status": "passed",
+      "trace_sha256": "8f24c6a7c9100515f7aeb05cea7e2044fb6f57fd62f1adef842e2f4ba1d43ed3",
+      "actual_commands": [
+        {
+          "command": [
+            "env",
+            "CARGO_BUILD_JOBS=2",
+            "RSF_STRESS_WRITES_PER_CLIENT=64",
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_kv_stress",
+            "--",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 74.20s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "sql": {
+      "status": "passed",
+      "trace_sha256": "86c4e659f9df167fd6bf3cc5c6ace06634267606bf51559270dd790b2fc91467",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-page",
+            "-p",
+            "rsf-sql",
+            "-p",
+            "rsf-sqldml",
+            "-p",
+            "rsf-sqltxn",
+            "-p",
+            "rsf-sqlpipeline"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.19s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "sql-stream": {
+      "status": "passed",
+      "trace_sha256": "8a538abab0d1c9ddc5a3db09b1fad5d6cc66ee5b050293d14e5788fa598c4d34",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_sql_streams_large_results_and_bounds_legacy_responses",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 31.29s"
+          ],
+          "failed_tests": []
+        },
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "rsfd",
+            "--test",
+            "peer_process",
+            "native_sql_streams_large_results_and_bounds_legacy_responses",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 13.86s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "storage": {
+      "status": "passed",
+      "trace_sha256": "e2947c1eb799bf2f00284f77ee26707ebbebbaca8229d78e832f511851fec3a9",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.88s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "tenancy": {
+      "status": "passed",
+      "trace_sha256": "0e3e6a04223880ad6dcdcf158d9ceb446808fab2fe8f2fdeef02a5800c2e789c",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-tenancy",
+            "-p",
+            "rsf-core",
+            "-p",
+            "rsf-storage"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.78s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "vsr": {
+      "status": "passed",
+      "trace_sha256": "55a1f0e32c3d96405318744de83b39c3eec386c6cfb452fa59d2cf66e227fe6c",
+      "actual_commands": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "rsf-vsr"
+          ],
+          "exit_code": 0,
+          "test_summaries": [
+            "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 100.08s",
+            "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+          ],
+          "failed_tests": []
+        }
+      ]
+    },
+    "workspace": {
+      "status": "failed",
+      "trace_sha256": "113890f0bee361ee1231228209d85530f687d4af32a5a3fabaa9549251761e91",
+      "actual_commands": [
+        {
+          "command": [
+            "sh",
+            "scripts/capture-host-process.sh",
+            "/Users/deepsaint/Desktop/rsf/artifacts/verification.fresh-publication-20261106-v1/workspace/attempt-0001/workspace.process.log",
+            "cargo",
+            "test",
+            "--workspace"
+          ],
+          "exit_code": 101,
+          "test_summaries": [
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s",
+            "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.33s",
+            "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.60s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s",
+            "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s",
+            "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.19s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s",
+            "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s",
+            "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s",
+            "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 138 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.12s",
+            "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+            "test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.97s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.71s",
+            "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+            "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s",
+            "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+            "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 98.74s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s",
+            "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s",
+            "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+            "test result: FAILED. 71 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.13s"
+          ],
+          "failed_tests": [
+            "data::cache::tests::idle_sql_writer_survives_polls_while_status_and_transport_checks_remain_fresh",
+            "data::cache::tests::idle_application_rejects_same_version_divergent_protocol_history_repeatedly",
+            "security_tests::independent_namespace_data_survives_reopen_on_every_surface",
+            "security_tests::revocation_is_effective_on_the_next_connection_without_daemon_restart"
+          ]
+        }
+      ]
+    }
+  },
+  "limits": [
+    "This is a failed complete baseline; no passing domain overrides an actual failure.",
+    "Darwin development evidence does not qualify Linux persistence or capacity.",
+    "Strict scripted phases verify scenario determinism; actual host traces supply workload outcomes.",
+    "Initial failure excerpts remain in artifacts/verification.fresh-publication-20261106-v1/failure-extracts; failed traces independently verified/replayed in artifacts/fresh-baseline-failed-trace-validation-20261106. No production readiness claim."
+  ]
+}

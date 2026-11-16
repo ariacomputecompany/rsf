@@ -2,14 +2,28 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
+
+mod coordination;
+mod custody;
+pub use custody::{
+    OwnedWalGroup, ProvisionalBootstrap, SegmentDiscardInventory, SegmentDiscardRemainder,
+    SegmentReadCursor, SegmentReadCustody, SegmentReadError, SegmentReadLimit, SegmentReadLimits,
+    SegmentScanControl, SegmentScanOutcome, SegmentStoreCustody, append_only_manifest_byte_bound,
+    wal_record_disk_bytes,
+};
+mod group;
+mod initialization;
+mod wal;
+use coordination::{StoreGate, lock_gate, store_gate};
+pub use group::{WalGroupEntry, WalGroupRecord};
 
 use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 
 use crate::{
     HEADER_LEN, MaintenanceKind, MaintenanceRecord, PlacementGroupPrefix, Recovery, SegmentLock,
-    SegmentLog, SegmentLogOptions, StorageIoOperation, WalAppend, digest,
+    SegmentLog, SegmentLogOptions, StorageIoOperation, WalAppend, WalTail, digest,
     encode_existing_wal_record, encode_maintenance_record, encode_wal_record, storage_error,
     wal_record_hash,
 };
@@ -53,6 +67,51 @@ pub struct SegmentStore {
     active: SegmentLog,
     _lock: SegmentLock,
     options: SegmentStoreOptions,
+    write_failed: bool,
+    gate: StoreGate,
+    cursor: Option<WalCursor>,
+    observer: std::sync::Arc<()>,
+    external_changes: u64,
+}
+
+#[derive(Debug)]
+struct WalCursor {
+    tails: BTreeMap<PlacementGroupId, WalTail>,
+    stamp: Vec<SegmentStamp>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SegmentStamp {
+    id: u64,
+    bytes: u64,
+    modified: SystemTime,
+}
+
+/// Opaque identity of a validated physical store state. Comparing revisions is
+/// bounded by segment count; changed disk state is recovered and validated
+/// before a new revision is returned. It is not a durable checkpoint.
+#[derive(Clone, Debug)]
+pub struct SegmentStoreRevision {
+    manifest: SegmentManifest,
+    stamp: Vec<SegmentStamp>,
+    observer: std::sync::Arc<()>,
+    external_changes: u64,
+}
+impl PartialEq for SegmentStoreRevision {
+    fn eq(&self, other: &Self) -> bool {
+        self.same_writer_epoch(other)
+            && self.manifest == other.manifest
+            && self.stamp == other.stamp
+    }
+}
+impl Eq for SegmentStoreRevision {}
+impl SegmentStoreRevision {
+    /// True only for the same observed handle without an intervening refresh
+    /// caused by another writer or a changed physical layout.
+    pub fn same_writer_epoch(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.observer, &other.observer)
+            && self.external_changes == other.external_changes
+    }
 }
 
 impl SegmentStore {
@@ -64,25 +123,128 @@ impl SegmentStore {
         root: impl AsRef<Path>,
         options: SegmentStoreOptions,
     ) -> RsfResult<Self> {
+        Self::open_recovered(root, options).map(|(store, _)| store)
+    }
+
+    /// Open the writer and return the recovery already validated while opening
+    /// it. Startup consumers can build their logical state from these records
+    /// without immediately scanning the same segments again.
+    pub fn open_recovered(
+        root: impl AsRef<Path>,
+        options: SegmentStoreOptions,
+    ) -> RsfResult<(Self, SegmentStoreRecovery)> {
         let root = root.as_ref().to_path_buf();
+        // This is allocation only. A fresh manifest publishes the full route
+        // before creating its segment. Unix retains that invocation's original
+        // directories and segment through final parent publication. Existing
+        // stores renew both ancestry routes before a writer or recovery escapes.
         fs::create_dir_all(root.join(SEGMENT_DIR))
             .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
 
+        let gate = store_gate(&root)?;
+        let opening_gate = gate.clone();
+        let _guard = lock_gate(&opening_gate)?;
         let lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
-        let manifest = read_or_create_manifest(&root)?;
-        let _ = recover_manifest(&root, &manifest)?;
-        let active_descriptor = manifest.active_segment()?;
-        let active = SegmentLog::open_after_external_recovery(
-            root.join(SEGMENT_DIR).join(&active_descriptor.file_name),
-            options.log_options,
+        #[cfg(unix)]
+        let (manifest, publication) = read_or_create_manifest_with(
+            &root,
+            |path| {
+                crate::durable_directory::FreshPublication::publish_routes(path)
+                    .map_err(|e| storage_error(StorageIoOperation::Sync, e))
+            },
+            |publication, path, file| {
+                publication
+                    .bind_created_segment(path, file)
+                    .map_err(|e| storage_error(StorageIoOperation::Sync, e))
+            },
         )?;
+        #[cfg(not(unix))]
+        let manifest = read_or_create_manifest(&root)?;
+        #[cfg(unix)]
+        if let Some(publication) = &publication {
+            publication
+                .validate_routes()
+                .map_err(|e| storage_error(StorageIoOperation::Sync, e))?;
+            lock.validate_named(&root.join(MANIFEST_FILE))
+                .map_err(|e| storage_error(StorageIoOperation::Lock, e))?;
+        }
+        let active_descriptor = manifest.active_segment()?;
+        let active_path = root.join(SEGMENT_DIR).join(&active_descriptor.file_name);
+        if fs::symlink_metadata(&active_path)
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+            .file_type()
+            .is_symlink()
+        {
+            // A permitted final-file alias may publish a foreign target parent
+            // instead of the resolved store directory. Retain that directory's
+            // whole route before recovery. Otherwise the validated simple file
+            // name has the same resolved parent as segments under caller custody.
+            crate::create_dir_all_synced(root.join(SEGMENT_DIR))
+                .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+        }
+        let recovery = recover_manifest(&root, &manifest)?;
+        #[cfg(unix)]
+        let active = match publication {
+            Some(publication) => SegmentLog::open_after_fresh_recovery(
+                active_path,
+                options.log_options,
+                publication,
+                &lock,
+                &root.join(MANIFEST_FILE),
+            )?,
+            None => SegmentLog::open_after_external_recovery(active_path, options.log_options)?,
+        };
+        #[cfg(not(unix))]
+        let active = SegmentLog::open_after_external_recovery(active_path, options.log_options)?;
+        let cursor = Some(WalCursor {
+            tails: recovery.recovery.pg_tails.clone(),
+            stamp: segment_stamp(&root, &manifest)?,
+        });
 
-        Ok(Self {
-            root,
-            manifest,
-            active,
-            _lock: lock,
-            options,
+        Ok((
+            Self {
+                root,
+                manifest,
+                active,
+                _lock: lock,
+                options,
+                write_failed: false,
+                gate,
+                cursor,
+                observer: std::sync::Arc::new(()),
+                external_changes: 0,
+            },
+            recovery,
+        ))
+    }
+
+    /// Observe a validated WAL tail without replaying unchanged segments.
+    pub fn wal_tail(&mut self, pg: PlacementGroupId) -> RsfResult<Option<WalTail>> {
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        self.wal_tail_owned(pg)
+    }
+
+    /// Detect writes, rotations, truncation, or compaction from another handle.
+    /// Own successful appends keep the validated physical cursor current.
+    pub fn revision(&mut self) -> RsfResult<SegmentStoreRevision> {
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        self.wal_tail_owned(PlacementGroupId(0))?;
+        Ok(SegmentStoreRevision {
+            manifest: self.manifest.clone(),
+            observer: self.observer.clone(),
+            external_changes: self.external_changes,
+            stamp: self
+                .cursor
+                .as_ref()
+                .expect("validated cursor")
+                .stamp
+                .clone(),
         })
     }
 
@@ -101,51 +263,105 @@ impl SegmentStore {
     }
 
     pub fn append(&mut self, payload: &[u8]) -> RsfResult<(u64, u64)> {
-        self.rotate_if_needed(record_disk_len(payload.len())?)?;
-        let id = self.manifest.active_id;
-        let offset = self.active.append(payload)?;
-        Ok((id, offset))
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        let length = record_disk_len(payload.len())?;
+        self.cursor = None;
+        self.write_failed = true;
+        let result = (|| {
+            self.rotate_if_needed(length)?;
+            let id = self.manifest.active_id;
+            let offset = self.active.append(payload)?;
+            Ok((id, offset))
+        })();
+        self.write_failed = result.is_err();
+        result
     }
 
     pub fn append_wal(&mut self, input: WalAppend<'_>) -> RsfResult<(u64, u64, WalRecord)> {
-        let recovery = self.recover_current()?;
-        let tail = recovery.recovery.pg_tails.get(&input.pg).copied();
-        let expected_index = tail.map_or(1, |tail| tail.index.0 + 1);
-        if input.index.0 != expected_index {
-            return Err(RsfError::new(
-                ErrorCode::InvalidInput,
-                format!(
-                    "wal index {} does not match next placement-group index {expected_index} for pg {}",
-                    input.index.0, input.pg.0
-                ),
-            ));
-        }
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        let tail = self.wal_tail_owned(input.pg)?;
+        self.append_at_tail(input, tail)
+    }
 
-        let expected_previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-        if input.previous_hash != expected_previous_hash {
-            return Err(RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!(
-                    "wal previous hash does not match recovered placement-group tail for pg {}",
-                    input.pg.0
-                ),
-            ));
-        }
+    /// Derive the physical index and hash chain from one validated recovery.
+    /// Callers with their own logical indices should encode those in the
+    /// payload; they need not recover the physical WAL a second time.
+    pub fn append_next_wal(
+        &mut self,
+        pg: PlacementGroupId,
+        epoch: rsf_core::Epoch,
+        kind: WalRecordKind,
+        payload: &[u8],
+    ) -> RsfResult<(u64, u64, WalRecord)> {
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        let tail = self.wal_tail_owned(pg)?;
+        let index = tail
+            .map_or(Some(1), |tail| tail.index.0.checked_add(1))
+            .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, "WAL index exhausted"))?;
+        self.append_at_tail(
+            WalAppend {
+                pg,
+                epoch,
+                index: LogIndex(index),
+                kind,
+                previous_hash: tail.map_or([0; 32], |tail| tail.record_hash),
+                payload,
+            },
+            tail,
+        )
+    }
 
-        let payload_hash = digest(input.payload);
-        let record_hash = wal_record_hash(
+    fn append_at_tail(
+        &mut self,
+        input: WalAppend<'_>,
+        tail: Option<WalTail>,
+    ) -> RsfResult<(u64, u64, WalRecord)> {
+        let wal::Frame {
+            encoded,
+            payload_hash,
+            record_hash,
+        } = wal::encode_at_tail(input, tail)?;
+        let length = record_disk_len(encoded.len())?;
+        self.write_failed = true;
+        let result = (|| {
+            self.rotate_if_needed(length)?;
+            Ok((self.manifest.active_id, self.active.append(&encoded)?))
+        })();
+        self.write_failed = result.is_err();
+        let (segment_id, offset) = result?;
+
+        // Publish the in-memory tail only after append and its configured sync
+        // succeed. Physical stamps invalidate it after another writer, recovery
+        // truncation, or an out-of-band file change; reads still verify checksums.
+        let stamp = match segment_stamp(&self.root, &self.manifest) {
+            Ok(stamp) => stamp,
+            Err(err) => {
+                self.write_failed = true;
+                return Err(err);
+            }
+        };
+        let cursor = self
+            .cursor
+            .as_mut()
+            .expect("WAL cursor validated before append");
+        cursor.tails.insert(
             input.pg,
-            input.epoch,
-            input.index,
-            input.kind,
-            &input.previous_hash,
-            &payload_hash,
-            input.payload,
+            WalTail {
+                epoch: input.epoch,
+                index: input.index,
+                record_hash,
+            },
         );
-        let encoded = encode_wal_record(input, payload_hash, record_hash)?;
-        self.rotate_if_needed(record_disk_len(encoded.len())?)?;
-        let segment_id = self.manifest.active_id;
-        let offset = self.active.append(&encoded)?;
+        cursor.stamp = stamp;
 
         Ok((
             segment_id,
@@ -167,7 +383,14 @@ impl SegmentStore {
         &mut self,
         record: MaintenanceRecord<'_>,
     ) -> RsfResult<MaintenanceRecord<'static>> {
-        self.active.append_maintenance(record)
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        self.cursor = None;
+        let result = self.active.append_maintenance(record);
+        self.write_failed = result.is_err();
+        result
     }
 
     pub fn scan(&self, filter: SegmentScanFilter) -> RsfResult<SegmentScan> {
@@ -214,12 +437,20 @@ impl SegmentStore {
     }
 
     pub fn truncate_uncommitted_tails(&mut self) -> RsfResult<TruncateReport> {
-        let recovered = self.recover_current()?;
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        let recovered = self.recover_owned()?;
         let mut latest_commit = recovered.recovery.compacted_prefixes.clone();
         for record in &recovered.recovery.wal_records {
             if matches!(
                 record.kind,
-                WalRecordKind::Commit | WalRecordKind::Membership
+                WalRecordKind::Commit
+                    | WalRecordKind::Membership
+                    | WalRecordKind::ViewPromise
+                    | WalRecordKind::ViewInstallation
+                    | WalRecordKind::MembershipPromise
             ) {
                 latest_commit.insert(
                     record.pg,
@@ -248,7 +479,7 @@ impl SegmentStore {
 
         let old_segments = self.manifest.segments.clone();
         let old_bytes = segment_bytes(&self.root, &old_segments)?;
-        let new_id = self.manifest.next_id();
+        let new_id = self.manifest.next_id()?;
         let new_file_name = segment_file_name(new_id);
         let final_path = self.root.join(SEGMENT_DIR).join(&new_file_name);
         let note = format!("dropped-uncommitted-wal-records:{dropped_wal_records}");
@@ -260,6 +491,8 @@ impl SegmentStore {
             note: std::borrow::Cow::Owned(note.into_bytes()),
         };
 
+        self.write_failed = true;
+        self.cursor = None;
         rewrite_single_segment(
             &self.root,
             self.options.log_options,
@@ -283,6 +516,7 @@ impl SegmentStore {
         self.active =
             SegmentLog::open_after_external_recovery(&final_path, self.options.log_options)?;
         self.manifest = new_manifest;
+        self.write_failed = false;
 
         let segments_dir = self.root.join(SEGMENT_DIR);
         for segment in &old_segments {
@@ -307,7 +541,11 @@ impl SegmentStore {
         &mut self,
         retained_through: BTreeMap<PlacementGroupId, LogIndex>,
     ) -> RsfResult<CompactionReport> {
-        let recovered = self.recover_current()?;
+        self.ensure_writable()?;
+        let gate = self.gate.clone();
+        let _guard = lock_gate(&gate)?;
+        self.refresh_layout()?;
+        let recovered = self.recover_owned()?;
         let mut compacted_prefixes = self.manifest.compacted_prefixes.clone();
         let mut retained_wal_records = Vec::new();
         let mut dropped_wal_records = 0_usize;
@@ -361,12 +599,14 @@ impl SegmentStore {
 
         let old_segments = self.manifest.segments.clone();
         let old_bytes = segment_bytes(&self.root, &old_segments)?;
-        let new_id = self.manifest.next_id();
+        let new_id = self.manifest.next_id()?;
         let new_file_name = segment_file_name(new_id);
         let temp_file_name = format!("{new_file_name}.compact");
         let segments_dir = self.root.join(SEGMENT_DIR);
         let temp_path = segments_dir.join(&temp_file_name);
         let final_path = segments_dir.join(&new_file_name);
+        self.write_failed = true;
+        self.cursor = None;
         let _ = fs::remove_file(&temp_path);
         let _ = fs::remove_file(&final_path);
 
@@ -423,6 +663,7 @@ impl SegmentStore {
         self.active =
             SegmentLog::open_after_external_recovery(&final_path, self.options.log_options)?;
         self.manifest = new_manifest;
+        self.write_failed = false;
 
         for segment in &old_segments {
             if segment.file_name != new_file_name {
@@ -444,46 +685,177 @@ impl SegmentStore {
 
     pub fn recover(root: impl AsRef<Path>) -> RsfResult<SegmentStoreRecovery> {
         let root = root.as_ref();
+        // This entry point may initialize a store. Lock acquisition itself is
+        // not a publication barrier, including on existing-path retries.
+        crate::create_dir_all_synced(root)
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
         let _lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
+        let gate = store_gate(root)?;
+        let _guard = lock_gate(&gate)?;
         let manifest = read_or_create_manifest(root)?;
+        recover_manifest(root, &manifest)
+    }
+
+    /// Recover existing state without initializing an absent store. This reads
+    /// and validates bytes (and may repair a torn active tail); it does not
+    /// publish namespace entries or grant durable ownership. Callers returning
+    /// custody acknowledgements must establish their own publication boundary.
+    pub fn recover_existing(root: impl AsRef<Path>) -> RsfResult<SegmentStoreRecovery> {
+        let root = root.as_ref();
+        // Check the manifest before acquiring a lock, whose sidecar is created
+        // by SegmentLock. An absent root or manifest remains absent.
+        fs::metadata(root.join(MANIFEST_FILE))
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        let _lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
+        let gate = store_gate(root)?;
+        let _guard = lock_gate(&gate)?;
+        let bytes = fs::read(root.join(MANIFEST_FILE))
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        let manifest = SegmentManifest::decode(&bytes)?;
         recover_manifest(root, &manifest)
     }
 
     pub fn recover_or_quarantine(root: impl AsRef<Path>) -> RsfResult<SegmentStoreRecovery> {
         let root = root.as_ref();
+        // This entry point may initialize a store. Lock acquisition itself is
+        // not a publication barrier, including on existing-path retries.
+        crate::create_dir_all_synced(root)
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
         let _lock = SegmentLock::acquire(&root.join(MANIFEST_FILE))?;
+        let gate = store_gate(root)?;
+        let _guard = lock_gate(&gate)?;
         let manifest = read_or_create_manifest(root)?;
         recover_manifest_or_quarantine(root, &manifest)
     }
 
     pub fn recover_current(&self) -> RsfResult<SegmentStoreRecovery> {
+        let _guard = lock_gate(&self.gate)?;
+        let bytes = fs::read(self.root.join(MANIFEST_FILE))
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        let manifest = SegmentManifest::decode(&bytes)?;
+        recover_manifest(&self.root, &manifest)
+    }
+
+    fn recover_owned(&self) -> RsfResult<SegmentStoreRecovery> {
         recover_manifest(&self.root, &self.manifest)
     }
 
-    fn rotate_if_needed(&mut self, pending_bytes: u64) -> RsfResult<()> {
+    fn wal_tail_owned(&mut self, pg: PlacementGroupId) -> RsfResult<Option<WalTail>> {
+        let stamp = segment_stamp(&self.root, &self.manifest)?;
+        if self
+            .cursor
+            .as_ref()
+            .is_none_or(|cursor| cursor.stamp != stamp)
+        {
+            self.external_changes = self.external_changes.checked_add(1).ok_or_else(|| {
+                RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "store observer revision exhausted",
+                )
+            })?;
+            let recovered = self.recover_owned()?;
+            self.cursor = Some(WalCursor {
+                tails: recovered.recovery.pg_tails,
+                // Recovery may have truncated an incomplete active tail.
+                stamp: segment_stamp(&self.root, &self.manifest)?,
+            });
+        }
+        Ok(self
+            .cursor
+            .as_ref()
+            .and_then(|cursor| cursor.tails.get(&pg))
+            .copied())
+    }
+
+    fn refresh_layout(&mut self) -> RsfResult<()> {
+        let bytes = fs::read(self.root.join(MANIFEST_FILE))
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        let manifest = SegmentManifest::decode(&bytes)?;
+        if manifest != self.manifest {
+            // Another same-process writer may have rotated or compacted the
+            // store. Its published layout is authoritative, including the next
+            // segment id. Never reclaim a file based on a stale local manifest.
+            recover_manifest(&self.root, &manifest)?;
+            let path = self
+                .root
+                .join(SEGMENT_DIR)
+                .join(&manifest.active_segment()?.file_name);
+            let active = SegmentLog::open_after_external_recovery(path, self.options.log_options)?;
+            self.active = active;
+            self.manifest = manifest;
+            self.cursor = None;
+        }
+        Ok(())
+    }
+
+    fn ensure_writable(&self) -> RsfResult<()> {
+        if self.write_failed {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "segment store durability failed; reopen before further writes",
+            ));
+        }
+        Ok(())
+    }
+
+    fn rotation_required(&self, pending_bytes: u64) -> bool {
         if self.options.max_segment_bytes == 0 {
-            return Ok(());
+            return false;
         }
         let current_len = fs::metadata(self.active.path())
             .map(|metadata| metadata.len())
             .unwrap_or(0);
-        if current_len == 0 || current_len + pending_bytes <= self.options.max_segment_bytes {
-            return Ok(());
-        }
+        current_len != 0 && current_len + pending_bytes > self.options.max_segment_bytes
+    }
 
-        let next_id = self.manifest.next_id();
-        self.manifest.segments.push(SegmentDescriptor {
+    fn rotate_if_needed(&mut self, pending_bytes: u64) -> RsfResult<()> {
+        if self.rotation_required(pending_bytes) {
+            self.rotate()?;
+        }
+        Ok(())
+    }
+
+    fn rotate(&mut self) -> RsfResult<()> {
+        let next_id = self.manifest.next_id()?;
+        let mut manifest = self.manifest.clone();
+        manifest.segments.push(SegmentDescriptor {
             id: next_id,
             file_name: segment_file_name(next_id),
         });
-        self.manifest.active_id = next_id;
-        write_manifest(&self.root, &self.manifest)?;
-        self.active = SegmentLog::open_with_options(
-            self.root.join(SEGMENT_DIR).join(segment_file_name(next_id)),
-            self.options.log_options,
-        )?;
+        manifest.active_id = next_id;
+        let path = self.root.join(SEGMENT_DIR).join(segment_file_name(next_id));
+        // A previous interrupted rotation may have left an unpublished file.
+        // The current manifest does not reference this id, so it is disposable.
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(storage_error(StorageIoOperation::Open, err)),
+        }
+        create_durable_segment(&self.root, &manifest.segments.last().unwrap().file_name)?;
+        let active = SegmentLog::open_after_external_recovery(&path, self.options.log_options)?;
+        write_manifest(&self.root, &manifest)?;
+        self.active = active;
+        self.manifest = manifest;
         Ok(())
     }
+}
+
+fn segment_stamp(root: &Path, manifest: &SegmentManifest) -> RsfResult<Vec<SegmentStamp>> {
+    manifest
+        .segments
+        .iter()
+        .map(|segment| {
+            let metadata = fs::metadata(root.join(SEGMENT_DIR).join(&segment.file_name))
+                .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+            Ok(SegmentStamp {
+                id: segment.id,
+                bytes: metadata.len(),
+                modified: metadata
+                    .modified()
+                    .map_err(|err| storage_error(StorageIoOperation::Recover, err))?,
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -564,13 +936,28 @@ impl SegmentManifest {
             })
     }
 
-    fn next_id(&self) -> u64 {
+    // Shared pure construction for owned rotation and recognized discard residue.
+    // It performs no filesystem I/O and grants no ownership from an empty path.
+    fn next_rotation(&self) -> RsfResult<(Self, SegmentDescriptor)> {
+        let id = self.next_id()?;
+        let descriptor = SegmentDescriptor {
+            id,
+            file_name: segment_file_name(id),
+        };
+        let mut manifest = self.clone();
+        manifest.segments.push(descriptor.clone());
+        manifest.active_id = id;
+        Ok((manifest, descriptor))
+    }
+
+    fn next_id(&self) -> RsfResult<u64> {
         self.segments
             .iter()
             .map(|segment| segment.id)
             .max()
             .unwrap_or(0)
-            + 1
+            .checked_add(1)
+            .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, "segment id exhausted"))
     }
 
     fn encode(&self) -> String {
@@ -642,7 +1029,17 @@ impl SegmentManifest {
                         "segment file name is missing",
                     )
                 })?;
-                validate_segment_file_name(file_name)?;
+                if id == 0
+                    || file_name != segment_file_name(id)
+                    || segments
+                        .last()
+                        .is_some_and(|previous: &SegmentDescriptor| previous.id >= id)
+                {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "manifest requires increasing unique segment ids and canonical file names",
+                    ));
+                }
                 segments.push(SegmentDescriptor {
                     id,
                     file_name: file_name.to_string(),
@@ -664,7 +1061,12 @@ impl SegmentManifest {
                     index: LogIndex(parse_manifest_u64(parts[2], "base index")?),
                     record_hash: decode_hash(parts[3])?,
                 };
-                compacted_prefixes.insert(pg, prefix);
+                if compacted_prefixes.insert(pg, prefix).is_some() {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "manifest contains duplicate compacted placement-group prefixes",
+                    ));
+                }
                 continue;
             }
             return Err(RsfError::new(
@@ -676,6 +1078,15 @@ impl SegmentManifest {
             return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
                 "manifest has no segments",
+            ));
+        }
+        if segments
+            .last()
+            .is_some_and(|segment| segment.id != active_id)
+        {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "manifest active segment must be the last segment",
             ));
         }
         let manifest = Self {
@@ -698,14 +1109,74 @@ fn parse_manifest_u64(value: &str, label: &str) -> RsfResult<u64> {
 }
 
 fn read_or_create_manifest(root: &Path) -> RsfResult<SegmentManifest> {
+    read_or_create_manifest_with(
+        root,
+        |path| {
+            crate::create_dir_all_synced(path)
+                .map_err(|e| storage_error(StorageIoOperation::Open, e))
+        },
+        |_, _, file| {
+            drop(file);
+            Ok(())
+        },
+    )
+    .map(|(manifest, _)| manifest)
+}
+
+// Both creating callers share the exact format, ordering and residue checks.
+// Only open_recovered asks to retain its invocation's publication proof.
+fn read_or_create_manifest_with<P>(
+    root: &Path,
+    publish: impl FnOnce(&Path) -> RsfResult<P>,
+    created: impl FnOnce(&mut P, &Path, File) -> RsfResult<()>,
+) -> RsfResult<(SegmentManifest, Option<P>)> {
     let path = root.join(MANIFEST_FILE);
-    if !path.exists() {
-        let manifest = SegmentManifest::initial();
-        write_manifest(root, &manifest)?;
-        return Ok(manifest);
+    match fs::read(&path) {
+        Ok(bytes) => SegmentManifest::decode(&bytes).map(|manifest| (manifest, None)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            // A caller may have allocated the root immediately before opening.
+            // Persist that root's link before the initial manifest can be used.
+            let parent = root
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            sync_dir(parent)?;
+            let mut publication = publish(&root.join(SEGMENT_DIR))?;
+            if fs::read_dir(root.join(SEGMENT_DIR))
+                .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+                .next()
+                .is_some()
+            {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "segment files exist without a manifest; restore the manifest before recovery",
+                ));
+            }
+            let manifest = SegmentManifest::initial();
+            let name = &manifest.active_segment()?.file_name;
+            let file = create_durable_segment_retained(root, name)?;
+            created(&mut publication, &root.join(SEGMENT_DIR).join(name), file)?;
+            write_manifest(root, &manifest)?;
+            Ok((manifest, Some(publication)))
+        }
+        Err(err) => Err(storage_error(StorageIoOperation::Recover, err)),
     }
-    let bytes = fs::read(&path).map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
-    SegmentManifest::decode(&bytes)
+}
+
+fn create_durable_segment(root: &Path, name: &str) -> RsfResult<()> {
+    create_durable_segment_retained(root, name).map(drop)
+}
+fn create_durable_segment_retained(root: &Path, name: &str) -> RsfResult<File> {
+    let directory = root.join(SEGMENT_DIR);
+    let file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(directory.join(name))
+        .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+    file.sync_all()
+        .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
+    sync_dir(&directory)?;
+    Ok(file)
 }
 
 fn recover_manifest(root: &Path, manifest: &SegmentManifest) -> RsfResult<SegmentStoreRecovery> {
@@ -719,12 +1190,13 @@ fn recover_manifest_or_quarantine(
     recover_manifest_with_handler(root, manifest, Some(quarantine_segment))
 }
 
+type CorruptSegmentHandler =
+    fn(&Path, &SegmentDescriptor, &RsfError) -> RsfResult<QuarantineReport>;
+
 fn recover_manifest_with_handler(
     root: &Path,
     manifest: &SegmentManifest,
-    on_corrupt_segment: Option<
-        fn(&Path, &SegmentDescriptor, &RsfError) -> RsfResult<QuarantineReport>,
-    >,
+    on_corrupt_segment: Option<CorruptSegmentHandler>,
 ) -> RsfResult<SegmentStoreRecovery> {
     let mut records = Vec::new();
     let mut wal_records = Vec::new();
@@ -747,9 +1219,10 @@ fn recover_manifest_with_handler(
 
     for segment in &manifest.segments {
         let segment_path = root.join(SEGMENT_DIR).join(&segment.file_name);
-        let segment_recovery = match SegmentLog::recover_unlocked_with_tails(
+        let segment_recovery = match SegmentLog::recover_existing_with_tails(
             &root.join(SEGMENT_DIR).join(&segment.file_name),
             pg_tails,
+            segment.id == manifest.active_id,
         ) {
             Ok(recovery) => recovery,
             Err(err) if err.code == ErrorCode::CorruptionDetected => {
@@ -797,6 +1270,9 @@ fn quarantine_segment(
     let quarantine_dir = root.join("quarantine");
     fs::create_dir_all(&quarantine_dir)
         .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+    // This child is created after the owner-root barrier. Publish its link
+    // before moving the only retained corrupt segment into it, including retry.
+    sync_dir(root)?;
     let source = root.join(SEGMENT_DIR).join(&segment.file_name);
     let quarantine_path = quarantine_dir.join(format!("{}.corrupt", segment.file_name));
     let _ = fs::remove_file(&quarantine_path);
@@ -893,16 +1369,6 @@ fn segment_file_name(id: u64) -> String {
     format!("{id:018}.segment")
 }
 
-fn validate_segment_file_name(file_name: &str) -> RsfResult<()> {
-    if file_name.contains('/') || file_name.contains('\\') || !file_name.ends_with(".segment") {
-        return Err(RsfError::new(
-            ErrorCode::CorruptionDetected,
-            format!("invalid segment file name {file_name}"),
-        ));
-    }
-    Ok(())
-}
-
 fn encode_hash(hash: &[u8; 32]) -> String {
     let mut encoded = String::with_capacity(64);
     for byte in hash {
@@ -912,7 +1378,7 @@ fn encode_hash(hash: &[u8; 32]) -> String {
 }
 
 fn decode_hash(encoded: &str) -> RsfResult<[u8; 32]> {
-    if encoded.len() != 64 {
+    if encoded.len() != 64 || !encoded.is_ascii() {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
             "manifest hash has invalid length",
@@ -941,6 +1407,422 @@ mod tests {
 
     use super::*;
     use crate::SyncPolicy;
+
+    #[test]
+    fn interleaved_writers_cannot_replace_another_writers_published_segment() {
+        let root = test_root("interleaved-writer-rotation");
+        let options = SegmentStoreOptions {
+            max_segment_bytes: 1,
+            ..Default::default()
+        };
+        let mut first = SegmentStore::open_with_options(&root, options).unwrap();
+        let mut second = SegmentStore::open_with_options(&root, options).unwrap();
+        first
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(1),
+                WalRecordKind::Prepare,
+                b"prepared",
+            )
+            .unwrap();
+        first
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"acknowledged",
+            )
+            .unwrap();
+        second
+            .append_next_wal(
+                PlacementGroupId(2),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"other group",
+            )
+            .unwrap();
+        let records = SegmentStore::recover(&root).unwrap().recovery.wal_records;
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().any(|record| record.pg == PlacementGroupId(1)
+            && record.index == LogIndex(2)
+            && record.payload == b"acknowledged"));
+        drop(first);
+        drop(second);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_root_writers_preserve_both_placement_group_chains() {
+        let root = test_root("concurrent-root-writers");
+        let options = SegmentStoreOptions {
+            max_segment_bytes: 256,
+            log_options: SegmentLogOptions {
+                sync_policy: SyncPolicy::None,
+            },
+        };
+        let first = SegmentStore::open_with_options(&root, options).unwrap();
+        let second = SegmentStore::open_with_options(&root, options).unwrap();
+        std::thread::scope(|scope| {
+            let workers = [first, second]
+                .into_iter()
+                .enumerate()
+                .map(|(group, mut store)| {
+                    scope.spawn(move || {
+                        for index in 1..=16 {
+                            let (_, _, record) = store
+                                .append_next_wal(
+                                    PlacementGroupId(group as u64),
+                                    Epoch(1),
+                                    WalRecordKind::Commit,
+                                    b"value",
+                                )
+                                .unwrap();
+                            assert_eq!(record.index, LogIndex(index));
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            for worker in workers {
+                worker.join().unwrap();
+            }
+        });
+        let records = SegmentStore::recover(&root).unwrap().recovery.wal_records;
+        assert_eq!(records.len(), 32);
+        for group in 0..2 {
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record.pg == PlacementGroupId(group))
+                    .map(|record| record.index.0)
+                    .collect::<Vec<_>>(),
+                (1..=16).collect::<Vec<_>>()
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_cached_wal_tail_does_not_hide_changed_corrupt_disk_records() {
+        let root = test_root("cursor-corruption");
+        let mut store = SegmentStore::open(&root).unwrap();
+        store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"acknowledged",
+            )
+            .unwrap();
+        let path = root
+            .join(SEGMENT_DIR)
+            .join(&store.active_segment().file_name);
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+            .unwrap();
+        let error = store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"must not append",
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::CorruptionDetected);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn writer_open_returns_the_recovery_used_to_establish_its_tail() {
+        let root = test_root("open_recovered");
+        let (mut store, recovered) =
+            SegmentStore::open_recovered(&root, Default::default()).unwrap();
+        assert!(recovered.recovery.wal_records.is_empty());
+        let (_, _, first) = store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(1),
+                WalRecordKind::Prepare,
+                b"first",
+            )
+            .unwrap();
+        drop(store);
+        let (mut store, recovered) =
+            SegmentStore::open_recovered(&root, Default::default()).unwrap();
+        assert_eq!(recovered.recovery.wal_records, vec![first.clone()]);
+        let (_, _, second) = store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"second",
+            )
+            .unwrap();
+        assert_eq!(second.previous_hash, first.record_hash);
+        assert_eq!(recovered.recovery.wal_records.len(), 1);
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn next_wal_append_preserves_per_group_chains_across_rotation_and_restart() {
+        let root = test_root("append_next_wal");
+        let options = SegmentStoreOptions {
+            max_segment_bytes: 1,
+            ..Default::default()
+        };
+        let mut store = SegmentStore::open_with_options(&root, options).unwrap();
+        let (_, _, first) = store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(2),
+                WalRecordKind::Prepare,
+                b"first",
+            )
+            .unwrap();
+        let (_, _, other) = store
+            .append_next_wal(
+                PlacementGroupId(2),
+                Epoch(1),
+                WalRecordKind::Prepare,
+                b"other",
+            )
+            .unwrap();
+        assert_eq!(first.index, LogIndex(1));
+        assert_eq!(other.index, LogIndex(1));
+        assert_eq!(other.previous_hash, [0; 32]);
+        assert_eq!(
+            store
+                .append_next_wal(
+                    PlacementGroupId(1),
+                    Epoch(1),
+                    WalRecordKind::Commit,
+                    b"stale"
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::StaleEpoch
+        );
+        drop(store);
+        let mut store = SegmentStore::open_with_options(&root, options).unwrap();
+        let (_, _, committed) = store
+            .append_next_wal(
+                PlacementGroupId(1),
+                Epoch(2),
+                WalRecordKind::Commit,
+                b"committed",
+            )
+            .unwrap();
+        assert_eq!(committed.index, LogIndex(2));
+        assert_eq!(committed.previous_hash, first.record_hash);
+        assert_eq!(
+            store.recover_current().unwrap().recovery.wal_records.len(),
+            3
+        );
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_rejects_ambiguous_history_and_hashes_without_panicking() {
+        let segment = |id| format!("segment {id} {}\n", segment_file_name(id));
+        for (active, body) in [
+            (1, format!("{}{}", segment(1), segment(1))),
+            (1, format!("{}{}", segment(2), segment(1))),
+            (1, format!("{}{}", segment(1), segment(2))),
+            (0, segment(0)),
+            (1, "segment 1 wrong.segment\n".into()),
+            (
+                1,
+                format!(
+                    "{}base 1 1 1 {}\nbase 1 1 1 {}\n",
+                    segment(1),
+                    "ab".repeat(32),
+                    "ab".repeat(32)
+                ),
+            ),
+            (
+                1,
+                format!("{}base 1 1 1 aé{}\n", segment(1), "a".repeat(61)),
+            ),
+        ] {
+            let text = format!("rsf-segment-manifest 1\nactive {active}\n{body}");
+            assert!(SegmentManifest::decode(text.as_bytes()).is_err(), "{text}");
+        }
+        let manifest = SegmentManifest {
+            active_id: u64::MAX,
+            segments: vec![SegmentDescriptor {
+                id: u64::MAX,
+                file_name: segment_file_name(u64::MAX),
+            }],
+            compacted_prefixes: BTreeMap::new(),
+        };
+        assert!(manifest.next_id().is_err());
+    }
+
+    #[test]
+    fn missing_manifest_cannot_reinitialize_an_existing_store() {
+        let root = test_root("missing_manifest");
+        let mut store = SegmentStore::open(&root).unwrap();
+        store.append(b"acknowledged data").unwrap();
+        drop(store);
+        fs::remove_file(root.join(MANIFEST_FILE)).unwrap();
+
+        assert!(SegmentStore::open(&root).is_err());
+        assert!(SegmentStore::recover(&root).is_err());
+        assert!(SegmentStore::recover_or_quarantine(&root).is_err());
+        assert!(!root.join(MANIFEST_FILE).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_manifest_segment_fails_closed_without_recreating_it() {
+        let root = test_root("missing_segment");
+        let mut store = SegmentStore::open(&root).unwrap();
+        store.append(b"acknowledged data").unwrap();
+        let segment = root
+            .join(SEGMENT_DIR)
+            .join(&store.active_segment().file_name);
+        drop(store);
+        fs::remove_file(&segment).unwrap();
+
+        assert!(SegmentStore::recover(&root).is_err());
+        assert!(SegmentStore::open(&root).is_err());
+        assert!(!segment.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn torn_sealed_segment_is_corruption_and_is_never_truncated() {
+        let root = test_root("torn_sealed_segment");
+        let mut store = SegmentStore::open_with_options(
+            &root,
+            SegmentStoreOptions {
+                max_segment_bytes: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        store.append(b"sealed acknowledged record").unwrap();
+        store.append(b"active record").unwrap();
+        let path = root.join(SEGMENT_DIR).join(&store.segments()[0].file_name);
+        drop(store);
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        let length = file.metadata().unwrap().len() - 3;
+        file.set_len(length).unwrap();
+        drop(file);
+        assert!(SegmentStore::recover(&root).is_err());
+        assert_eq!(fs::metadata(&path).unwrap().len(), length);
+        assert!(SegmentStore::open(&root).is_err());
+        assert_eq!(fs::metadata(&path).unwrap().len(), length);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn existing_recovery_never_bootstraps_missing_state() {
+        let root = test_root("existing_recovery");
+        assert!(SegmentStore::recover_existing(&root).is_err());
+        assert!(!root.exists());
+        fs::create_dir_all(&root).unwrap();
+        assert!(SegmentStore::recover_existing(&root).is_err());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        drop(SegmentStore::open(&root).unwrap());
+        assert!(
+            SegmentStore::recover_existing(&root)
+                .unwrap()
+                .recovery
+                .records
+                .is_empty()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_rotation_fences_writes_and_reopen_discards_unpublished_segments() {
+        let root = test_root("failed_rotation");
+        let options = SegmentStoreOptions {
+            max_segment_bytes: 1,
+            ..Default::default()
+        };
+        let mut store = SegmentStore::open_with_options(&root, options).unwrap();
+        store.append(b"committed before failure").unwrap();
+        let manifest = fs::read(root.join(MANIFEST_FILE)).unwrap();
+        fs::create_dir(root.join("MANIFEST.tmp")).unwrap();
+        assert!(store.append(b"uncertain").is_err());
+        assert_eq!(fs::read(root.join(MANIFEST_FILE)).unwrap(), manifest);
+        fs::remove_dir(root.join("MANIFEST.tmp")).unwrap();
+        assert!(
+            store
+                .append(b"must be fenced")
+                .unwrap_err()
+                .message
+                .contains("reopen")
+        );
+        assert!(store.compact(BTreeMap::new()).is_err());
+        assert!(store.truncate_uncommitted_tails().is_err());
+        drop(store);
+        let mut store = SegmentStore::open_with_options(&root, options).unwrap();
+        store.append(b"after restart").unwrap();
+        let records = store.recover_current().unwrap().recovery.records;
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].payload, b"committed before failure");
+        assert_eq!(records[1].payload, b"after restart");
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejected_stale_epoch_does_not_write_or_fence_the_store() {
+        let root = test_root("stale_epoch");
+        let mut store = SegmentStore::open(&root).unwrap();
+        let (_, _, first) = store
+            .append_wal(WalAppend {
+                pg: PlacementGroupId(1),
+                epoch: Epoch(2),
+                index: LogIndex(1),
+                kind: WalRecordKind::Prepare,
+                previous_hash: [0; 32],
+                payload: b"first",
+            })
+            .unwrap();
+        assert_eq!(
+            store
+                .append_wal(WalAppend {
+                    pg: PlacementGroupId(1),
+                    epoch: Epoch(1),
+                    index: LogIndex(2),
+                    kind: WalRecordKind::Commit,
+                    previous_hash: first.record_hash,
+                    payload: b"stale",
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::StaleEpoch
+        );
+        store
+            .append_wal(WalAppend {
+                pg: PlacementGroupId(1),
+                epoch: Epoch(2),
+                index: LogIndex(2),
+                kind: WalRecordKind::Commit,
+                previous_hash: first.record_hash,
+                payload: b"valid",
+            })
+            .unwrap();
+        assert_eq!(
+            store.recover_current().unwrap().recovery.wal_records.len(),
+            2
+        );
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn segment_store_initializes_directory_manifest_and_active_segment() {
@@ -1698,5 +2580,51 @@ mod tests {
         let checksum = crate::DEFAULT_CHECKSUM_ALGORITHM.checksum(payload);
         bytes[16..24].copy_from_slice(&checksum.to_le_bytes());
         fs::write(path, bytes).unwrap();
+    }
+    #[test]
+    fn observed_revisions_distinguish_own_appends_foreign_writes_and_corruption() {
+        let root = test_root("observed-revisions");
+        let mut first = SegmentStore::open(&root).unwrap();
+        let initial = first.revision().unwrap();
+        first
+            .append_next_wal(PlacementGroupId(1), Epoch(1), WalRecordKind::Commit, b"own")
+            .unwrap();
+        let own = first.revision().unwrap();
+        assert_ne!(initial, own);
+        assert!(own.same_writer_epoch(&initial));
+        let mut second = SegmentStore::open(&root).unwrap();
+        second
+            .append_next_wal(
+                PlacementGroupId(2),
+                Epoch(1),
+                WalRecordKind::Commit,
+                b"foreign",
+            )
+            .unwrap();
+        let foreign = first.revision().unwrap();
+        assert!(!foreign.same_writer_epoch(&own));
+        assert_eq!(
+            first.wal_tail(PlacementGroupId(1)).unwrap().unwrap().index,
+            LogIndex(1)
+        );
+        let path = root
+            .join(SEGMENT_DIR)
+            .join(&first.active_segment().file_name);
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+            .unwrap();
+        assert_eq!(
+            first.revision().unwrap_err().code,
+            ErrorCode::CorruptionDetected
+        );
+        drop(first);
+        drop(second);
+        fs::remove_dir_all(root).unwrap();
     }
 }

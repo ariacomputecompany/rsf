@@ -1,0 +1,588 @@
+{
+  "date": "2026-11-03",
+  "scope": "Custody defect reproduction, correction and warm staged-proof preservation",
+  "production_qualified": false,
+  "engine": {
+    "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "version": "0.1.0",
+    "commit_from_red_trace": "30ef888219e3f822301fc6e6fd30644b1177ba9e"
+  },
+  "red": {
+    "source": "81b16a232d7747da5dbe044aed0b172c278a3f0bfcede8a1f2c7ea22fb52c4a2",
+    "counts": {
+      "selected": 27,
+      "passed": 10,
+      "failed": 17,
+      "ignored": 0,
+      "rpc": {
+        "passed": 4,
+        "failed": 9,
+        "exit": 101
+      },
+      "vsr": {
+        "passed": 6,
+        "failed": 8,
+        "exit": 101
+      }
+    },
+    "phases": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 1,
+      "verify": 0,
+      "replay": 1,
+      "ci": 0
+    },
+    "censuses_exact": true,
+    "source_controls_unchanged": true
+  },
+  "green": {
+    "source": "cf58a3675cce4937c83aa45bb873d40026b5c933e6ac323a1cd185e2958ac290",
+    "counts": {
+      "selected": 38,
+      "passed": 38,
+      "failed": 0,
+      "ignored": 0,
+      "rpc": 15,
+      "storage": 3,
+      "vsr": 20
+    },
+    "phases": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 0,
+      "verify": 0,
+      "replay": 0,
+      "ci": 0
+    },
+    "censuses_exact": true,
+    "source_controls_unchanged": true
+  },
+  "reproduced_failures": [
+    {
+      "id": "R1",
+      "name": "real_tls_cached_learner_ack_rejects_lost_custody_until_validated_restart",
+      "path": "crates/rsf-rpc/src/replication/tests/learner_custody.rs",
+      "line": 127,
+      "classification": "intended_custody_defect",
+      "first_case": "manifest / HISTORY_BEGIN",
+      "observed": "Real sync and exact retries succeeded with one materialization; removing inner MANIFEST then cached BEGIN returned Ok(4).",
+      "reach_limit": "Later FINISH, segment/descriptor faults, no-mutation, restoration-latch and restart checks not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "R2",
+      "name": "real_tls_managed_promise_and_accept_reject_lost_learner_before_journal_mutation",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/inbound_custody.rs",
+      "line": 202,
+      "classification": "intended_custody_defect",
+      "first_case": "first MEMBERSHIP_RECOVERY PROMISE",
+      "observed": "Hosted learner MANIFEST removed; authenticated recovery PROMISE returned encoded success.",
+      "reach_limit": "Ordinary PROMISE/ACCEPT variants, repeat, state/file equality and no-promotion assertions not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "R3",
+      "name": "real_tls_managed_decision_retries_reject_warm_journal_loss_before_durable_ack",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/journal_custody.rs",
+      "line": 5,
+      "classification": "intended_custody_defect",
+      "first_case": "manifest / equal-round recovery PROMISE; call site134",
+      "observed": "Actual promise/accepted/chosen/import and exact retries succeeded; equal-round PROMISE succeeded after journal MANIFEST deletion.",
+      "reach_limit": "Other APIs, segment fault, no-repair and cold refusal not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "R4",
+      "name": "real_tls_managed_new_choice_revalidates_b_even_when_learner_token_is_unchanged",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/inbound_custody.rs",
+      "line": 443,
+      "classification": "intended_custody_defect",
+      "first_case": "first STATE with newly retained B",
+      "observed": "Real B retained and learner token asserted unchanged; removing B records/MANIFEST still allowed successful metadata reply.",
+      "reach_limit": "Repeat and state/file invariance checks not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "R5",
+      "name": "real_tls_managed_changed_learner_revalidates_original_authority_before_caching",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/inbound_custody.rs",
+      "line": 327,
+      "classification": "intended_custody_defect",
+      "first_case": "first incompatible hosted prefix / round9",
+      "observed": "Matching hosted commit and round8 promise succeeded; after another valid commit absent from retained A, round9 PROMISE still succeeded.",
+      "reach_limit": "Repeat and immutability checks not reached. Diagnostic source API fixture does not prove old voters can legally create this divergence after a quorum fence.",
+      "green": "passed"
+    },
+    {
+      "id": "R6",
+      "name": "real_tls_managed_cached_stage_rejects_lost_learner_without_receipt_or_application_work",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/inbound_custody.rs",
+      "line": 251,
+      "classification": "intended_custody_defect",
+      "first_case": "cached STAGE after hosted MANIFEST loss",
+      "observed": "Actual stage materialized and zero-callback retry succeeded; after hosted MANIFEST deletion STAGE returned cached report.",
+      "reach_limit": "Post-fault callback/state/files and no-promotion assertions not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "R7",
+      "name": "real_tls_managed_cached_stage_survives_auxiliary_journal_loss_but_not_hosted_loss",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_decision/prechoice/inbound_custody.rs",
+      "line": 508,
+      "classification": "intended_custody_defect",
+      "first_case": "first STAGE after hosted loss",
+      "observed": "Two exact STAGE retries after auxiliary-journal loss passed with zero callbacks and unchanged files; after hosted MANIFEST loss STAGE incorrectly still succeeded.",
+      "reach_limit": "Second hosted-loss request and post-fault assertions not reached; positive auxiliary-loss branch did pass.",
+      "green": "passed"
+    },
+    {
+      "id": "R8",
+      "name": "real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_publication/stage_custody.rs",
+      "line": 41,
+      "classification": "intended_custody_defect",
+      "first_case": "first STAGE after selected MANIFEST rename",
+      "observed": "Real report warmed; selected/MANIFEST moved away and callback configured to fail, yet TLS STAGE returned report.",
+      "reach_limit": "Repeat, no-mutation/callback, restoration-latch and restart checks not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "R9",
+      "name": "real_tls_stage_loss_cannot_block_independently_backed_historical_publication",
+      "path": "crates/rsf-rpc/src/replication/tests/membership_publication/stage_custody.rs",
+      "line": 87,
+      "classification": "intended_custody_defect",
+      "first_case": "first STAGE after selected MANIFEST deletion",
+      "observed": "Actual publication and valid initial STAGE succeeded; STAGE still succeeded after selected/MANIFEST deletion.",
+      "reach_limit": "Later historical query/publish rematerialization and active-history/first-proof checks not reached. Red does not prove this test's availability half.",
+      "green": "passed"
+    },
+    {
+      "id": "V1",
+      "name": "cached_published_learner_success_requires_outer_and_inner_custody_before_mutation",
+      "path": "crates/rsf-vsr/src/learner/custody/ack_tests.rs",
+      "line": 85,
+      "classification": "intended_custody_defect",
+      "first_case": "manifest / begin",
+      "observed": "Cached learner.begin did not reject deleted published MANIFEST; panic label manifest/begin.",
+      "reach_limit": "Other endpoints/faults, no-mutation, restoration-latch and cold checks not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "V2",
+      "name": "membership_decision_read_only_failure_latches_even_after_exact_path_restoration",
+      "path": "crates/rsf-vsr/src/membership/decision/journal_custody_tests.rs",
+      "line": 191,
+      "classification": "intended_custody_defect",
+      "first_case": "first decision_state after MANIFEST rename",
+      "observed": "Read-only decision_state returned success after original MANIFEST inode was moved aside.",
+      "reach_limit": "Restore/latch/cold continuation not reached; observed failure is initial detection, not direct proof of failed latching after restoration.",
+      "green": "passed"
+    },
+    {
+      "id": "V3",
+      "name": "membership_decision_exact_retries_reject_lost_journal_with_complete_input_intact",
+      "path": "crates/rsf-vsr/src/membership/decision/journal_custody_tests.rs",
+      "line": 121,
+      "classification": "intended_custody_defect",
+      "first_case": "manifest / same-round promise",
+      "observed": "Actual accepted/chosen history and exact retries succeeded; same-round promise succeeded after journal MANIFEST deletion.",
+      "reach_limit": "Other five faults and subsequent no-mutation/input/cold checks not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "V4",
+      "name": "stage_callback_and_publication_hook_cannot_repair_or_acknowledge_lost_custody",
+      "path": "crates/rsf-vsr/src/membership/staging/custody_tests.rs",
+      "line": 257,
+      "classification": "intended_custody_defect",
+      "first_case": "callback / INSTALLED removal",
+      "observed": "materialize returned success with callback removing INSTALLED during actual committed-entry traversal.",
+      "reach_limit": "Later removed/no-recreation assertions and separate publication-hook case not reached; no independent post-call file inventory in log.",
+      "green": "passed"
+    },
+    {
+      "id": "V5",
+      "name": "each_stage_effect_rejects_its_first_custody_fault_before_callback_or_target_publication",
+      "path": "crates/rsf-vsr/src/membership/staging/custody_tests.rs",
+      "line": 149,
+      "classification": "intended_custody_defect",
+      "first_case": "materialize / selected MANIFEST removal",
+      "observed": "stage.materialize returned success after selected/MANIFEST deletion.",
+      "reach_limit": "Callback count and retain/install/promote cases not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "V6",
+      "name": "sealed_stage_cold_recovery_never_truncates_source_or_selected_torn_tail",
+      "path": "crates/rsf-vsr/src/membership/staging/custody_tests.rs",
+      "line": 357,
+      "classification": "intended_custody_defect",
+      "first_case": "selected history / first cold open",
+      "observed": "After appending literal torn bytes, stage open_existing returned success.",
+      "reach_limit": "Byte-equality, repeated-open and source-history branch not reached. Baseline uses generic active-tail repair; log proves acceptance, not independently measured truncation.",
+      "green": "passed"
+    },
+    {
+      "id": "V7",
+      "name": "stage_report_first_observes_each_owned_loss_and_stays_failed_after_original_inode_restore",
+      "path": "crates/rsf-vsr/src/membership/staging/custody_tests.rs",
+      "line": 106,
+      "classification": "intended_custody_defect",
+      "first_case": "META / first report",
+      "observed": "Moving META away did not prevent successful report; panic label meta.",
+      "reach_limit": "Other12 fault cases, original-inode restoration/latch and cold rematerialization not reached.",
+      "green": "passed"
+    },
+    {
+      "id": "V8",
+      "name": "stage_root_replacement_and_retained_publication_loss_require_fresh_owner",
+      "path": "crates/rsf-vsr/src/membership/staging/custody_tests.rs",
+      "line": 308,
+      "classification": "intended_custody_defect",
+      "first_case": "root replaced by empty directory",
+      "observed": "After retained publication and root replacement, publication_quorum errored as expected but report still succeeded.",
+      "reach_limit": "Restoration/latch/cold and separate PUBLICATION-loss branch not reached.",
+      "green": "passed"
+    }
+  ],
+  "passing_preservation_cases": [
+    {
+      "name": "managed_anchor_validation_survives_temporarily_taken_recovery",
+      "package": "RPC",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Temporary recovery.take retained managed flag and valid promise, zero application work."
+    },
+    {
+      "name": "real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receipt",
+      "package": "RPC",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Genuine chosen B differing from A accepted matching hosted commit/receipt; stage kept B and learner remained nonvoting/admission-required."
+    },
+    {
+      "name": "real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only",
+      "package": "RPC",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Historical query/publish survived auxiliary loss with exact application effects/files; subsequent hosted loss rejected before materialization and stayed fenced."
+    },
+    {
+      "name": "real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise",
+      "package": "RPC",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Historical work preserved ordinary view3/view4 promise through cold reopen and retained admission guard."
+    },
+    {
+      "name": "fixed_metadata_preserves_default_missing_pointer_and_valid_installed_generation",
+      "package": "VSR",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Missing-pointer/default and real installed generation/marker/cold prefix semantics preserved."
+    },
+    {
+      "name": "fixed_pointer_seal_and_marker_reject_sparse_trailing_truncated_and_corrupt_files_without_repair",
+      "package": "VSR",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Malformed metadata rejected without repair. Red pass alone is not allocation-bound evidence."
+    },
+    {
+      "name": "unpublished_token_error_does_not_poison_later_valid_publication_and_retries",
+      "package": "VSR",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Unpublished token error permits later publication/exact retries and a distinct cold token."
+    },
+    {
+      "name": "membership_decision_metadata_preserves_historical_acceptance_without_scrubbing_input_data",
+      "package": "VSR",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Historical metadata/promise survived input DESCRIPTOR loss; input-dependent progress/chosen validation rejected."
+    },
+    {
+      "name": "stage_own_receipt_and_publication_transitions_preserve_first_proof_and_need_no_wal_read",
+      "package": "VSR",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Own writes kept first proof, clean callback retry/cold rematerialization worked, report needed no WAL read under explicitly verified unprivileged permission denial."
+    },
+    {
+      "name": "actual_promoted_pointer_and_owner_fixed_metadata_reject_damage_and_preserve_cold_replay",
+      "package": "VSR",
+      "red": "passed",
+      "green": "passed",
+      "observed": "Actual promoted pointer/owner malformed metadata rejected and restored cold exact prefix preserved; red pass not allocation-bound evidence."
+    }
+  ],
+  "green_extra_tests": {
+    "startup_anchor": 2,
+    "immutable_storage": 3,
+    "fixed_reader": 2,
+    "decision_post_append": 1,
+    "stage_lock": 3,
+    "total": 11
+  },
+  "evidence_hashes": {
+    "red.trace.fozzy": "570620d2f131188c6abbcf666fa4ba1bd2285e00dd50eacddc85259d34943900",
+    "red.execution.json": "a5d4eea9536e4a678617f8cfcf768d1cfb4f5d55706b6544f0e48a2b217db492",
+    "red.processes.json": "2c7c249bcf6cb3317f50833b481ed909513b291c4314165862d988a8a21a41e8",
+    "red.classification.json": "4432daf7958a85bffd96e15fe5b5879d2d799e6d665aa65da5464e1fea709f4c",
+    "red.rsf-rpc.stdout": "98cac07fdf83ed32815cf10aef97c008467b5143d0e88e66de79d2191a8288c9",
+    "red.rsf-rpc.stderr": "3b664e1998ebf0a27e6f0ef02710cdca3bf99ed3fe88089f493d319bdf8328d5",
+    "red.rsf-vsr.stdout": "0c1ada2c038d65e181f13994cf0c28130e7c185aa2df3f325a4440eaee6bf627",
+    "red.rsf-vsr.stderr": "c44198f940e4c345dacbceb585dd892336849bab9410c8c5c9341efec823aa59",
+    "green.trace.fozzy": "546e32eee52431a78d1b040356213255a1de27076fe531b66d5d2f1a06be19a1",
+    "green.execution.json": "0475a7ba6f4bfe4c65a600a6c29cb1ca666f8f2c952eb96ce67442930f513b40",
+    "green.processes.json": "6ef6ae4cd75f36c208f7e88a139ec0ea941c6705756db54213b685ddc0f84ec8",
+    "green.rsf-rpc.stdout": "0e7c4dbcbb9ccae319bd62c25fe1848883518120b6afabefc134f9cd26afd684",
+    "green.rsf-rpc.stderr": "bbbae3b74692b5016726c332236f8c1afcc3fa8100499b9b8dd690d42f3b0e9f",
+    "green.rsf-storage.stdout": "d73a3702e452c3d3fa18db036abdd2ed869249655ff5527b6b38ae2e86ffcc44",
+    "green.rsf-storage.stderr": "fff18f17e3ef44e85fa1229efa177eef55e9db741030bf37a2d5a8932613f1ba",
+    "green.rsf-vsr.stdout": "ec5548870f151d8b1d19bf57a70166869cb4eca91d3761a820e50a93eb19c77a",
+    "green.rsf-vsr.stderr": "fd9f7e9150ac078bfd8ed1a7303f734092b58e63fa927b2211268534b0a590e2"
+  },
+  "independent_review": {
+    "path": "artifacts/custody-qualification-20261103/evidence-review-red.json",
+    "sha256": "0e2ff668a53c8b1a95c846ed23771313148770e2ab533a1409f036313b69c5dd"
+  },
+  "preserved_fixtures": {
+    "count": 8,
+    "manifest": "red-preserved-fixtures/manifest.json",
+    "manifest_sha256": "c2b4867b99ad8bac80c6127b3833e0cba570ce049a579a92fb9af3ddf0aebd82",
+    "scope": "Eight explicitly logged RPC fixtures archived by root with file hashes and original device/inode metadata. Reviewer inspected inventory entries and bound manifest, not every copied file independently. Copied inode identity is not preserved. Missing learner/VSR fixture archives are not fabricated."
+  },
+  "later_package_checks": [
+    {
+      "path": "artifacts/custody-storage-vsr-20261103",
+      "source": "3226115b196709921c824bdcebaf27864483d55f8b53c33eecbb0f752c39a9df",
+      "codes": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "census": {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "rsf-storage",
+          "-p",
+          "rsf-vsr"
+        ],
+        "exit": 0,
+        "tests": {
+          "passed": 332,
+          "failed": 0,
+          "ignored": 0
+        },
+        "named_passed": 332,
+        "required_custody": {
+          "immutable_capture_rejects_equal_byte_replacement_before_scanning": true,
+          "immutable_custody_rejects_replacement_alias_and_hardlink_without_reading_wal_on_validation": true,
+          "immutable_recovery_never_repairs_torn_active_tail_or_creates_missing_sidecars": true,
+          "fixed_metadata_preserves_default_missing_pointer_and_valid_installed_generation": true,
+          "fixed_pointer_seal_and_marker_reject_sparse_trailing_truncated_and_corrupt_files_without_repair": true,
+          "fixed_publication_reader_bounds_even_an_unending_source_to_one_extra_byte": true,
+          "fixed_publication_reader_propagates_io_failure_without_returning_partial_success": true,
+          "cached_published_learner_success_requires_outer_and_inner_custody_before_mutation": true,
+          "unpublished_token_error_does_not_poison_later_valid_publication_and_retries": true,
+          "membership_decision_exact_retries_reject_lost_journal_with_complete_input_intact": true,
+          "membership_decision_metadata_preserves_historical_acceptance_without_scrubbing_input_data": true,
+          "membership_decision_post_append_custody_failure_returns_no_ack_or_logical_swap": true,
+          "membership_decision_read_only_failure_latches_even_after_exact_path_restoration": true,
+          "each_stage_effect_rejects_its_first_custody_fault_before_callback_or_target_publication": true,
+          "sealed_stage_cold_recovery_never_truncates_source_or_selected_torn_tail": true,
+          "stage_callback_and_publication_hook_cannot_repair_or_acknowledge_lost_custody": true,
+          "stage_own_receipt_and_publication_transitions_preserve_first_proof_and_need_no_wal_read": true,
+          "stage_report_first_observes_each_owned_loss_and_stays_failed_after_original_inode_restore": true,
+          "stage_root_replacement_and_retained_publication_loss_require_fresh_owner": true,
+          "actual_promoted_pointer_and_owner_fixed_metadata_reject_damage_and_preserve_cold_replay": true,
+          "stage_lock_creation_never_follows_a_symlink_substituted_after_precheck": true,
+          "stage_lock_rejects_existing_symlink_and_hardlink_without_changing_target": true,
+          "stage_owner_keeps_original_descriptor_locked_and_rejects_renamed_path_replacement": true
+        },
+        "valid": true
+      },
+      "hashes": {
+        "remaining.execution.json": "cc1c320f24da2bfb34f625f474b4d720b3f86a409588d5f5249bd0248829b23b",
+        "remaining.census.json": "bf1dc2ea761d7393b17e8d33f21c550aea1cccc56063024fc4585a8fbf2fc0fa",
+        "remaining.trace.fozzy": "5f7bd2fd4621282ee3deb885e657732673b87b14fbf9900b75ec88a17ccf7273"
+      }
+    },
+    {
+      "path": "artifacts/custody-rpc-warm-proof-20261103",
+      "source": "fc5aa5b1f6915f04ab04248efc64d3b9d8f42913dd6a88c8faecda4d19d4d152",
+      "codes": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "census": {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "rsf-rpc"
+        ],
+        "exit": 0,
+        "tests": {
+          "passed": 95,
+          "failed": 0,
+          "ignored": 0
+        },
+        "named_passed": 95,
+        "required_custody": {
+          "real_tls_cached_learner_ack_rejects_lost_custody_until_validated_restart": true,
+          "managed_anchor_validation_survives_temporarily_taken_recovery": true,
+          "real_tls_managed_cached_stage_rejects_lost_learner_without_receipt_or_application_work": true,
+          "real_tls_managed_cached_stage_survives_auxiliary_journal_loss_but_not_hosted_loss": true,
+          "real_tls_managed_changed_learner_revalidates_original_authority_before_caching": true,
+          "real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receipt": true,
+          "real_tls_managed_new_choice_revalidates_b_even_when_learner_token_is_unchanged": true,
+          "real_tls_managed_promise_and_accept_reject_lost_learner_before_journal_mutation": true,
+          "real_tls_managed_decision_retries_reject_warm_journal_loss_before_durable_ack": true,
+          "managed_startup_handoff_cannot_substitute_a_for_distinct_chosen_b": true,
+          "managed_startup_handoff_reuses_exact_a_without_rereading_its_wal": true,
+          "real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": true,
+          "real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise": true,
+          "real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched": true,
+          "real_tls_stage_loss_cannot_block_independently_backed_historical_publication": true,
+          "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": true
+        },
+        "valid": true
+      },
+      "hashes": {
+        "rpc.execution.json": "7e3609393ab4c9a9ac4bbaf4ca19c440dda7b8a9382d64ab7bac027bb44c2f07",
+        "rpc.census.json": "e301ec8392e6205eebeb891699550ab0a9cb321c7b24ae48097d5f2e82863986",
+        "rpc.trace.fozzy": "37f6571f667c12b58d4f451153a02e4228fe9c5bef5fae96ce85693f8960a798"
+      }
+    }
+  ],
+  "warm_proof_preservation": {
+    "classification": "before/after preservation pass; no red defect or speedup claim",
+    "test": "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage",
+    "branches": [
+      "missing chosen-input manifest",
+      "corrupt chosen-input manifest"
+    ],
+    "production_change": "Reuse exact healthy boot-materialized staged approval; retain full fresh chosen-input/journal comparison and cold replay path",
+    "limits": [
+      "Does not address cold first publication replay",
+      "Original three affected-suite deadline failures remain unresolved by this paired test alone",
+      "No Linux or hosted qualification"
+    ],
+    "runs": [
+      {
+        "path": "artifacts/staged-proof-preservation-before-v2-20261103",
+        "source": "022d93a40cbb106aedb8471e286581b607f61180a6ed36a77d2cd319e61198e4",
+        "codes": {
+          "doctor": 0,
+          "strict": 0,
+          "host": 0,
+          "verify": 0,
+          "replay": 0,
+          "ci": 0
+        },
+        "census": {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-rpc",
+            "--lib",
+            "--",
+            "--nocapture",
+            "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage"
+          ],
+          "exit": 0,
+          "tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "named_passed": 1,
+          "required_custody": {
+            "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": true
+          },
+          "valid": true
+        },
+        "hashes": {
+          "preservation.trace.fozzy": "d51100dcb7a9bfc3f5e7a3ed1bd8fdad6ac73e8608567c3c1ab4edd66b6ee219",
+          "preservation.cargo.stdout": "583ba8d02ba14cee4bfe30afa163406b8e8cf4e0a813672dc5317ad7fd921503",
+          "preservation.cargo.stderr": "466d90b1057c75291d0e4776265eabbbfa184aecd90bdb6b925b13d9303d8173",
+          "preservation.execution.json": "cb43b9df0507a35734989a161a587d4ce0a56431d46ecfafecd384e1a0f6d9d8"
+        }
+      },
+      {
+        "path": "artifacts/staged-proof-preservation-after-20261103",
+        "source": "aaf53f0d25a0ea60fc97c20c7a53e2df254b9dfdc47e0880830116381a7d3b8b",
+        "codes": {
+          "doctor": 0,
+          "strict": 0,
+          "host": 0,
+          "verify": 0,
+          "replay": 0,
+          "ci": 0
+        },
+        "census": {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-rpc",
+            "--lib",
+            "--",
+            "--nocapture",
+            "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage"
+          ],
+          "exit": 0,
+          "tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "named_passed": 1,
+          "required_custody": {
+            "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": true
+          },
+          "valid": true
+        },
+        "hashes": {
+          "preservation.trace.fozzy": "7d5225157d88b36edb5c9c9db3a3b822fbb96c6256242b6ee419b3b0be04e9ff",
+          "preservation.cargo.stdout": "adb71b5eed9d326f159a26fd524e3335340efb75bf1ed46119da070a1f45ed85",
+          "preservation.cargo.stderr": "697a514973bed9a5618abbf4a823821dc6c8e371571f5d5aba0a19a75dc96bf4",
+          "preservation.execution.json": "296c3ae0da56be28bb557bc7a6161c668a460bb6a5ee7252be538748f289588a"
+        }
+      }
+    ]
+  },
+  "warm_proof_preservation_sha256": "b0d797c933dc8ede8f21584334b8e2773379ef9efe746ee873136240a3b60ba1",
+  "earlier_affected_failure": "docs/custody-affected-attempt-2026-11-03.json",
+  "limits": [
+    "Red first failures do not prove later loop variants or post-failure assertions.",
+    "Green complete successes exercise full selected test bodies, including later branches; they do not change red reach claims.",
+    "Compile failure without exact named census would not count as behavioral proof; both actual red packages compiled and completed.",
+    "No Linux, power-loss, full baseline or production-readiness claim.",
+    "Each report is scoped to its recorded source; the red and initial green checkpoints precede formatting and the later warm-proof optimization.",
+    "The warm-proof test passes both before and after the optimization. It proves chosen-input validation preservation, not a reproduced bug or measured speedup.",
+    "The three broader-suite transport deadline failures remain preserved and are not causally explained by later passing runs.",
+    "Linux is the only production target. These development-host tests do not qualify Linux, independent machines, power loss or production capacity.",
+    "All verification is local. The Fozzy ci command checks trace parity and does not create or use hosted CI/CD."
+  ],
+  "pipeline_interpretation": "Doctor5runs/strict use scripted proc_when success and qualify orchestration only. Host runs actual Cargo tests. Red replay reproduces expected0/got1 proc_exit. Local fozzy ci verifies trace/outcome parity and expects non_pass for red; it is neither green tests nor hosted CI. Replay is recorded outcome replay, not an independent native test rerun."
+}

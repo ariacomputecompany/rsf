@@ -1,0 +1,265 @@
+{
+  "runs": {
+    "partial-stage-red-v1": {
+      "execution_sha256": "bad8e4ebbc2486d0a696a75ea6a42400b32640abcf523f7c613f54793d7a2665",
+      "source": "a04ea3a6d86d8c88b20de379a49d33da544e053185a1837ef533ce588f185a2b",
+      "actual_exit": 101,
+      "test_summaries": [
+        "test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 138 filtered out; finished in 7.32s"
+      ],
+      "failed_tests": [
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox",
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox"
+      ],
+      "valid_expected_observation": true,
+      "actual_tests_passed": false,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "failure_blocks": {
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox": [
+          "\nthread 'replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox' (14193478) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/partial_stage.rs:96:13:\ncomplete inbox must resume staged-only prefix: peer rejected request: membership input is incomplete\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-28311-1793997916236152000-0\n"
+        ],
+        "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox": [
+          "\nthread 'replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox' (14193477) panicked at crates/rsf-rpc/src/replication/tests/membership_decision/partial_stage.rs:96:13:\ncomplete inbox must resume staged-only prefix: peer rejected request: membership input is incomplete\npreserved membership fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-accepted-stage-import-28311-1793997916236105000-0\n\n"
+        ]
+      }
+    },
+    "partial-stage-green-rpc-v1": {
+      "execution_sha256": "d88cadecde7b753a4a0637305d8c9cabf3088623c9f281edeadd17f2264285ab",
+      "source": "3757cbc8fc6d09ceb67719b525683afd03892ea2d1ec68ea505d1ec1dc3a629f",
+      "actual_exit": 0,
+      "test_summaries": [
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 138 filtered out; finished in 10.61s"
+      ],
+      "failed_tests": [],
+      "valid_expected_observation": true,
+      "actual_tests_passed": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "failure_blocks": {}
+    },
+    "partial-stage-green-vsr-v1": {
+      "execution_sha256": "f0b2bc6c6fb54aa07c5560b0d6466d1144ea3946658249fbf8872658ef3d26ac",
+      "source": "3757cbc8fc6d09ceb67719b525683afd03892ea2d1ec68ea505d1ec1dc3a629f",
+      "actual_exit": 0,
+      "test_summaries": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 309 filtered out; finished in 11.80s"
+      ],
+      "failed_tests": [],
+      "valid_expected_observation": true,
+      "actual_tests_passed": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "failure_blocks": {}
+    },
+    "partial-stage-green-full-v1": {
+      "execution_sha256": "4b4401e759d6394eefe5c1c0905b4d78d2cc203c44fd129b7180c85e8d9aecbf",
+      "source": "3757cbc8fc6d09ceb67719b525683afd03892ea2d1ec68ea505d1ec1dc3a629f",
+      "actual_exit": 101,
+      "test_summaries": [
+        "test result: FAILED. 136 passed; 10 failed; 0 ignored; 0 measured; 0 filtered out; finished in 115.10s"
+      ],
+      "failed_tests": [
+        "replication::tests::membership_publication::adversarial::peer::tests::real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live",
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise",
+        "replication::tests::membership_publication::adversarial::lifecycle::managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody",
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss",
+        "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner",
+        "replication::tests::membership_publication::adversarial::inbound::real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only",
+        "replication::tests::membership_publication::recovery::managed_recovery_keeps_exact_proposal_guard_after_caught_materializer_unwind",
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers",
+        "replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views",
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits"
+      ],
+      "valid_expected_observation": false,
+      "actual_tests_passed": false,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "failure_blocks": {
+        "replication::tests::membership_publication::adversarial::peer::tests::real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152269486000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152269486000-0 replica=2 elapsed=1.050720834s\n\nthread 'replication::tests::membership_publication::adversarial::peer::tests::real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live' (14271553) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152269486000-0 replica=3 elapsed=1.60510125s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152463067000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152463067000-0 replica=2 elapsed=704.259417ms\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise' (14271609) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152463067000-0 replica=3 elapsed=1.602185083s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::adversarial::lifecycle::managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152258688000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152258688000-0 replica=2 elapsed=957.900834ms\n\nthread 'replication::tests::membership_publication::adversarial::lifecycle::managed_recovery_drop_joins_live_tls_flight_before_releasing_transport_custody' (14271552) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998152258688000-0 replica=3 elapsed=1.602599333s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998153138569000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998153138569000-0 replica=2 elapsed=766.793709ms\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss' (14271817) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:363:17:\nall-voter fixture authority provisioning failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998153138569000-0 replica=3 elapsed=5.409990958s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998156284296000-0\n\nthread 'replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner' (14272544) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:363:17:\nall-voter fixture authority provisioning failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998156284296000-0 replica=2 elapsed=4.17099425s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::adversarial::inbound::real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998150965261000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998150965261000-0 replica=2 elapsed=1.248916708s\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998150965261000-0 replica=3 elapsed=669.129208ms\n\nthread 'replication::tests::membership_publication::adversarial::inbound::real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only' (14271242) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:421:10:\ncalled `Result::unwrap()` on an `Err` value: VsrTransportError { replica: NodeId(2), reason: \"membership choice lacks a distinct new quorum: 1: Connection refused (os error 61); 3: Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::recovery::managed_recovery_keeps_exact_proposal_guard_after_caught_materializer_unwind": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998161269406000-0\n\nthread 'replication::tests::membership_publication::recovery::managed_recovery_keeps_exact_proposal_guard_after_caught_materializer_unwind' (14273668) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:341:10:\ncalled `Result::unwrap()` on an `Err` value: VsrTransportError { replica: NodeId(1), reason: \"membership choice lacks a distinct new quorum: 2: Resource temporarily unavailable (os error 35); 3: Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998154084320000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998154084320000-0 replica=2 elapsed=1.090147s\n\nthread 'replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers' (14272026) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:363:17:\nall-voter fixture authority provisioning failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998154084320000-0 replica=3 elapsed=7.495893292s: VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998159180139000-0\n\nthread 'replication::tests::membership_publication::real_tls_membership_publication_survives_candidate_loss_cold_roles_and_newer_views' (14273196) panicked at crates/rsf-rpc/src/replication/tests/membership_publication.rs:372:17:\nall-voter fixture STAGE failed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998159180139000-0 replica=2 elapsed=1.601427s: VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }\n"
+        ],
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits": [
+          "publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998170968695000-0\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998170968695000-0 replica=2 elapsed=759.07725ms\nall-voter fixture STAGE completed: root=/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998170968695000-0 replica=3 elapsed=860.81475ms\nrecovery peer 3 rejected disconnected connection after 64.667\u00b5s: unexpected end of file\nrecovery peer 2 rejected disconnected connection after 68.958\u00b5s: unexpected end of file\n\nthread '<unnamed>' (14290851) panicked at crates/rsf-rpc/src/replication/tests/membership_publication/recovery.rs:90:47:\nrecovery peer 2 inbound RPC failed: Invalid argument (os error 22)\n\nthread 'replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits' (14275881) panicked at crates/rsf-rpc/src/replication/tests/membership_publication/recovery.rs:132:23:\ncalled `Result::unwrap()` on an `Err` value: Any { .. }\npreserved publication fixture: /var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-85401-1793998170968695000-0\n\n"
+        ]
+      }
+    },
+    "partial-stage-green-vsr-full-v1": {
+      "execution_sha256": "3488c91c87fae19b727f81d952f07f00676de1b50df4036762fd21c662b973d0",
+      "source": "3757cbc8fc6d09ceb67719b525683afd03892ea2d1ec68ea505d1ec1dc3a629f",
+      "actual_exit": 0,
+      "test_summaries": [
+        "test result: ok. 316 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 177.68s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "valid_expected_observation": true,
+      "actual_tests_passed": true,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      }
+    }
+  },
+  "full_pass": false,
+  "linux_qualified": false,
+  "production_qualified": false,
+  "date": "2026-11-06",
+  "source_sha256": "3757cbc8fc6d09ceb67719b525683afd03892ea2d1ec68ea505d1ec1dc3a629f",
+  "change": "Resume only positively classified staged-only prefixes from exact complete inbox; retain strict authority/accepted/chosen reads and actual original owner custody.",
+  "cicd_used": false,
+  "format_check_exit": 0,
+  "strict_clippy_exit": 0,
+  "new_required_tests": [
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_zero_staged_prefix_from_complete_inbox",
+      "expected_old_failure": true,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_resumes_nonempty_staged_prefix_from_complete_inbox",
+      "expected_old_failure": true,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_missing_authority",
+      "expected_old_failure": false,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_short_authority",
+      "expected_old_failure": false,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_corrupt_authority",
+      "expected_old_failure": false,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_partial_stage_refuses_corrupt_staged_prefix",
+      "expected_old_failure": false,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_refuses_short_accepted_despite_complete_inbox",
+      "expected_old_failure": false,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-rpc",
+      "test": "replication::tests::membership_decision::retained::partial_stage::real_tls_stage_refuses_missing_chosen_despite_complete_inbox",
+      "expected_old_failure": false,
+      "new_api": false
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::staged_source_supplier_error_preserves_healthy_owner_and_resolution_is_read_only",
+      "expected_old_failure": false,
+      "new_api": true
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::staged_source_supplier_swap_success_and_error_fence_original_owner_after_restoration",
+      "expected_old_failure": false,
+      "new_api": true
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::staged_source_supplier_unwind_fences_original_owner_without_durable_choice",
+      "expected_old_failure": false,
+      "new_api": true
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::absent_stage_source_pins_authority_across_supplier_success_and_error",
+      "expected_old_failure": false,
+      "new_api": true
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::stage_source_requires_original_namespace_lock_for_every_supplier_path",
+      "expected_old_failure": false,
+      "new_api": true
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::staged_source_rejects_real_maintenance_and_nonwal_frames_before_supplier",
+      "expected_old_failure": false,
+      "new_api": true
+    },
+    {
+      "crate": "rsf-vsr",
+      "test": "membership::decision::store::tests::retained::stage_source::complete_stage_source_cannot_bypass_original_namespace_owner",
+      "expected_old_failure": false,
+      "new_api": true
+    }
+  ],
+  "limits": [
+    "Focused TLS8 and API7 passed; all316VSR passed.",
+    "Full RPC failed:136passed10failed; that command stopped before VSR, hence separate fullVSR run. No full baseline clearance.",
+    "Actual old-source RED compiled and ran8:6passed2failed specifically at authenticated incomplete-input refusal.",
+    "Review corrections for physical ownership, dependency pinning and semantic refusal assertions are included. Final source adds only formatting and equivalent Clippy simplifications beyond frozen v3.",
+    "Darwin host results do not qualify Linux or power-loss persistence.",
+    "Original25-domain source1cd773 baseline was23pass2fail; retained in owned-recovery-baseline-terminal-2026-11-06.json."
+  ]
+}

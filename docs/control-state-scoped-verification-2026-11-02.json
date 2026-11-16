@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "scope": "Scoped control-state and VSR regression verification; full workspace gate pending at this source.",
+  "source_sha256": "0c6b384331c2a9fcb77405e8f99246e68ac1e993641fbd5806df81266dad1e6c",
+  "source_unchanged": true,
+  "tests": {
+    "passed": 192,
+    "failed": 0,
+    "ignored": 0,
+    "packages": [
+      "rsf-control-state",
+      "rsf-vsr"
+    ]
+  },
+  "fozzy": {
+    "seed": 20260912,
+    "doctor_runs": 5,
+    "strict_scripted_scenario": "artifacts/control-state-lineage-20261102.pass.fozzy.json",
+    "host_trace": "artifacts/control-state-lineage-20261102.trace.fozzy",
+    "strict_trace_verify": true,
+    "replay": true,
+    "ci": true
+  },
+  "limitations": [
+    "Scripted deterministic process responses do not establish deterministic native scheduling; actual host test output is retained in the recorded trace.",
+    "Control state is a replay-derived leaf, not a managed writer, authenticated report collector or integrated client-admission gate.",
+    "Before any first membership fence, managed initiation must durably confirm the exact Begin commit on an old-control majority; the raw-kernel negative diagnostic intentionally demonstrates divergence without that pending guard.",
+    "First accepted Begin index/opaque intent custody, exact receiver freshness, safe pending-intent cancellation, repeated lifecycle and independent-host workload qualification remain required.",
+    "Shared directory publication durability gap remains open at this scoped source."
+  ],
+  "clippy": {
+    "passed": true,
+    "scope": "--no-deps --all-targets -p rsf-control-state -p rsf-vsr -- -D warnings",
+    "log": "artifacts/control-state-lineage-20261102-clippy.log"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "date": "2026-11-03",
+  "status": "paused-development-checkpoint",
+  "production_qualified": false,
+  "full_suite_passed_at_this_source": false,
+  "parent_commit": "46a58b57e18bf7ecaf7f73baebb4a61568c18432",
+  "source_sha256": "27b827c3b8707a64cc8fee51a63d7ba2af157fbbdd3ca60447d39638f07fa9f1",
+  "source_unchanged": true,
+  "fingerprint_scope": "Cargo.toml, Cargo.lock and all files under crates/tests/scripts, excluding .DS_Store; sorted paths plus SHA-256 bytes; excludes documentation and artifacts",
+  "affected_suite": {
+    "command": "cargo test --locked -p rsf-vsr -p rsf-rpc -p rsf-protocol -p rsf-storage -p rsfd -p rsf-control-state",
+    "cargo_exit_code": 101,
+    "passed": 142,
+    "failed": 1,
+    "completed_packages": {
+      "rsf-control-state": {
+        "passed": 10,
+        "failed": 0
+      },
+      "rsf-protocol": {
+        "passed": 57,
+        "failed": 0
+      },
+      "rsf-rpc": {
+        "passed": 75,
+        "failed": 1
+      }
+    },
+    "not_reached": [
+      "rsf-storage",
+      "rsf-vsr",
+      "rsfd"
+    ],
+    "failure": {
+      "test": "replication::tests::authenticated_learner_transfer_resumes_and_never_acknowledges_voting_requests",
+      "location": "crates/rsf-rpc/src/replication/tests.rs:1047",
+      "error": "VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+      "root_cause": "not yet established"
+    }
+  },
+  "fozzy": {
+    "seed": 20260912,
+    "doctor_runs": 5,
+    "strict_doctor_passed": true,
+    "strict_scripted_scenario_passed": true,
+    "host_run_passed": false,
+    "strict_trace_integrity_passed": true,
+    "replay": "not run for this failed checkpoint trace",
+    "ci": "not run for this failed checkpoint trace",
+    "limitation": "Scripted scenario determinism and trace integrity do not imply native scheduling determinism or passing host tests."
+  },
+  "clippy": {
+    "passed": true,
+    "scope": "six affected packages; --no-deps --all-targets -- -D warnings"
+  },
+  "pause_checks": [
+    "cargo fmt --all -- --check",
+    "sh -n scripts/verify-fozzy.sh",
+    "changed scenario JSON parsing",
+    "git diff --check"
+  ],
+  "local_evidence_sha256": {
+    "artifacts/native-prechoice-integrated-v3-20261102-doctor.json": "d97f89540f35086f570a53935d00a2bf1d89a7da40bc3424195d2641c52ac338",
+    "artifacts/native-prechoice-integrated-v3-20261102-strict.json": "9d73e7bdf1655198590ddc9fc6c7b39803015988512d3af63639adb0035d698e",
+    "artifacts/native-prechoice-integrated-v3-20261102-host.json": "67dfe8cb8681cf8bfc19bd1635972bc4a9e199e9f8fbaa7dbae014fe8ef195d4",
+    "artifacts/native-prechoice-integrated-v3-20261102-verify.json": "dd3ba20d726e444b13f67c13520887bb46d1dece68ff4f7ac644e71444387e2d",
+    "artifacts/native-prechoice-integrated-v3-20261102.trace.fozzy": "34a192c5a42231844e0e6597f0ffc7f1af82cde5efe785800039356760fd5072",
+    "artifacts/native-prechoice-integrated-v3-20261102.process.log": "71185edc0a2617ea50dd1e6dff30d34837fb1944ba7311c95c63b946282926d9",
+    "artifacts/native-prechoice-integrated-v3-20261102.process.log.stderr": "af2bd6fe89b65502312645f66babce79d7feceda21ffe5f0704b658b320323ba",
+    "artifacts/native-prechoice-custody-clippy-20261102.log": "0bd018597b767567bf6388cd87fecfb637950c672c001c1bb058989384231614"
+  },
+  "remaining_work": "docs/production-pause-2026-11-03.md"
+}

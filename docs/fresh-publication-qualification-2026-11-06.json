@@ -1,0 +1,843 @@
+{
+  "version": 1,
+  "date": "2026-11-06",
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "change": "A fresh open retains original resolved and lexical route descriptors before full publication and retains the created segment through actual writer opening. It consumes that proof after final parent sync and pre/post route, access, segment and lock identity checks. Existing stores, standalone logs and public recovery retain full route publication.",
+  "budget_red": "Old implementation performed 42 fresh directory syncs versus required 22 (N=21), after actual WAL append/cold equality. Existing remained 21.",
+  "oracle_correction": "Adversarial v1 incorrectly expected no MANIFEST when replacing only segments. V2 checks the unchanged original parent MANIFEST in that case, absence for replaced ancestor/root, and an empty replacement segments directory in all cases. Production code was unchanged by that oracle correction.",
+  "final_source_note": "After adversarial v2, only a store.rs comment describing the fresh/existing distinction changed before the concurrent run. The complete baseline must qualify the final fingerprint.",
+  "checks": {
+    "cargo_fmt_all_check": 0,
+    "cargo_clippy_locked_rsf_storage_all_targets_warnings_denied": 0
+  },
+  "limits": [
+    "No wall-time percentage is claimed from syscall counts.",
+    "The full 25-domain baseline is still pending for this source.",
+    "Stable caller-controlled topology and trusted provisioned aliases remain required; this is not hostile namespace race protection.",
+    "Injected actual-file errors and process tests do not qualify Linux kernel or power-loss durability.",
+    "Control integration, native lifecycle, admission, history and independent-group work remain."
+  ],
+  "observations": {
+    "artifacts/fresh-publication-qualification-budget-red-v1-20261106": {
+      "execution_sha256": "03f1fad15e413a3f45b8115eaf3f8b230da770c821b4923074e89bec136d38c3",
+      "scope": "red",
+      "label": "budget-red-v1",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage",
+        "store_open_publication_tests"
+      ],
+      "source_before": "3a3897ac654e2cefdf4878f3bb5929411ea6d64f5d0d0a65643d659fe995edb7",
+      "source_after": "3a3897ac654e2cefdf4878f3bb5929411ea6d64f5d0d0a65643d659fe995edb7",
+      "source_unchanged": true,
+      "controls_before": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "e1abe03e4a68af96c750e45f3c012bcf994ac98e7ec8030f25b7bd9a0a531e44",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-budget-red-v1-20261106/strict.fozzy.json": "9454ab01774c7500fe19d75e1753e26e5193953db360fa4bd4ff3c18ec78d89a",
+        "artifacts/fresh-publication-qualification-budget-red-v1-20261106/host.fozzy.json": "af61ce545a61837afbfb29de9c77fcf2568e2bd31cf94c8029d1b381cd3eacdb",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_after": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "e1abe03e4a68af96c750e45f3c012bcf994ac98e7ec8030f25b7bd9a0a531e44",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-budget-red-v1-20261106/strict.fozzy.json": "9454ab01774c7500fe19d75e1753e26e5193953db360fa4bd4ff3c18ec78d89a",
+        "artifacts/fresh-publication-qualification-budget-red-v1-20261106/host.fozzy.json": "af61ce545a61837afbfb29de9c77fcf2568e2bd31cf94c8029d1b381cd3eacdb",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_unchanged": true,
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "771ee15084899c9f49d69c4eb5eaff322de8d013baf12feb4b2e59f2c0689be8",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "ba6ed08dc12a7fb24b1056157117cd4e8f87aa38e945e41937f6a163de62e396",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 1,
+          "stdout_sha256": "baef10400c8cdf92f4ea6283f19f27ec7136d4213c79b790f67d4a557d87daa2",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "414c7b836f98add7e13513dbe5b9c15e8e80dc4acd181fac576209d18de2befb",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 1,
+          "stdout_sha256": "894ce1fa27ba40f4a0948158a25fc4cfdcdf30b6d1041cbf5121df9f7aa1606a",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-budget-red-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "1a275409aef36aabceb53ce4010c88d3f540e2795a0dd48ef3cb2814dd945172",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "cicd_used": false,
+      "linux_qualified": false,
+      "limits": "Actual local host run. Scripted strict phase only checks the scenario. Replay/trace parity do not execute the workload again.",
+      "trace_sha256": "112c59a63e617042ee9192656f5a8db35c0701b82e6621a8ac6dc9997fba7b08",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 152 filtered out; finished in 3.81s"
+      ],
+      "failed_tests": [
+        "store_open_publication_tests::fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route"
+      ],
+      "required_test_outcomes": {
+        "store_open_publication_tests::fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route": [
+          "FAILED"
+        ],
+        "store_open_publication_tests::fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte": [
+          "ok"
+        ],
+        "store_open_publication_tests::torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix": [
+          "ok"
+        ],
+        "store_open_publication_tests::double_alias_store_renews_resolved_directory_before_recovery_and_final_target_routes": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": false
+    },
+    "artifacts/fresh-publication-qualification-initial-green-v1-20261106": {
+      "execution_sha256": "5e343a5fbc9a0bb6bb09146d6d9caa1f577e323ad071d7424fb26303a023d015",
+      "scope": "storage",
+      "label": "initial-green-v1",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage"
+      ],
+      "source_before": "cb2160b436fdb7d6383432a08f2d80c77aca307fdb57524df56df34930821f96",
+      "source_after": "cb2160b436fdb7d6383432a08f2d80c77aca307fdb57524df56df34930821f96",
+      "source_unchanged": true,
+      "controls_before": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "e1abe03e4a68af96c750e45f3c012bcf994ac98e7ec8030f25b7bd9a0a531e44",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-initial-green-v1-20261106/strict.fozzy.json": "6d03910e7128e295955485b0a02c1c8f73729b919be5cdeba43ac17e57678fa5",
+        "artifacts/fresh-publication-qualification-initial-green-v1-20261106/host.fozzy.json": "728b9cd79ef7a7dedef89cf01baf1d1caf7eac283c08ef6fea55894a2b6767a6",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_after": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "e1abe03e4a68af96c750e45f3c012bcf994ac98e7ec8030f25b7bd9a0a531e44",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-initial-green-v1-20261106/strict.fozzy.json": "6d03910e7128e295955485b0a02c1c8f73729b919be5cdeba43ac17e57678fa5",
+        "artifacts/fresh-publication-qualification-initial-green-v1-20261106/host.fozzy.json": "728b9cd79ef7a7dedef89cf01baf1d1caf7eac283c08ef6fea55894a2b6767a6",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_unchanged": true,
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "0f5d4f551b882fb84cea5d8f198ad013a876866b2c20d96cec60ddfd6f9ce296",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "05ced016648c78b0b6102a7f9296f5aa2bfc41af3add008d37a764765733fa3b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "7bc0889e4ba1fe46abede4257bdabe2f48aec6f7597309ba1980d86e38a23b2e",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "3b1075919fa8dcc446ac835d8724c49a7e891171417ce989777573f1da835ff4",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "7fb0eb6804cb888e26299ab708f30bd31983ad7663cdf31e5da507f15320a196",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-initial-green-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "2cfb870566396bee74e1645f8f2f4e16f9715252592dad38e8c39c1b82c9909f",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "cicd_used": false,
+      "linux_qualified": false,
+      "limits": "Actual local host run. Scripted strict phase only checks the scenario. Replay/trace parity do not execute the workload again.",
+      "trace_sha256": "a9f11d2a6dc725333be17c0e9a784c0f02f5aa2135dece9278a3debbcabe3a75",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 157 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.20s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "required_test_outcomes": {
+        "store_open_publication_tests::fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte": [
+          "ok"
+        ],
+        "store_open_publication_tests::torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix": [
+          "ok"
+        ],
+        "store_open_publication_tests::double_alias_store_renews_resolved_directory_before_recovery_and_final_target_routes": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": true
+    },
+    "artifacts/fresh-publication-qualification-adversarial-v1-20261106": {
+      "execution_sha256": "77142390d0daaebd059cce7e0c40838767e607d70812d745c1be3dff580f33ff",
+      "scope": "storage",
+      "label": "adversarial-v1",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage"
+      ],
+      "source_before": "a717eac235e1bbed76490e6ab092edda6ed71d8df7c7f4c734d3cc50df66ab10",
+      "source_after": "a717eac235e1bbed76490e6ab092edda6ed71d8df7c7f4c734d3cc50df66ab10",
+      "source_unchanged": true,
+      "controls_before": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "00a0e74398eadb1b370583b5c22cff2e5244da27ae4c859898bcfa9c5f44baca",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-adversarial-v1-20261106/strict.fozzy.json": "d66a344d0ad798d4b2e6d188668095f3bc7f232d5e7aa55e1e80519643055554",
+        "artifacts/fresh-publication-qualification-adversarial-v1-20261106/host.fozzy.json": "9e591f97c416ec0735e9909f5e3a33317152eb46d8935a649a021d35148c18bc",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_after": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "00a0e74398eadb1b370583b5c22cff2e5244da27ae4c859898bcfa9c5f44baca",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-adversarial-v1-20261106/strict.fozzy.json": "d66a344d0ad798d4b2e6d188668095f3bc7f232d5e7aa55e1e80519643055554",
+        "artifacts/fresh-publication-qualification-adversarial-v1-20261106/host.fozzy.json": "9e591f97c416ec0735e9909f5e3a33317152eb46d8935a649a021d35148c18bc",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_unchanged": true,
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "021576fd59eef8e0c5d488605a44b7ba5dcb25ee8be9b3fdeb14f611aeb45093",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "0d8462a351ce159de4ff979d4b9aaf36e617b6caeb8bed3fa3e9621bc54d3129",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 1,
+          "stdout_sha256": "5fc933e62731c19248379ad2effc735957f3f7df82a85553bb019d3b4b55939b",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "1c077c700a8c1667ff6797693ffa634b4d7eec5a99611ddb2f2c581546bcf4f2",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 1,
+          "stdout_sha256": "4b592cddd9cc9b804c923fe6df39a04fb133990b996a7d7c4ebefb0b7feac11c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "b0af3ef2b6dae00fd7c3231574b07cb31612507ff04eb5a9083129d88040a853",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "cicd_used": false,
+      "linux_qualified": false,
+      "limits": "Actual local host run. Scripted strict phase only checks the scenario. Replay/trace parity do not execute the workload again.",
+      "trace_sha256": "402e6add08470f4e85d15088a6a5727b37c24e0bea4c7cbd2de2d22829f14f75",
+      "actual_exit_code": 101,
+      "test_summaries": [
+        "test result: FAILED. 162 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.88s"
+      ],
+      "failed_tests": [
+        "store_open_publication_tests::fresh_custody::fresh_route_replacement_never_adopts_new_ancestors_and_cold_retry_uses_original_locks"
+      ],
+      "required_test_outcomes": {
+        "store_open_publication_tests::fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte": [
+          "ok"
+        ],
+        "store_open_publication_tests::torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix": [
+          "ok"
+        ],
+        "store_open_publication_tests::double_alias_store_renews_resolved_directory_before_recovery_and_final_target_routes": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_route_replacement_never_adopts_new_ancestors_and_cold_retry_uses_original_locks": [
+          "FAILED"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_final_segment_and_lock_substitutions_return_no_owner_after_real_publication": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_writer_descriptor_cannot_hide_behind_restored_original_segment_name": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_same_target_alias_replacement_is_not_new_publication_authority": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_publication_rechecks_current_directory_access_without_replacing_original_custody": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_publication_errors_and_unwinds_release_original_locks_without_residue_repair": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": false
+    },
+    "artifacts/fresh-publication-qualification-adversarial-v2-20261106": {
+      "execution_sha256": "23db84e6b22d9a392528e3974cd2576318e00ada965498f7a0d2bfb76294ee61",
+      "scope": "storage",
+      "label": "adversarial-v2",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage"
+      ],
+      "source_before": "6b68eca78177737d6c8a1e7b916370e92dad0ff7a93fb526d29ec6a7f7ee902a",
+      "source_after": "6b68eca78177737d6c8a1e7b916370e92dad0ff7a93fb526d29ec6a7f7ee902a",
+      "source_unchanged": true,
+      "controls_before": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "00a0e74398eadb1b370583b5c22cff2e5244da27ae4c859898bcfa9c5f44baca",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-adversarial-v2-20261106/strict.fozzy.json": "e558151a896bd4b05dcdea4720b9034b498dd8538c8e5ff79f9804b817591ec7",
+        "artifacts/fresh-publication-qualification-adversarial-v2-20261106/host.fozzy.json": "c359c71f55f981f0182e76e87a1187928c3d02613342a31408a3cc55aee4bcbf",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_after": {
+        "artifacts/fresh-publication-qualification-20261106/execute.py": "00a0e74398eadb1b370583b5c22cff2e5244da27ae4c859898bcfa9c5f44baca",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/fresh-publication-qualification-adversarial-v2-20261106/strict.fozzy.json": "e558151a896bd4b05dcdea4720b9034b498dd8538c8e5ff79f9804b817591ec7",
+        "artifacts/fresh-publication-qualification-adversarial-v2-20261106/host.fozzy.json": "c359c71f55f981f0182e76e87a1187928c3d02613342a31408a3cc55aee4bcbf",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/fresh-open-budget-red-20261106/manifest.json": "b698813c3c1ef08dfbf06a2c827341e63d7cc2fa31ec6cf02ab069ec073ad36a",
+        "artifacts/fresh-open-budget-red-20261106/forward.patch": "a07a6656d9316433ba8d609d70438560dad9c71775ba8bbed854079cfd3f09eb",
+        "artifacts/fresh-open-budget-red-20261106/reverse.patch": "45018129da6104ef619296acd8d4e344aa79d8c233bf6e1ac7b0d568a463f15a"
+      },
+      "controls_unchanged": true,
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "3bf7c92399b1a5aa3dc544a38be48a0fa560132d417365ba9e77659fc70634bc",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "6865894e03a93266c2a0cea89f8a6b12ff22ef21eb5a92b8d132bccffea5f3d9",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "384996ee10bdd9273e5f34c5c2daf163a72268424f69884acaad43e3772d4a96",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "26d8805a0833467de498908b195c33877167c7db69bbc74f306501b9be4f6534",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "21946e67d4cabc4947072ae22576b30040f208f064eb5db37d80e20b5eff0365",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/fresh-publication-qualification-adversarial-v2-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "85b17707eec47ca57059a6fc36138b1b0c1e2db2de27d7d947f3aabc7cf62609",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "cicd_used": false,
+      "linux_qualified": false,
+      "limits": "Actual local host run. Scripted strict phase only checks the scenario. Replay/trace parity do not execute the workload again.",
+      "trace_sha256": "c7052cc6a610fd855f07e32f6f38f6e30108262c625b1f24edbcc4483c99a251",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.72s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "required_test_outcomes": {
+        "store_open_publication_tests::fresh_store_open_uses_one_full_route_plus_final_parent_while_existing_renews_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_store_open_uncertainty_after_each_real_sync_returns_no_owner_and_retries_full_route": [
+          "ok"
+        ],
+        "store_open_publication_tests::existing_store_open_uncertainty_releases_original_locks_and_preserves_every_acknowledged_byte": [
+          "ok"
+        ],
+        "store_open_publication_tests::torn_unacknowledged_tail_is_repaired_before_final_uncertainty_without_losing_acknowledged_prefix": [
+          "ok"
+        ],
+        "store_open_publication_tests::double_alias_store_renews_resolved_directory_before_recovery_and_final_target_routes": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_route_replacement_never_adopts_new_ancestors_and_cold_retry_uses_original_locks": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_final_segment_and_lock_substitutions_return_no_owner_after_real_publication": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_writer_descriptor_cannot_hide_behind_restored_original_segment_name": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_same_target_alias_replacement_is_not_new_publication_authority": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_publication_rechecks_current_directory_access_without_replacing_original_custody": [
+          "ok"
+        ],
+        "store_open_publication_tests::fresh_custody::fresh_publication_errors_and_unwinds_release_original_locks_without_residue_repair": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": true
+    },
+    "artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106": {
+      "execution_sha256": "9bdc9efe8ca9b7450b488c8f994eca37801c03433b385673c83f33f2b6335927",
+      "scope": "concurrent",
+      "label": "fresh-publication-concurrent-v1",
+      "actual_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-vsr",
+        "-p",
+        "rsf-rpc",
+        "-p",
+        "rsf-protocol"
+      ],
+      "source_before": "bed28a03ae0e0698a61caf67bbb18a7c0bf7b83400e1add1e7fa48138e38fd2b",
+      "source_after": "bed28a03ae0e0698a61caf67bbb18a7c0bf7b83400e1add1e7fa48138e38fd2b",
+      "source_unchanged": true,
+      "controls_before": {
+        "artifacts/recovery-qualification-20261106/execute.py": "070a855929b10d050a36f0b714be37529ca65d2c123ca149712f9689fc2bdf8a",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/strict.fozzy.json": "83e52443df13e9fd25a510f52054d16d6c100941f339fea502c9d513a69ef0d3",
+        "artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/host.fozzy.json": "10d3f1634cafef14e3a30d793a87490cb36bf9c72814aabef7dcc01918ff839b",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/recovery-failure-review-20261106/manifest.json": "ae658cd2ff081e78a67b69e1de7ce6ac361ae54d5075e9a614c595a81552f3e1",
+        "artifacts/recovery-failure-review-20261106/handling.patch": "92f2f0981f3d4ec1cfec7dacfa36c017566e68c0b2f48d0890982831e2349438",
+        "artifacts/recovery-failure-review-20261106/integration.patch": "06e47bb36f879aa866dd4f96333ed0026a057882c8fe85f675606ee30b175996",
+        "artifacts/recovery-failure-review-20261106/reverse.patch": "0bb2c6b96bd4128f5482f15104d31bd881e3eba3646113c86fa7518be82d55fd",
+        "artifacts/recovery-failure-review-20261106/tests-first.patch": "071d685c63cb3e62663e37315222ae1044b49ba96b1aa2bb59370c79edace7f1"
+      },
+      "controls_after": {
+        "artifacts/recovery-qualification-20261106/execute.py": "070a855929b10d050a36f0b714be37529ca65d2c123ca149712f9689fc2bdf8a",
+        "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/strict.fozzy.json": "83e52443df13e9fd25a510f52054d16d6c100941f339fea502c9d513a69ef0d3",
+        "artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/host.fozzy.json": "10d3f1634cafef14e3a30d793a87490cb36bf9c72814aabef7dcc01918ff839b",
+        "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+        "artifacts/recovery-failure-review-20261106/manifest.json": "ae658cd2ff081e78a67b69e1de7ce6ac361ae54d5075e9a614c595a81552f3e1",
+        "artifacts/recovery-failure-review-20261106/handling.patch": "92f2f0981f3d4ec1cfec7dacfa36c017566e68c0b2f48d0890982831e2349438",
+        "artifacts/recovery-failure-review-20261106/integration.patch": "06e47bb36f879aa866dd4f96333ed0026a057882c8fe85f675606ee30b175996",
+        "artifacts/recovery-failure-review-20261106/reverse.patch": "0bb2c6b96bd4128f5482f15104d31bd881e3eba3646113c86fa7518be82d55fd",
+        "artifacts/recovery-failure-review-20261106/tests-first.patch": "071d685c63cb3e62663e37315222ae1044b49ba96b1aa2bb59370c79edace7f1"
+      },
+      "controls_unchanged": true,
+      "phases": {
+        "doctor": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "doctor",
+            "--deep",
+            "--scenario",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/strict.fozzy.json",
+            "--runs",
+            "5",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "8a95cfd2c6385c470033b971735ba746c2403210771f5835b2c7f9c3d6ff897c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "strict": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "test",
+            "--det",
+            "--strict",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/strict.fozzy.json",
+            "--seed",
+            "20260912",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "83e3e94f4ace355a855d9a6f005235a827cd184cc421efd0ea41406b44c09aab",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "host": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "run",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/host.fozzy.json",
+            "--det",
+            "--seed",
+            "20260912",
+            "--record",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/trace.fozzy",
+            "--proc-backend",
+            "host",
+            "--fs-backend",
+            "host",
+            "--http-backend",
+            "host",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "7f5824d8eb4cef819c00e5f0bb11357e9deac18ae476eae69081ce50dc7852a5",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "verify": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "trace",
+            "verify",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/trace.fozzy",
+            "--strict",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "6a943f6c61d76525a206f7dc53b6eb441457f99452a5295bcddf66e48faa46e9",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replay": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "replay",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "079784ffa37278431de7f2dcc4c3159c8f4dfed794dc980c90bb12755ee03497",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ci": {
+          "command": [
+            "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+            "ci",
+            "/Users/deepsaint/Desktop/rsf/artifacts/recovery-qualification-fresh-publication-concurrent-v1-20261106/trace.fozzy",
+            "--json"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "96048d8093a0a5f774a5d433394349bed2286419b6dee3a3ee3db5a5a6ed0bf9",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "cicd_used": false,
+      "linux_qualified": false,
+      "limits": "Actual local host run. Scripted strict phase only checks the scenario. Replay/trace parity do not execute the workload again.",
+      "trace_sha256": "81e17ee7f7d8b31f7060dbf5b757c9d2fbfc3b19df75760444f3ae8c5975d807",
+      "actual_exit_code": 0,
+      "test_summaries": [
+        "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.25s",
+        "test result: ok. 138 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.97s",
+        "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 99.63s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "required_test_outcomes": {
+        "replication::tests::membership_publication::recovery::real_tls_managed_recovery_polls_both_survivors_while_transport_waits": [
+          "ok"
+        ]
+      },
+      "required_census_valid": true,
+      "actual_tests_passed": true
+    }
+  }
+}

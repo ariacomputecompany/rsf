@@ -1,0 +1,116 @@
+{
+  "scope": "Retain the actual published store and original custody through warm learner promotion; verify bounded physical replay without reopening the writer.",
+  "source": "2640233386905058ab803959504deebf977dd7e4c6fce1c0e41621fddc77375a",
+  "observations": {
+    "full": {
+      "path": "artifacts/control-qualification-warm-promotion-v1-20261106/execution.json",
+      "sha256": "90bbf0170eb036c5d8e419318ab37716120c41a7fa919fb1d66f11a2abb57e3b",
+      "actual_exit_code": 0,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "test_summaries": [
+        "test result: ok. 180 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.61s",
+        "test result: ok. 309 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 111.74s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    "red": {
+      "path": "artifacts/warm-promotion-behavioral-red-20261106-v1/execution.json",
+      "sha256": "c3b533b0fc23d9fb666ed6ca3988abafeedebcb7f957f66d52ca92f5ca107ac3",
+      "actual_exit_code": 101,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "test_summaries": [
+        [
+          "FAILED",
+          "2",
+          "1",
+          "0",
+          "0",
+          "306",
+          "6.40s"
+        ]
+      ]
+    },
+    "green": {
+      "path": "artifacts/warm-promotion-behavioral-green-20261106-v1/execution.json",
+      "sha256": "0c23639bcd4900378a05a26d6a3048f0d98581cb468fc6fae8e9e05995e1f3f2",
+      "actual_exit_code": 0,
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "test_summaries": [
+        [
+          "ok",
+          "3",
+          "0",
+          "0",
+          "0",
+          "306",
+          "9.67s"
+        ]
+      ]
+    }
+  },
+  "required_seven": {
+    "source": "2640233386905058ab803959504deebf977dd7e4c6fce1c0e41621fddc77375a",
+    "inventory_sha256": "d6d4d32609912670c6224cd7fcfec0296ede434134c45d39bc05d214beae0f66",
+    "actual_exit": 0,
+    "required7": {
+      "store::custody::scan::tests::owned_full_recovery_reads_real_mixed_bytes_and_preserves_writer_custody": [
+        "ok"
+      ],
+      "store::custody::scan::tests::owned_full_recovery_rejects_replaced_owner_files_before_payload_reads": [
+        "ok"
+      ],
+      "store::custody::scan::tests::owned_full_recovery_original_custody_failure_overrides_admission_limit": [
+        "ok"
+      ],
+      "store::custody::scan::tests::owned_full_recovery_checks_actual_checksum_even_when_metadata_still_matches": [
+        "ok"
+      ],
+      "membership::staging::store::tests::promotion_tests::warm_promotion_retains_publication_boundaries_and_live_writer_exclusion": [
+        "ok"
+      ],
+      "membership::staging::store::tests::promotion_tests::warm_promotion_rechecks_actual_pointer_seal_and_owner_after_published_hook": [
+        "ok"
+      ],
+      "membership::staging::store::tests::promotion_tests::warm_promotion_rejects_same_byte_owner_replacements_across_hooks": [
+        "ok"
+      ]
+    },
+    "summaries": [
+      "test result: ok. 180 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.61s",
+      "test result: ok. 309 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 111.74s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ],
+    "execution_sha256": "90bbf0170eb036c5d8e419318ab37716120c41a7fa919fb1d66f11a2abb57e3b"
+  },
+  "checks": {
+    "format": 0,
+    "storage_vsr_all_targets_clippy": 0
+  },
+  "limits": "Full storage180/VSR309 pass. Old implementation genuinely fails the writer replacement case; restored implementation passes all three identical existing-API regressions. No latency, full workspace, Linux or overall production qualification claim.",
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false
+}

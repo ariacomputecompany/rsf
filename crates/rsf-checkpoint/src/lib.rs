@@ -228,16 +228,8 @@ impl CheckpointPlanner {
         let root_digest = digest_roots(&plan.roots);
         let segment_digest = digest_segments(&plan.segments);
         let decision_digest = digest_decisions(&plan.decisions);
-        let certificate_digest = digest_certificate_fields(
-            plan.checkpoint,
-            plan.high_watermark,
-            plan.retained_roots,
-            plan.compacted_segments,
-            plan.reclaimable_bytes,
-            root_digest,
-            segment_digest,
-            decision_digest,
-        );
+        let certificate_digest =
+            digest_certificate_fields(plan, root_digest, segment_digest, decision_digest);
 
         Ok(CheckpointCertificate {
             checkpoint: plan.checkpoint,
@@ -479,21 +471,17 @@ fn digest_decisions(decisions: &[CheckpointDecision]) -> Digest {
 }
 
 fn digest_certificate_fields(
-    checkpoint: CommitVersion,
-    high_watermark: CommitVersion,
-    retained_roots: usize,
-    compacted_segments: usize,
-    reclaimable_bytes: u64,
+    plan: &CheckpointPlan,
     root_digest: Digest,
     segment_digest: Digest,
     decision_digest: Digest,
 ) -> Digest {
     let mut bytes = Vec::new();
-    write_u64(&mut bytes, checkpoint.0);
-    write_u64(&mut bytes, high_watermark.0);
-    write_u64(&mut bytes, retained_roots as u64);
-    write_u64(&mut bytes, compacted_segments as u64);
-    write_u64(&mut bytes, reclaimable_bytes);
+    write_u64(&mut bytes, plan.checkpoint.0);
+    write_u64(&mut bytes, plan.high_watermark.0);
+    write_u64(&mut bytes, plan.retained_roots as u64);
+    write_u64(&mut bytes, plan.compacted_segments as u64);
+    write_u64(&mut bytes, plan.reclaimable_bytes);
     bytes.extend_from_slice(&root_digest.bytes);
     bytes.extend_from_slice(&segment_digest.bytes);
     bytes.extend_from_slice(&decision_digest.bytes);

@@ -100,6 +100,22 @@ impl ByteRange {
     }
 }
 
+/// Names the logical object to which a manifest extent belongs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManifestObject {
+    pub namespace: String,
+    pub object: String,
+}
+
+impl ManifestObject {
+    pub fn new(namespace: impl Into<String>, object: impl Into<String>) -> Self {
+        Self {
+            namespace: namespace.into(),
+            object: object.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManifestEntry {
     pub kind: ManifestKind,
@@ -279,8 +295,7 @@ pub struct ManifestRepairPlan {
 impl ManifestEntry {
     pub fn new(
         kind: ManifestKind,
-        namespace: impl Into<String>,
-        object: impl Into<String>,
+        object: ManifestObject,
         version: CommitVersion,
         extent_id: Digest,
         placement_group: PlacementGroupId,
@@ -289,8 +304,8 @@ impl ManifestEntry {
     ) -> Self {
         Self {
             kind,
-            namespace: namespace.into(),
-            object: object.into(),
+            namespace: object.namespace,
+            object: object.object,
             version,
             extent_id,
             placement_group,
@@ -1113,8 +1128,7 @@ mod tests {
         let checksum = Digest::blake3_bytes(b"blob chunk bytes");
         let entry = ManifestEntry::new(
             ManifestKind::BlobChunk,
-            "media",
-            "blob/cid-hero/chunk-0",
+            ManifestObject::new("media", "blob/cid-hero/chunk-0"),
             CommitVersion(22),
             Digest::blake3_bytes(b"extent-hero-0"),
             PlacementGroupId(7),
@@ -1355,8 +1369,7 @@ mod tests {
     fn entry(kind: ManifestKind, object: &str, seed: u8, offset: u64, len: u64) -> ManifestEntry {
         ManifestEntry::new(
             kind,
-            "app",
-            object,
+            ManifestObject::new("app", object),
             CommitVersion(22),
             Digest::blake3_bytes(format!("extent:{object}:{seed}").as_bytes()),
             PlacementGroupId(u64::from(seed % 3) + 1),

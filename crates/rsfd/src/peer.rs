@@ -6,9 +6,20 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rsf_core::{ClusterId, Epoch, NodeId, PlacementGroupId};
-use rsf_rpc::replication::{PeerEndpoint, PeerIdentity, PeerReplicaServer};
+use rsf_rpc::replication::{PeerElectionTiming, PeerEndpoint, PeerIdentity, PeerReplicaServer};
 use rsf_vsr::DurableVsrCell;
 use serde::Deserialize;
+
+mod client;
+mod control;
+#[cfg(test)]
+mod control_tests;
+mod materializer;
+mod membership;
+mod role;
+mod source_owner;
+pub(crate) mod state_identity;
+use materializer::ApplicationMaterializer;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +32,12 @@ struct PeerConfig {
     timeout_ms: u64,
     peers: Vec<NodeConfig>,
     cells: Vec<CellConfig>,
+    #[serde(default)]
+    elections: Option<ElectionConfig>,
+    #[serde(default)]
+    client: Option<client::ClientConfig>,
+    #[serde(default)]
+    control: Option<control::Config>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,16 +54,54 @@ struct CellConfig {
     view: u64,
     primary: u64,
     voters: Vec<u64>,
+    #[serde(default)]
+    learner_source: Option<u64>,
+    #[serde(default)]
+    membership_recovery: Option<membership::RecoveryConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ElectionConfig {
+    heartbeat_ms: u64,
+    timeout_ms: u64,
+    rank_delay_ms: u64,
+}
+impl ElectionConfig {
+    fn timing(&self) -> PeerElectionTiming {
+        PeerElectionTiming {
+            heartbeat: Duration::from_millis(self.heartbeat_ms),
+            timeout: Duration::from_millis(self.timeout_ms),
+            rank_delay: Duration::from_millis(self.rank_delay_ms),
+        }
+    }
 }
 
 struct PeerService {
+    local: NodeId,
     listener: TcpListener,
     server: PeerReplicaServer,
-    _lock: rsf_storage::ExclusiveFileLock,
-    application_state: PathBuf,
+    state_identity: state_identity::StateIdentity,
+    control: Option<control::Trusted>,
+    genesis: Option<control::Scheduler>,
+    materializer: ApplicationMaterializer,
+    elections: Option<PeerElectionTiming>,
+    last_elections: BTreeMap<u64, (u64, u64, bool, String)>,
+    last_membership: BTreeMap<u64, serde_json::Value>,
+    poll_interval: Option<Duration>,
+    client: Option<client::ClientService>,
 }
 
 pub fn run_cli(args: &[String]) -> Result<(), String> {
+    if args
+        .first()
+        .is_some_and(|arg| arg == "migrate-application-identity")
+    {
+        return source_owner::migrate_application_identity_cli(args);
+    }
+    if args.first().is_some_and(|arg| arg == "sync-learner") {
+        return sync_learner_cli(args);
+    }
     let [serve, flag, path] = args else {
         return Err("usage: rsfd peer serve --config <peer.json>".into());
     };
@@ -56,147 +111,531 @@ pub fn run_cli(args: &[String]) -> Result<(), String> {
     let mut service = PeerService::open(Path::new(path))?;
     println!(
         "{}",
-        serde_json::json!({"event":"peer.ready","listen":service.listener.local_addr().map_err(|err|err.to_string())?.to_string()})
+        serde_json::json!({"event":"peer.ready","listen":service.listener.local_addr().map_err(|err|err.to_string())?.to_string(),"client_listen":service.client.as_ref().map(|client|client.local_addr().to_string())})
     );
     std::io::stdout().flush().map_err(|err| err.to_string())?;
     loop {
-        let (socket, address) = match service.listener.accept() {
-            Ok(connection) => connection,
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(err) => return Err(format!("peer accept failed: {err}")),
-        };
-        let root = &service.application_state;
-        match service
-            .server
-            .serve_connection_with_apply(socket, &mut |entry| apply_entry(root, entry))
-        {
-            Ok(()) => println!(
-                "{}",
-                serde_json::json!({"event":"peer.rpc","outcome":"accepted","remote":address.to_string()})
-            ),
-            Err(reason) => eprintln!(
-                "{}",
-                serde_json::json!({"event":"peer.rpc","outcome":"rejected","remote":address.to_string(),"reason":reason})
-            ),
+        service.state_identity.validate()?;
+        let started = std::time::Instant::now();
+        for _ in 0..64 {
+            let (socket, address) = match service.listener.accept() {
+                Ok(connection) => connection,
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(err) => return Err(format!("peer accept failed: {err}")),
+            };
+            let materializer = &mut service.materializer;
+            let rpc_started = std::time::Instant::now();
+            let mut materialize_time = Duration::ZERO;
+            let mut materialize_count = 0_u64;
+            let mut last_entry = None;
+            let mut apply = |entry: &rsf_vsr::VsrCommittedEntry| {
+                let apply_started = std::time::Instant::now();
+                let result = (|| {
+                    if let Some(command) = decode_application_entry(entry)? {
+                        materializer.apply(&command)?;
+                    }
+                    Ok(())
+                })();
+                materialize_time += apply_started.elapsed();
+                materialize_count += 1;
+                last_entry = Some((entry.prepare.pg.0, entry.prepare.index.0));
+                result
+            };
+            let result = if let Some(control) = &service.control {
+                service.server.serve_connection_with_native_control(
+                    socket,
+                    &mut apply,
+                    &mut control::Adapter {
+                        identity: &mut service.state_identity,
+                        control,
+                    },
+                )
+            } else {
+                service
+                    .server
+                    .serve_connection_with_apply(socket, &mut apply)
+            };
+            // A failed native owner stops all subsequent local/network work.
+            // Handler semantic errors remain ordinary bounded RPC rejections.
+            service.state_identity.validate()?;
+            let event = serde_json::json!({
+                "event":"peer.rpc", "node":service.local.0,
+                "outcome":if result.is_ok() { "accepted" } else { "rejected" },
+                "remote":address.to_string(), "elapsed_ms":rpc_started.elapsed().as_millis(),
+                "materialize_ms":materialize_time.as_millis(), "materialize_count":materialize_count,
+                "last_entry":last_entry, "reason":result.as_ref().err()
+            });
+            if result.is_ok() {
+                println!("{event}");
+            } else {
+                eprintln!("{event}");
+            }
+            if service.poll_interval.is_none()
+                || service
+                    .poll_interval
+                    .is_some_and(|interval| started.elapsed() >= interval / 2)
+            {
+                break;
+            }
+        }
+        if service.server.membership_recovery_enabled() {
+            let materializer = &mut service.materializer;
+            service.state_identity.validate()?;
+            let progress = service.server.poll_membership_recovery(&mut |entry| {
+                if let Some(command) = decode_application_entry(entry)? {
+                    materializer.apply(&command)?;
+                }
+                Ok(())
+            });
+            service.state_identity.validate()?;
+            if let Some(update) = progress? {
+                let state = serde_json::json!({
+                    "event": "peer.membership", "pg": update.pg.0,
+                    "plan": update.plan.map(|id| id.iter().map(|byte| format!("{byte:02x}")).collect::<String>()),
+                    "phase": update.phase, "replica": update.replica.map(|node| node.0),
+                    "publication_quorum": update.publication_quorum.is_some(),
+                    "detail": update.detail,
+                });
+                if service.last_membership.get(&update.pg.0) != Some(&state) {
+                    println!("{state}");
+                    service.last_membership.insert(update.pg.0, state);
+                }
+            }
+        }
+        if let Some(timing) = service.elections {
+            let materializer = &mut service.materializer;
+            service.state_identity.validate()?;
+            let progress = service.server.poll_elections_with_progress(timing, &mut |entry| {
+                if let Some(command) = decode_application_entry(entry)? {
+                    materializer.apply(&command)?;
+                }
+                Ok(())
+            }, &mut |progress| {
+                println!("{}", serde_json::json!({"event":"peer.control", "node":progress.node.0, "pg":progress.pg.0, "phase":progress.phase, "elapsed_ms":progress.elapsed.as_millis(), "records":progress.records}));
+                let _ = std::io::stdout().flush();
+            });
+            service.state_identity.validate()?;
+            if let Some(update) = progress? {
+                let state = (
+                    update.view.0,
+                    update.primary.0,
+                    update.quorum_confirmed,
+                    update.detail.clone(),
+                );
+                if service.last_elections.get(&update.pg.0) != Some(&state) {
+                    println!(
+                        "{}",
+                        serde_json::json!({"event":"peer.election","pg":update.pg.0,"view":update.view.0,"primary":update.primary.0,"quorum_confirmed":update.quorum_confirmed,"detail":update.detail})
+                    );
+                    service.last_elections.insert(update.pg.0, state);
+                }
+            }
+        }
+        if let (Some(genesis), Some(control)) = (&mut service.genesis, &service.control) {
+            let progress = genesis.poll(
+                service.local,
+                control,
+                &mut service.state_identity,
+                &mut service.server,
+            );
+            // Physical native failure is fatal even when a semantic writer error
+            // is retried after a view change. No result is logged before this.
+            service.state_identity.validate()?;
+            match progress {
+                Ok(Some(rsf_rpc::replication::ControlWriterProgress::ObservedGenesisDelivery(
+                    observed,
+                ))) => {
+                    println!(
+                        "{}",
+                        serde_json::json!({"event":"peer.genesis_delivery", "node":service.local.0,
+                        "pg":observed.pg().0, "primary":observed.historical_primary().0,
+                        "reporters":observed.reporters().iter().map(|node| node.0).collect::<Vec<_>>()})
+                    );
+                    std::io::stdout().flush().map_err(|e| e.to_string())?;
+                }
+                Err(reason) => eprintln!(
+                    "{}",
+                    serde_json::json!({"event":"peer.genesis_retry", "node":service.local.0, "reason":reason})
+                ),
+                _ => {}
+            }
+        }
+        service.state_identity.validate()?;
+        if let Some(client) = &service.client {
+            client.serve_one(&mut service.server, &mut service.materializer)?;
+        }
+        if let Some(interval) = service.poll_interval {
+            std::thread::sleep(interval.min(Duration::from_millis(10)));
         }
     }
 }
 
-impl PeerService {
-    fn open(path: &Path) -> Result<Self, String> {
-        let raw = std::fs::read(path).map_err(|err| format!("cannot read peer config: {err}"))?;
-        if raw.len() > 1024 * 1024 {
-            return Err("peer configuration exceeds 1 MiB".into());
+struct LoadedPeerConfig {
+    config: PeerConfig,
+    cluster: ClusterId,
+    state: PathBuf,
+    identity: PeerIdentity,
+    peers: BTreeMap<NodeId, PeerEndpoint>,
+    control: Option<control::Trusted>,
+}
+fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let file = File::open(path).map_err(|_| format!("cannot open {label}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| format!("cannot inspect {label}"))?;
+    if !metadata.is_file() || metadata.len() > maximum {
+        return Err(format!("{label} exceeds its finite regular-file bound"));
+    }
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(metadata.len()).map_err(|_| "configuration exceeds platform")?,
+    );
+    file.take(
+        maximum
+            .checked_add(1)
+            .ok_or("configuration bound overflow")?,
+    )
+    .read_to_end(&mut bytes)
+    .map_err(|_| format!("cannot read {label}"))?;
+    if bytes.len() as u64 > maximum {
+        return Err(format!("{label} exceeds its finite bound"));
+    }
+    Ok(bytes)
+}
+fn load_config(path: &Path) -> Result<LoadedPeerConfig, String> {
+    let raw = read_bounded(path, 1024 * 1024, "peer configuration")?;
+    let config: PeerConfig =
+        serde_json::from_slice(&raw).map_err(|err| format!("invalid peer config: {err}"))?;
+    let cluster = ClusterId::new(&config.cluster).map_err(|err| err.message)?;
+    let base = path.parent().unwrap_or(Path::new("."));
+    let resolve = |path: &Path| {
+        if path.is_absolute() {
+            path.to_owned()
+        } else {
+            base.join(path)
         }
-        let config: PeerConfig =
-            serde_json::from_slice(&raw).map_err(|err| format!("invalid peer config: {err}"))?;
-        let cluster = ClusterId::new(&config.cluster).map_err(|err| err.message)?;
-        let base = path.parent().unwrap_or(Path::new("."));
-        let resolve = |path: &Path| {
-            if path.is_absolute() {
-                path.to_owned()
-            } else {
-                base.join(path)
+    };
+    let state = resolve(&config.state);
+    let identity = PeerIdentity::load(&resolve(&config.tls))?;
+    let mut peers = BTreeMap::new();
+    for peer in &config.peers {
+        let bytes = decode_fingerprint(&peer.fingerprint)?;
+        if peers
+            .insert(
+                NodeId(peer.node),
+                PeerEndpoint {
+                    address: peer.address,
+                    server_name: peer.server_name.clone(),
+                    fingerprint: bytes,
+                },
+            )
+            .is_some()
+        {
+            return Err("duplicate peer node".into());
+        }
+    }
+    let control = control::Trusted::load(&config, base, &cluster, &identity, &peers)?;
+    let mut groups = BTreeSet::new();
+    for cell in &config.cells {
+        let voters = cell.voters.iter().copied().collect::<BTreeSet<_>>();
+        if !groups.insert(cell.pg)
+            || cell.view == 0
+            || voters.len() != cell.voters.len()
+            || voters.len() > 4096
+            || match (
+                control.as_ref().filter(|trusted| trusted.pg().0 == cell.pg),
+                cell.learner_source,
+            ) {
+                (Some(_), _) => false,
+                (None, None) => !voters.contains(&config.node),
+                (None, Some(source)) => {
+                    voters.contains(&config.node)
+                        || source != cell.primary
+                        || source == config.node
+                        || !peers.contains_key(&NodeId(source))
+                }
             }
-        };
-        let state = resolve(&config.state);
-        let identity = PeerIdentity::load(&resolve(&config.tls))?;
-        let mut peers = BTreeMap::new();
-        for peer in config.peers {
-            let bytes = decode_fingerprint(&peer.fingerprint)?;
-            if peers
-                .insert(
-                    NodeId(peer.node),
-                    PeerEndpoint {
-                        address: peer.address,
-                        server_name: peer.server_name,
-                        fingerprint: bytes,
-                    },
-                )
-                .is_some()
-            {
-                return Err("duplicate peer node".into());
-            }
+            || !voters.contains(&cell.primary)
+            || voters
+                .iter()
+                .any(|node| !peers.contains_key(&NodeId(*node)))
+        {
+            return Err("invalid peer cell: require unique groups/voters, positive view, and mapped local/primary membership".into());
         }
-        let mut groups = BTreeSet::new();
-        for cell in &config.cells {
-            let voters = cell.voters.iter().copied().collect::<BTreeSet<_>>();
-            if !groups.insert(cell.pg)
-                || cell.view == 0
-                || voters.len() != cell.voters.len()
-                || voters.len() > 4096
-                || !voters.contains(&config.node)
-                || !voters.contains(&cell.primary)
-                || voters
-                    .iter()
-                    .any(|node| !peers.contains_key(&NodeId(*node)))
-            {
-                return Err("invalid peer cell: require unique groups/voters, positive view, and mapped local/primary membership".into());
-            }
+    }
+    // Validate identities and timeouts before opening or creating stores.
+    let timeout = Duration::from_millis(config.timeout_ms);
+    let _ = rsf_rpc::replication::NetworkVsrTransport::new(
+        NodeId(config.node),
+        &cluster,
+        identity.clone(),
+        peers.clone(),
+        timeout,
+    )?;
+    let membership = membership::configured(&config.cells)?;
+    if config.client.is_some() && !membership.is_empty() {
+        return Err(
+            "managed membership recovery cannot admit clients before replicated control admission"
+                .into(),
+        );
+    }
+    if let Some(elections) = &config.elections {
+        if membership.is_empty()
+            && config.cells.iter().all(|cell| {
+                cell.learner_source.is_some()
+                    || control
+                        .as_ref()
+                        .is_some_and(|c| c.pg().0 == cell.pg && !c.voter())
+            })
+        {
+            return Err("automatic election requires a hosted voting cell".into());
         }
-        // Validate identities and timeouts before opening or creating stores.
-        let timeout = Duration::from_millis(config.timeout_ms);
-        let _ = rsf_rpc::replication::NetworkVsrTransport::new(
-            NodeId(config.node),
-            &cluster,
-            identity.clone(),
-            peers.clone(),
-            timeout,
-        )?;
-        if config.cells.is_empty() {
-            return Err("peer server requires at least one cell".into());
+        if !membership.is_empty() {
+            // A managed learner may become a voter without a configuration edit.
+            // Every future voter must already have a mapped TLS identity.
+            validate_cell_timing(elections.timing(), timeout, peers.len(), false)?;
         }
-        std::fs::create_dir_all(&state).map_err(|err| err.to_string())?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(state.join(".peer.lock"))
-            .map_err(|err| err.to_string())?;
-        let lock = rsf_storage::ExclusiveFileLock::acquire(lock)
-            .map_err(|err| format!("peer state already has an owner: {err}"))?;
-        bind_state(&state, &cluster, NodeId(config.node))?;
-        let mut cells = BTreeMap::new();
-        for config in config.cells {
-            let pg = PlacementGroupId(config.pg);
-            cells.insert(
-                pg,
-                DurableVsrCell::open(
-                    state.join(format!("pg-{}", config.pg)),
-                    pg,
-                    Epoch(config.view),
-                    NodeId(config.primary),
-                    config.voters.into_iter().map(NodeId),
-                )
-                .map_err(|err| err.message)?,
+        for cell in config.cells.iter().filter(|cell| {
+            cell.learner_source.is_none()
+                && control
+                    .as_ref()
+                    .is_none_or(|c| c.pg().0 != cell.pg || c.voter())
+        }) {
+            let timing = elections.timing();
+            validate_cell_timing(timing, timeout, cell.voters.len(), config.client.is_some())?;
+        }
+    }
+    if config.client.is_some()
+        && (config.elections.is_none()
+            || config
+                .cells
+                .iter()
+                .any(|cell| cell.learner_source.is_some()))
+    {
+        return Err(
+            "peer client service requires automatic elections and hosted voting cells only".into(),
+        );
+    }
+    if config.cells.is_empty() {
+        return Err("peer server requires at least one cell".into());
+    }
+    Ok(LoadedPeerConfig {
+        config,
+        cluster,
+        state,
+        identity,
+        peers,
+        control,
+    })
+}
+
+fn validate_cell_timing(
+    timing: PeerElectionTiming,
+    timeout: Duration,
+    voters: usize,
+    client: bool,
+) -> Result<(), String> {
+    timing.validate(timeout, voters)?;
+    if client {
+        let minimum = timeout
+            .saturating_mul((voters.saturating_sub(1) as u32).saturating_mul(2))
+            .saturating_add(timing.heartbeat.saturating_mul(3))
+            .saturating_add(crate::data::DATA_CONNECTION_TIMEOUT);
+        if timing.timeout < minimum {
+            return Err(
+                "client election timeout must also cover the cumulative data I/O deadline".into(),
             );
         }
-        let server = PeerReplicaServer::new(
-            NodeId(config.node),
-            &cluster,
+    }
+    Ok(())
+}
+
+impl PeerService {
+    fn open(path: &Path) -> Result<Self, String> {
+        let LoadedPeerConfig {
+            config,
+            cluster,
+            state,
             identity,
             peers,
-            cells,
-            timeout,
+            control,
+        } = load_config(path)?;
+        let timeout = Duration::from_millis(config.timeout_ms);
+        let elections = config.elections.as_ref().map(ElectionConfig::timing);
+        rsf_storage::create_dir_all_synced(&state).map_err(|err| err.to_string())?;
+        let mut state_identity = state_identity::StateIdentity::open(
+            &state,
+            &cluster,
+            NodeId(config.node),
+            control
+                .as_ref()
+                .map(control::Trusted::reservation)
+                .transpose()?,
         )?;
-        let application_state = state.join("application");
+        let membership = membership::configured(&config.cells)?;
+        let managed = membership.keys().copied().collect::<BTreeSet<_>>();
+        membership::preflight(
+            &state,
+            &managed,
+            state_identity.managed(),
+            config.client.is_some(),
+        )?;
+        let genesis = control.as_ref().and_then(control::Trusted::scheduler);
+        let poll_interval = elections
+            .map(|timing| timing.heartbeat)
+            .into_iter()
+            .chain(membership.values().map(|timing| timing.interval))
+            .chain(genesis.as_ref().map(|_| Duration::from_millis(10)))
+            .min();
+        let mut cells = BTreeMap::new();
+        let mut learners = BTreeMap::new();
+        let local = NodeId(config.node);
+        let mut promotion_paths = BTreeMap::new();
+        if let Some(control) = &control {
+            if let Some(cell) = control.open_voter(&state, &mut state_identity)? {
+                cells.insert(control.pg(), cell);
+            }
+            state_identity.validate()?;
+        }
+        for config in config.cells {
+            if control
+                .as_ref()
+                .is_some_and(|control| control.pg().0 == config.pg)
+            {
+                continue;
+            }
+            let pg = PlacementGroupId(config.pg);
+            let configured_learner = config.learner_source.is_some();
+            let role = if managed.contains(&pg) {
+                role::open_existing(&state, local, config)?
+            } else {
+                role::open(&state, local, config)?
+            };
+            match role {
+                role::HostedRole::Voter(cell) => {
+                    if configured_learner && elections.is_some() && !managed.contains(&pg) {
+                        return Err(
+                            "promoted voter elections require an explicit voting configuration"
+                                .into(),
+                        );
+                    }
+                    if managed.contains(&pg)
+                        && cell.promoted_replica().map_err(|error| error.message)? == Some(local)
+                    {
+                        promotion_paths.insert(pg, state.join(format!("pg-{}", pg.0)));
+                    }
+                    cells.insert(pg, *cell);
+                }
+                role::HostedRole::Learner(learner) => {
+                    if managed.contains(&pg) {
+                        promotion_paths.insert(pg, state.join(format!("pg-{}", pg.0)));
+                    }
+                    learners.insert(pg, *learner);
+                }
+            }
+        }
+        // Recovered membership can be larger than the bootstrap configuration.
+        // Validate its actual network and client I/O budgets before listening.
+        if let Some(timing) = elections {
+            for cell in cells.values() {
+                validate_cell_timing(
+                    timing,
+                    timeout,
+                    cell.replica_count(),
+                    config.client.is_some(),
+                )?;
+            }
+        }
+        let server = if let Some(control) = &control {
+            control.bind_server(
+                control::ServerInputs {
+                    local,
+                    cluster: cluster.clone(),
+                    tls: identity,
+                    peers: peers.clone(),
+                    cells,
+                    learners,
+                    state: state.clone(),
+                    timeout,
+                },
+                &mut state_identity,
+            )?
+        } else {
+            PeerReplicaServer::with_learners(
+                local,
+                &cluster,
+                identity,
+                peers.clone(),
+                cells,
+                learners,
+                timeout,
+            )?
+        };
+        state_identity.validate()?;
+        let mut server = if managed.is_empty() {
+            server
+        } else {
+            server
+                .with_existing_membership_paths(membership::paths(&state, &managed))?
+                .with_promotion_paths(promotion_paths)?
+                .with_membership_recovery(membership)?
+        };
+        // The recovery hook proves existing bound custody before stale learner
+        // declarations can participate in elections. Enrollment is monotonic
+        // admission policy, never a publication-completion or voting grant.
+        state_identity.enroll(&managed)?;
+        let mut materializer = ApplicationMaterializer::new(state.join("application"));
         let mut recovered = Vec::new();
-        for entry in server.committed_entries()? {
+        for entry in server.committed_application_entries()? {
             if let Some(command) = decode_application_entry(&entry)? {
                 recovered.push(command);
             }
         }
         recovered.sort_by_key(|command| command.commit.version);
         for command in recovered {
-            apply_command(&application_state, &command)?;
+            materializer.apply(&command)?;
         }
+        if config.client.is_some() && server.membership_admission_required()? {
+            return Err(
+                "membership publication requires replicated control admission before serving clients"
+                    .into(),
+            );
+        }
+        let client = config
+            .client
+            .as_ref()
+            .map(|client| {
+                client::ClientService::open(
+                    client,
+                    path.parent().unwrap_or(Path::new(".")),
+                    &state,
+                    local,
+                    &peers,
+                )
+            })
+            .transpose()?;
+        state_identity.validate()?;
         let listener = TcpListener::bind(config.listen)
-            .map_err(|err| format!("cannot bind peer listener: {err}"))?;
+            .map_err(|err| format!("cannot bind peer listener {}: {err}", config.listen))?;
+        if poll_interval.is_some() {
+            listener
+                .set_nonblocking(true)
+                .map_err(|err| err.to_string())?;
+        }
         Ok(Self {
+            local,
             listener,
             server,
-            _lock: lock,
-            application_state,
+            elections,
+            last_elections: BTreeMap::new(),
+            last_membership: BTreeMap::new(),
+            poll_interval,
+            client,
+            state_identity,
+            control,
+            genesis,
+            materializer,
         })
     }
 }
@@ -225,62 +664,6 @@ fn decode_application_entry(
     }
     Ok(Some(command))
 }
-fn apply_entry(root: &Path, entry: &rsf_vsr::VsrCommittedEntry) -> Result<(), String> {
-    if let Some(command) = decode_application_entry(entry)? {
-        apply_command(root, &command)?;
-    }
-    Ok(())
-}
-fn apply_command(
-    root: &Path,
-    command: &rsf_protocol::ReplicatedFabricCommand,
-) -> Result<(), String> {
-    if command.application.surface == rsf_protocol::ApplicationSurface::Sql {
-        let mut sql = rsf_sql::DurableSqlEngine::open_replicated(
-            crate::security::namespace_root(root, &command.application.namespace).join("sql"),
-            &command.application.namespace,
-        )
-        .map_err(|err| err.message)?;
-        sql.apply_application_command(command)
-            .map_err(|err| err.message)?;
-        return Ok(());
-    }
-    if command.application.surface == rsf_protocol::ApplicationSurface::Object {
-        let mut objects = rsf_object::DurableObjectStore::open_replicated(
-            crate::security::namespace_root(root, &command.application.namespace).join("object"),
-            &command.application.namespace,
-        )
-        .map_err(|err| err.message)?;
-        objects
-            .apply_application_command(command)
-            .map_err(|err| err.message)?;
-        return Ok(());
-    }
-    if command.application.surface == rsf_protocol::ApplicationSurface::Blob {
-        let mut blobs = rsf_blob::DurableBlobEngine::open_replicated(
-            crate::security::namespace_root(root, &command.application.namespace).join("blob"),
-            &command.application.namespace,
-        )
-        .map_err(|err| err.message)?;
-        blobs
-            .apply_application_command(command)
-            .map_err(|err| err.message)?;
-        return Ok(());
-    }
-    if command.application.surface != rsf_protocol::ApplicationSurface::Kv {
-        return Err("peer application materializer does not support this surface yet".into());
-    }
-    let mut kv = rsf_kv::DurableKvEngine::open_replicated(
-        crate::security::namespace_root(root, &command.application.namespace).join("kv"),
-        Epoch(1),
-        &command.application.namespace,
-    )
-    .map_err(|err| err.message)?;
-    kv.apply_application_command(command)
-        .map_err(|err| err.message)?;
-    Ok(())
-}
-
 pub(crate) fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
     if value.len() != 64 || !value.is_ascii() {
         return Err("peer fingerprint must contain 64 hexadecimal digits".into());
@@ -293,43 +676,76 @@ pub(crate) fn decode_fingerprint(value: &str) -> Result<[u8; 32], String> {
     Ok(result)
 }
 
-pub(crate) fn bind_state(root: &Path, cluster: &ClusterId, node: NodeId) -> Result<(), String> {
-    let identity = serde_json::json!({"version":1,"cluster":cluster.as_str(),"node":node.0});
-    let path = root.join("IDENTITY.json");
-    match std::fs::read(&path) {
-        Ok(bytes) => {
-            let stored: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(|_| "peer state identity is corrupt")?;
-            if stored != identity {
-                return Err("peer state belongs to a different cluster or node".into());
-            }
-        }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            for entry in std::fs::read_dir(root).map_err(|err| err.to_string())? {
-                let name = entry.map_err(|err| err.to_string())?.file_name();
-                if name != ".peer.lock" && name != "IDENTITY.pending" {
-                    return Err(
-                        "unbound peer state contains existing data; migrate it explicitly".into(),
-                    );
-                }
-            }
-            let temp = root.join("IDENTITY.pending");
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&temp)
-                .map_err(|err| err.to_string())?;
-            file.write_all(&serde_json::to_vec(&identity).map_err(|err| err.to_string())?)
-                .map_err(|err| err.to_string())?;
-            file.sync_all().map_err(|err| err.to_string())?;
-            std::fs::rename(&temp, &path).map_err(|err| err.to_string())?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|err| err.to_string())?;
-        }
-        Err(err) => return Err(format!("cannot read peer state identity: {err}")),
+pub(crate) fn bind_state(
+    root: &Path,
+    cluster: &ClusterId,
+    node: NodeId,
+) -> Result<state_identity::StateIdentity, String> {
+    let mut owner = state_identity::StateIdentity::open(root, cluster, node, None)?;
+    owner.require_unreserved()?;
+    Ok(owner)
+}
+
+fn sync_learner_cli(args: &[String]) -> Result<(), String> {
+    let usage =
+        "usage: rsfd peer sync-learner --config <source-peer.json> --pg <id> --target <node>";
+    let [_, config_flag, path, pg_flag, pg, target_flag, target] = args else {
+        return Err(usage.into());
+    };
+    if config_flag != "--config" || pg_flag != "--pg" || target_flag != "--target" {
+        return Err(usage.into());
     }
+    let pg = pg.parse::<u64>().map_err(|_| usage.to_string())?;
+    let target = target
+        .parse::<u64>()
+        .map(NodeId)
+        .map_err(|_| usage.to_string())?;
+    let LoadedPeerConfig {
+        config,
+        cluster,
+        state,
+        identity,
+        peers,
+        control,
+    } = load_config(Path::new(path))?;
+    let mut source_owner = source_owner::SourceOwner::open(
+        &state,
+        &cluster,
+        NodeId(config.node),
+        PlacementGroupId(pg),
+        control
+            .as_ref()
+            .map(control::Trusted::reservation)
+            .transpose()?,
+    )?;
+    let specification = config
+        .cells
+        .iter()
+        .find(|cell| cell.pg == pg)
+        .ok_or("source config does not host this placement group")?;
+    if specification.learner_source.is_some() || specification.primary != config.node {
+        return Err("history source must be configured as primary voter".into());
+    }
+    source_owner.validate()?;
+    let directory = state.join(format!("pg-{pg}"));
+    let mut source = DurableVsrCell::open_existing(directory, PlacementGroupId(pg))
+        .map_err(|err| err.message)?;
+    let mut network = rsf_rpc::replication::NetworkVsrTransport::new(
+        NodeId(config.node),
+        &cluster,
+        identity,
+        peers,
+        Duration::from_millis(config.timeout_ms),
+    )?;
+    source_owner.validate()?;
+    let tail = network
+        .sync_learner(target, &mut source)
+        .map_err(|err| err.reason)?;
+    source_owner.validate()?;
+    println!(
+        "{}",
+        serde_json::json!({"event":"peer.learner-synced","pg":pg,"target":target.0,"committed_tail":tail.0,"role":"learner"})
+    );
     Ok(())
 }
 
@@ -364,3 +780,6 @@ mod tests {
         assert_eq!(decode_fingerprint(&"ab".repeat(32)).unwrap(), [0xab; 32]);
     }
 }
+
+#[cfg(all(test, unix))]
+mod directory_custody_tests;

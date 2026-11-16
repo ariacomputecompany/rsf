@@ -438,7 +438,7 @@ fn skip_or_copy_double_quoted(
 }
 
 fn copy_line_comment(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>, out: &mut String) {
-    while let Some((_, ch)) = chars.next() {
+    for (_, ch) in chars.by_ref() {
         out.push(ch);
         if ch == '\n' {
             break;
@@ -447,7 +447,7 @@ fn copy_line_comment(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
 }
 
 fn skip_line_comment(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) {
-    while let Some((_, ch)) = chars.next() {
+    for (_, ch) in chars.by_ref() {
         if ch == '\n' {
             break;
         }

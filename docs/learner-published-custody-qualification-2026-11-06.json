@@ -1,0 +1,268 @@
+{
+  "date": "2026-11-06",
+  "qualification_status": "custody_regressions_and_full_vsr_passed_rpc_timeouts_open",
+  "change": "Retain original learner root, identity, publication metadata and actual lock custody through Stage-to-Published transitions. Complete ordinary FINISH uses immutable readback and the original writer; physical corruption fences the running owner. Published cold open refuses missing or torn acknowledged state.",
+  "behavior_change": "After physical warm-stage loss, FINISH does not repair or make the live owner healthy. Permitted unpublished recovery requires dropping and reopening that owner.",
+  "red": {
+    "artifact": "artifacts/published-learner-custody-qualification-20261106/observation-learner-custody-red-v2-disk-recovered/execution.json",
+    "sha256": "6d8ce0346a832abe5c57ddafc27f524267da07e02192e041c7fbb780d45611ab",
+    "source": "caace13f573265d9c733b0622408f3372c28cbc887bfa89bb33ba6f572b23ea0",
+    "valid_observation": true,
+    "source_unchanged": true,
+    "summaries": [
+      "test result: FAILED. 4 passed; 18 failed; 0 ignored; 0 measured; 323 filtered out; finished in 1.95s"
+    ],
+    "phases": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 0,
+      "verify": 0,
+      "replay": 0,
+      "ci": 0
+    },
+    "full_census_matches": null,
+    "physical_red": [
+      "learner::custody::outer_tests::ordinary_outer_lock_loss_is_observed_and_original_inode_restore_stays_fenced",
+      "learner::custody::outer_tests::strict_outer_lock_loss_is_observed_and_original_inode_restore_stays_fenced",
+      "learner::custody::outer_tests::ordinary_inner_lock_loss_is_observed_and_original_inode_restore_stays_fenced",
+      "learner::custody::outer_tests::strict_outer_lock_equal_byte_replacement_is_not_recaptured",
+      "learner::custody::outer_tests::ordinary_identity_equal_byte_replacement_is_not_recaptured",
+      "learner::custody::outer_tests::strict_active_equal_byte_replacement_is_not_recaptured",
+      "learner::custody::outer_tests::ordinary_descriptor_equal_byte_replacement_is_not_recaptured",
+      "learner::custody::outer_tests::unpublished_outer_owner_loss_fences_before_begin_can_create_a_candidate",
+      "learner::custody::outer_tests::ordinary_cold_published_missing_writer_lock_is_not_recreated",
+      "learner::custody::outer_tests::ordinary_cold_published_torn_tail_is_rejected_without_truncation",
+      "learner::custody::outer_tests::transitions::existing_export_batch_observation_cannot_bypass_lost_outer_exclusion",
+      "learner::custody::outer_tests::transitions::ordinary_cold_published_missing_outer_lock_is_not_recreated",
+      "learner::custody::outer_tests::transitions::ordinary_finish_refuses_authentic_generation_substitution_for_its_retained_store",
+      "learner::custody::outer_tests::transitions::ordinary_complete_finish_torn_tail_never_repairs_acknowledged_bytes_or_clears_fence",
+      "learner::custody::outer_tests::transitions::ordinary_complete_finish_keeps_original_descriptor_through_same_byte_replacement"
+    ],
+    "error_contract_only": [
+      "learner::custody::outer_tests::ordinary_cold_published_missing_manifest_is_not_recreated",
+      "learner::custody::outer_tests::transitions::ordinary_original_root_identity_survives_equal_byte_tree_substitution",
+      "learner::custody::outer_tests::transitions::ordinary_original_candidate_identity_survives_equal_byte_tree_substitution"
+    ]
+  },
+  "focused_green": {
+    "artifact": "artifacts/published-learner-custody-qualification-20261106/observation-learner-custody-green-import-v2/execution.json",
+    "sha256": "cce7bb622be9f28e438b1afedf7c0668ff7d3f00486edf94b173fab12eb3b53f",
+    "source": "9e7c9a4989a0e3206a1c00e592e7bea8007e6ae16e38a86cc8087f8bb9743164",
+    "valid_observation": true,
+    "source_unchanged": true,
+    "summaries": [
+      "test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 323 filtered out; finished in 2.35s"
+    ],
+    "phases": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 0,
+      "verify": 0,
+      "replay": 0,
+      "ci": 0
+    },
+    "full_census_matches": null,
+    "physical_red": [],
+    "error_contract_only": []
+  },
+  "full_affected_initial": {
+    "rsf-storage": {
+      "artifact": "artifacts/published-learner-custody-qualification-20261106/full-affected/observation-learner-custody-full-v1-rsf-storage/execution.json",
+      "sha256": "a71bb609ded6a09cef6040e5735abb83315e529e750279d9d88339004a24fcbf",
+      "source": "deb8a9a7a27afc6ce0388ccc130efbced93f7abec57328d8015f355f35a3fc8b",
+      "valid_observation": true,
+      "source_unchanged": true,
+      "summaries": [
+        "test result: ok. 180 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.84s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "full_census_matches": true,
+      "physical_red": [],
+      "error_contract_only": []
+    },
+    "rsf-vsr": {
+      "artifact": "artifacts/published-learner-custody-qualification-20261106/full-affected/observation-learner-custody-full-v1-rsf-vsr/execution.json",
+      "sha256": "1053df7f2593bb71f0810ee53f79b052bbabf4972430df488d14561fb8064f49",
+      "source": "deb8a9a7a27afc6ce0388ccc130efbced93f7abec57328d8015f355f35a3fc8b",
+      "valid_observation": false,
+      "source_unchanged": true,
+      "summaries": [
+        "test result: FAILED. 342 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 130.06s"
+      ],
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "full_census_matches": true,
+      "physical_red": [],
+      "error_contract_only": []
+    },
+    "rsf-rpc": {
+      "artifact": "artifacts/published-learner-custody-qualification-20261106/full-affected/observation-learner-custody-full-v1-rsf-rpc/execution.json",
+      "sha256": "70550983bcb45509d1368828b5584ad5beb0905098547a01eb01f06bd196aeb8",
+      "source": "deb8a9a7a27afc6ce0388ccc130efbced93f7abec57328d8015f355f35a3fc8b",
+      "valid_observation": false,
+      "source_unchanged": true,
+      "summaries": [
+        "test result: FAILED. 134 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 69.35s"
+      ],
+      "phases": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "full_census_matches": true,
+      "physical_red": [],
+      "error_contract_only": []
+    }
+  },
+  "format_check_exit": 0,
+  "strict_clippy_exit": 0,
+  "full_affected_passed": false,
+  "complete_baseline_passed": false,
+  "production_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "remaining": [
+    "Twelve full RPC cases timed out in initial STAGE setup; original failures remain unresolved.",
+    "Ordinary cold/resumed progress and legacy cold publication still require separately qualified retained-data renewal; duplicate APPEND recovery remains separate work.",
+    "Initial/native/control integration and full production baseline remain unfinished."
+  ],
+  "limits": [
+    "Expected RED is actual Cargo101 with15 intended physical failures,3 error-contract differences and4 preservation passes; wrapper success does not mean those tests passed.",
+    "Focused GREEN is22 actual passing tests, not full production qualification.",
+    "The disk-exhaustion and missing-import attempts ran no behavioral tests and are retained separately.",
+    "Host files and real sync calls do not qualify Linux kernel behavior or machine power loss.",
+    "Final change after the first full affected run modifies only FINISH tests and required test-name inventory. Full VSR was requalified; prior storage pass and RPC failures are retained without rerunning unchanged RPC to obtain a different outcome."
+  ],
+  "source_sha256": "d3e23f0502c89ccdb413343d53e32ee3b02f0078ec4dde94a5c321a9b4668e0a",
+  "full_vsr_final": {
+    "artifact": "artifacts/published-learner-custody-qualification-20261106/full-vsr-finish-contract-v1/observation-learner-finish-contract-full-v1/execution.json",
+    "sha256": "1ad0e953d3456fcb61a072e6cf66aedcb1584c02190724c2f9745cb278cee691",
+    "source": "d3e23f0502c89ccdb413343d53e32ee3b02f0078ec4dde94a5c321a9b4668e0a",
+    "valid_observation": true,
+    "source_unchanged": true,
+    "summaries": [
+      "test result: ok. 346 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 157.53s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ],
+    "phases": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 0,
+      "verify": 0,
+      "replay": 0,
+      "ci": 0
+    },
+    "full_census_matches": true,
+    "required_outcomes": {
+      "learner::custody::outer_tests::ordinary_outer_lock_loss_is_observed_and_original_inode_restore_stays_fenced": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::strict_outer_lock_loss_is_observed_and_original_inode_restore_stays_fenced": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_inner_lock_loss_is_observed_and_original_inode_restore_stays_fenced": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::strict_outer_lock_equal_byte_replacement_is_not_recaptured": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_identity_equal_byte_replacement_is_not_recaptured": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::strict_active_equal_byte_replacement_is_not_recaptured": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_descriptor_equal_byte_replacement_is_not_recaptured": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::unpublished_outer_owner_loss_fences_before_begin_can_create_a_candidate": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_cold_published_missing_manifest_is_not_recreated": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_cold_published_missing_writer_lock_is_not_recreated": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_cold_published_torn_tail_is_rejected_without_truncation": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::bounded_callback_success_cannot_adopt_replaced_active": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::bounded_callback_semantic_error_cannot_hide_replaced_active": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::ordinary_and_bounded_publications_renew_only_their_actual_active_transition": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_original_root_identity_survives_equal_byte_tree_substitution": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_original_candidate_identity_survives_equal_byte_tree_substitution": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::existing_export_batch_observation_cannot_bypass_lost_outer_exclusion": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_cold_published_missing_outer_lock_is_not_recreated": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_transfer_preserves_actual_view_installation_replay_in_its_root_store": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_finish_refuses_authentic_generation_substitution_for_its_retained_store": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_complete_finish_torn_tail_never_repairs_acknowledged_bytes_or_clears_fence": [
+        "ok"
+      ],
+      "learner::custody::outer_tests::transitions::ordinary_complete_finish_keeps_original_descriptor_through_same_byte_replacement": [
+        "ok"
+      ],
+      "learner::custody::tests::published_learner_token_rejects_missing_inner_directory_and_trailing_dot_root_alias": [
+        "ok"
+      ],
+      "learner::tests::finish::finish_recomputes_digest_from_replaced_valid_live_stage_bytes": [
+        "ok"
+      ],
+      "learner::tests::finish::cold_recovered_valid_changed_stage_preserves_semantic_digest_refusal": [
+        "ok"
+      ],
+      "learner::tests::finish::finish_missing_live_stage_custody_does_not_recreate_it": [
+        "ok"
+      ],
+      "learner::tests::finish::finish_revalidates_torn_live_tail_before_resumable_retry": [
+        "ok"
+      ]
+    }
+  },
+  "finish_contract_update": "Three original physical faults retain exact refusal, no-repair and sticky-owner checks. Cold-owner resume is exercised explicitly; an added fourth test preserves exact semantic digest refusal and subsequent healthy publication.",
+  "independent_reviews": {
+    "core": {
+      "artifact": "artifacts/published-learner-custody-independent-review-20261106/core-v1/review.md",
+      "sha256": "e10b5129879571e01858a48235fc8a6fb1d372d2cc9141f71e22c96bc278e486"
+    },
+    "finish_contract": {
+      "artifact": "artifacts/published-learner-custody-finish-contract-review-20261106/review.md",
+      "sha256": "323cf163618cedd07565ba27d74d874e445a4abee158714b2b8c70c10f5be8ac"
+    }
+  }
+}

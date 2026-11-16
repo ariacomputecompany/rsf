@@ -1,0 +1,213 @@
+{
+  "recorded_at_utc": "2026-11-04T01:58:10.036125+00:00",
+  "status": "Development checkpoint; not production qualified",
+  "source_fingerprint": "e1abbc091d01d6130ce1553877b74454f6b3fdec73e8e5566018cbca74156a6d",
+  "base_remote_main": "fa79986f334fb70f1893ce834bc33a9dac982114",
+  "cicd_used": false,
+  "new_draft_patches_integrated_during_close": false,
+  "closing_test_counts": {
+    "rsf-protocol": 57,
+    "rsf-rpc": 138,
+    "rsf-vsr": 289,
+    "total": 484,
+    "failed": 0,
+    "ignored": 0
+  },
+  "fozzy_execution": {
+    "scope": "membership",
+    "label": "closing-v1",
+    "actual_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "rsf-vsr",
+      "-p",
+      "rsf-rpc",
+      "-p",
+      "rsf-protocol"
+    ],
+    "source_before": "e1abbc091d01d6130ce1553877b74454f6b3fdec73e8e5566018cbca74156a6d",
+    "source_after": "e1abbc091d01d6130ce1553877b74454f6b3fdec73e8e5566018cbca74156a6d",
+    "source_unchanged": true,
+    "controls_before": {
+      "artifacts/bounded-control-closing-qualification/execute.py": "033888556b641accd7ddcfe254f4f8b240826727f63b1f0ac4d169287eb5c513",
+      "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+      "artifacts/bounded-control-closing-v1-20261103/strict.fozzy.json": "66e95a77ec90760c625f2eebcbe768be38453bd16bc5e64269bd52f1cf81f6ff",
+      "artifacts/bounded-control-closing-v1-20261103/host.fozzy.json": "f18df79b52e81800458d7dba5bb4ad623c4931cdf1985eedc53a4a735ae47bda",
+      "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+      "artifacts/bounded-control-stage-observation-20261103-v4/cargo.stdout": "6407503b2e1482743f5f2255ef5c3cd0562882e9a22ec8304e4c66b3ae1f242c"
+    },
+    "controls_after": {
+      "artifacts/bounded-control-closing-qualification/execute.py": "033888556b641accd7ddcfe254f4f8b240826727f63b1f0ac4d169287eb5c513",
+      "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+      "artifacts/bounded-control-closing-v1-20261103/strict.fozzy.json": "66e95a77ec90760c625f2eebcbe768be38453bd16bc5e64269bd52f1cf81f6ff",
+      "artifacts/bounded-control-closing-v1-20261103/host.fozzy.json": "f18df79b52e81800458d7dba5bb4ad623c4931cdf1985eedc53a4a735ae47bda",
+      "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+      "artifacts/bounded-control-stage-observation-20261103-v4/cargo.stdout": "6407503b2e1482743f5f2255ef5c3cd0562882e9a22ec8304e4c66b3ae1f242c"
+    },
+    "controls_unchanged": true,
+    "phases": {
+      "doctor": {
+        "command": [
+          "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+          "doctor",
+          "--deep",
+          "--scenario",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/strict.fozzy.json",
+          "--runs",
+          "5",
+          "--seed",
+          "20260912",
+          "--json"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "c40ad5865ce242fac02669722af5cb04a07fdfbf53b187193dfe4e9cce2ecf52",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "strict": {
+        "command": [
+          "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+          "test",
+          "--det",
+          "--strict",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/strict.fozzy.json",
+          "--seed",
+          "20260912",
+          "--json"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "4d244cb13f13f9039797bb7cf2354c46be0081056dcbd27d4328146a42532665",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "host": {
+        "command": [
+          "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+          "run",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/host.fozzy.json",
+          "--det",
+          "--seed",
+          "20260912",
+          "--record",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/trace.fozzy",
+          "--proc-backend",
+          "host",
+          "--fs-backend",
+          "host",
+          "--http-backend",
+          "host",
+          "--json"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "610cf395d959589c11693eb4f66ca71999accbf457cf17078c39bf4ede0efec4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "verify": {
+        "command": [
+          "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+          "trace",
+          "verify",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/trace.fozzy",
+          "--strict",
+          "--json"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "884d39334fde4e6c4f902ee714a0e3f3fc9bef3d0de6a09ce5529d19df480ece",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "replay": {
+        "command": [
+          "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+          "replay",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/trace.fozzy",
+          "--json"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "820512dedab8140ac17df02e33a18de76faa7a7c5af6fcc0df79af9ca119e535",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "ci": {
+        "command": [
+          "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+          "ci",
+          "/Users/deepsaint/Desktop/rsf/artifacts/bounded-control-closing-v1-20261103/trace.fozzy",
+          "--json"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "239363dc1da44330e40e1501b4ac33c6beb05db3ae7bb01af154da1a6e455076",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "cicd_used": false,
+    "linux_qualified": false,
+    "limits": "Actual local host run. Scripted strict phase only checks the scenario. Replay/trace parity do not execute the workload again.",
+    "trace_sha256": "92cf4f1c2b559fbf8f75d49760f8488d6489308b4aba68ec6a98884d98fd9d97",
+    "actual_exit_code": 0,
+    "test_summaries": [
+      "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s",
+      "test result: ok. 138 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 84.85s",
+      "test result: ok. 289 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 131.01s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ],
+    "failed_tests": [],
+    "required_census_valid": true,
+    "missing_test_occurrences": {},
+    "unexpected_test_occurrences": {},
+    "actual_tests_passed": true
+  },
+  "style_execution": {
+    "source_before": "e1abbc091d01d6130ce1553877b74454f6b3fdec73e8e5566018cbca74156a6d",
+    "source_after": "e1abbc091d01d6130ce1553877b74454f6b3fdec73e8e5566018cbca74156a6d",
+    "source_unchanged": true,
+    "checks": {
+      "fmt": {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "490b5848282b853cbc6a56068d02d378868a4e9456e926c1bd5ef2b7b8ca34fa"
+      }
+    }
+  },
+  "evidence_hashes": {
+    "execution.json": "5d6df8db73abfa9703f900b22d355d9966b834a51f1bae1825b489124abc23d6",
+    "style-execution.json": "e43c496a56f9486ebb25417aab1f4ae15011b732d8372f2a6ac9af988ba957c9",
+    "trace.fozzy": "92cf4f1c2b559fbf8f75d49760f8488d6489308b4aba68ec6a98884d98fd9d97",
+    "cargo.stdout": "ee47c01ecbd231a2d85bbbe925cba389cf53af6dcadc0a27c79b06d456894eda",
+    "cargo.stderr": "7c6a34ad8280e7091e07a9ca041dd31dd0636a26d1efa76899936a78964c0c03"
+  },
+  "pending_archive": {
+    "archive": "pending-work.tar.gz",
+    "archive_sha256": "57e9d44e724b925c32e58656603e5d307bb7424b709cd2c94c28db1f45ecf1ca",
+    "archive_bytes": 7382159,
+    "file_count": 2825
+  },
+  "limits": [
+    "No fresh complete 25-domain pass for this source; prior full attempt remains 20 passed / 5 failed.",
+    "Scoped pass does not resolve previously observed intermittent STAGE deadline failures.",
+    "Darwin development execution; Linux VM/kernel, power loss, independent-host and numerical capacity remain unqualified.",
+    "Pending archive contains unapplied, uncompiled drafts and static reviews; original and corrected revisions are retained."
+  ]
+}

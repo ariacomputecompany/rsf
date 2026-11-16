@@ -17,6 +17,37 @@ use rsf_vsr::{DurableVsrCell, VsrDecision, VsrOperation};
 // enforcement has dedicated RPC tests; allow fsync and TLS scheduling here.
 const PEER_TIMEOUT_MS: u64 = 2_000;
 
+#[path = "peer_process/automatic.rs"]
+mod automatic;
+#[path = "peer_process/client_retry.rs"]
+mod client_retry;
+#[path = "peer_process/client_takeover.rs"]
+mod client_takeover;
+#[path = "peer_process/legacy_identity.rs"]
+mod legacy_identity;
+#[path = "peer_process/membership_admission.rs"]
+mod membership_admission;
+#[path = "peer_process/native_membership.rs"]
+mod native_membership;
+#[path = "peer_process/native_role.rs"]
+mod native_role;
+#[path = "peer_process/sql_stream.rs"]
+mod sql_stream;
+#[path = "peer_process/stress.rs"]
+mod stress;
+#[path = "peer_process/takeover.rs"]
+mod takeover;
+#[path = "peer_process/uncertain_begin.rs"]
+mod uncertain_begin;
+
+thread_local! {
+    static SURFACE_TRANSPORT_RETRIES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn surface_transport_retries() -> u64 {
+    SURFACE_TRANSPORT_RETRIES.with(std::cell::Cell::get)
+}
+
 struct Process {
     child: Child,
     address: SocketAddr,
@@ -83,6 +114,9 @@ fn root() -> PathBuf {
     ))
 }
 fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
+    provision_count(root, 3)
+}
+fn provision_count(root: &Path, count: u64) -> BTreeMap<NodeId, PeerEndpoint> {
     let mut params = CertificateParams::new(Vec::new()).unwrap();
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
@@ -90,7 +124,7 @@ fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
     let ca = params.self_signed(&key).unwrap();
     let issuer = Issuer::new(params, key);
     let mut peers = BTreeMap::new();
-    for node in 0..3 {
+    for node in 0..count {
         let mut params = CertificateParams::new(vec!["localhost".into()]).unwrap();
         params.extended_key_usages = vec![
             ExtendedKeyUsagePurpose::ClientAuth,
@@ -115,7 +149,7 @@ fn provision(root: &Path) -> BTreeMap<NodeId, PeerEndpoint> {
         );
     }
     let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
-    for node in 1..3 {
+    for node in 1..count {
         let config = serde_json::json!({"cluster":"cli-cluster","node":node,"state":format!("store-{node}"),"tls":format!("tls-{node}"),"listen":"127.0.0.1:0","timeout_ms":PEER_TIMEOUT_MS,"peers":mapped,"cells":[{"pg":1,"view":1,"primary":0,"voters":[0,1,2]}]});
         std::fs::write(
             root.join(format!("peer-{node}.json")),
@@ -350,6 +384,17 @@ fn surface_request(
     request: &str,
     value: &[u8],
 ) -> String {
+    let mut budget = 3;
+    surface_request_with_budget(address, protocol, operation, request, value, &mut budget)
+}
+fn surface_request_with_budget(
+    address: SocketAddr,
+    protocol: rsf_wire::WireProtocol,
+    operation: &str,
+    request: &str,
+    value: &[u8],
+    budget: &mut u8,
+) -> String {
     let frame = rsf_wire::RawFrame::with_body(
         protocol,
         "app-client",
@@ -358,12 +403,43 @@ fn surface_request(
         Some(request.into()),
         value.to_vec(),
     );
-    test_support::send(
-        address,
-        &rsf_wire::WireCodec.encode(&frame).unwrap(),
-        test_support::pki().client.clone(),
-    )
-    .unwrap()
+    let frame = rsf_wire::WireCodec.encode(&frame).unwrap();
+    while *budget > 0 {
+        *budget -= 1;
+        let attempt = 3 - *budget;
+        let result = test_support::send(address, &frame, test_support::pki().client.clone())
+            .and_then(|response| {
+                if response.is_empty() {
+                    Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
+                } else {
+                    Ok(response)
+                }
+            });
+        match result {
+            Ok(response) => return response,
+            Err(error) => {
+                assert!(
+                    *budget > 0
+                        && matches!(
+                            error.kind(),
+                            std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::UnexpectedEof
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::BrokenPipe
+                        ),
+                    "{protocol:?} operation {operation}, request {request}, attempt={attempt}: {error}"
+                );
+                SURFACE_TRANSPORT_RETRIES.with(|count| count.set(count.get() + 1));
+                eprintln!(
+                    "same-frame transport retry request={request}, attempt={}, reason={error}",
+                    attempt
+                );
+            }
+        }
+    }
+    unreachable!("bounded client transport retry returns or fails")
 }
 fn follower_kv(root: &Path, node: u64) -> rsf_kv::DurableKvEngine {
     use sha2::{Digest, Sha256};
@@ -683,6 +759,29 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
     let root = root();
     let mut peers = provision(&root);
     let state = initialize_network_state(&root, &peers);
+    // An actual V4 empty checkpoint selects the legacy physical key domain.
+    // New peers must learn that format from certified SQL history, not assume V2.
+    let namespace = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(b"app")
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let legacy_root = state.join("namespaces").join(&namespace).join("sql");
+    std::fs::create_dir_all(&legacy_root).unwrap();
+    let body = "RSF_SQL_STATE_V4\n";
+    let digest = rsf_core::Digest::blake3_bytes(body.as_bytes());
+    let checksum = digest
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    std::fs::write(
+        legacy_root.join("sql.state"),
+        format!("{body}checksum\tblake3\t{checksum}\n"),
+    )
+    .unwrap();
     let first = Process::start(&root.join("peer-1.json"));
     let second = Process::start(&root.join("peer-2.json"));
     peers.get_mut(&NodeId(1)).unwrap().address = first.address;
@@ -771,6 +870,11 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
             0
         );
     }
+    let lost_sql = root
+        .join("store-2/application/namespaces")
+        .join(&namespace)
+        .join("sql");
+    std::fs::remove_dir_all(&lost_sql).unwrap();
     let second = Process::start(&root.join("peer-2.json"));
     peers.get_mut(&NodeId(2)).unwrap().address = second.address;
     configure_primary(&root, &state, &peers);
@@ -824,6 +928,11 @@ fn native_sql_ingress_replicates_rows_indexes_and_tombstones_to_real_peers() {
             .unwrap()
             .rows,
         0
+    );
+    assert!(
+        std::fs::read_to_string(lost_sql.join("sql.state"))
+            .unwrap()
+            .starts_with("RSF_SQL_STATE_V6\n")
     );
 }
 
@@ -938,4 +1047,127 @@ fn readiness_tracks_authenticated_quorum_loss_recovery_and_configuration_errors(
         "{}",
         String::from_utf8_lossy(&status.stdout)
     );
+}
+
+#[test]
+fn learner_cli_transfers_historical_configurations_and_materializes_after_process_restart() {
+    let root = root();
+    let mut peers = provision(&root);
+    let state = initialize_network_state(&root, &peers);
+    let first = Process::start(&root.join("peer-1.json"));
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    configure_primary(&root, &state, &peers);
+    let primary = Process::primary(&state);
+    let response = kv_request(
+        primary.address,
+        "SET learner/key",
+        "learner-write",
+        b"transferred value",
+    );
+    assert!(response.contains("RSF/1 executed"), "{response}");
+    drop(primary);
+    drop(first);
+    // Install the same configuration locally to exercise history transfer. This
+    // is not evidence for the separate distributed membership-install protocol.
+    let source_directory = state.join("protocol.vsr/pg-1");
+    let mut source = DurableVsrCell::open(
+        &source_directory,
+        PlacementGroupId(1),
+        Epoch(1),
+        NodeId(0),
+        [NodeId(0)],
+    )
+    .unwrap();
+    let view = Epoch(source.view().0 + 1);
+    assert!(matches!(
+        source.reconfigure(view, NodeId(0), [NodeId(0), NodeId(1)]),
+        VsrDecision::MembershipChanged { .. }
+    ));
+    let expected = source.committed_prefix().unwrap();
+    drop(source);
+    {
+        let mut follower = DurableVsrCell::open(
+            root.join("store-1/pg-1"),
+            PlacementGroupId(1),
+            Epoch(1),
+            NodeId(0),
+            [NodeId(0), NodeId(1), NodeId(2)],
+        )
+        .unwrap();
+        assert!(matches!(
+            follower.reconfigure(view, NodeId(0), [NodeId(0), NodeId(1)]),
+            VsrDecision::MembershipChanged { .. }
+        ));
+    }
+    let learner_config = root.join("peer-2.json");
+    let mut config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&learner_config).unwrap()).unwrap();
+    config["cells"][0] =
+        serde_json::json!({"pg":1,"view":view.0,"primary":0,"voters":[0,1],"learner_source":0});
+    std::fs::write(&learner_config, serde_json::to_vec(&config).unwrap()).unwrap();
+    let first = Process::start(&root.join("peer-1.json"));
+    let learner = Process::start(&learner_config);
+    peers.get_mut(&NodeId(1)).unwrap().address = first.address;
+    peers.get_mut(&NodeId(2)).unwrap().address = learner.address;
+    let mapped=peers.iter().map(|(node,peer)|serde_json::json!({"node":node.0,"address":peer.address.to_string(),"server_name":peer.server_name,"fingerprint":peer.fingerprint.iter().map(|b|format!("{b:02x}")).collect::<String>()})).collect::<Vec<_>>();
+    let source_config = root.join("source-peer.json");
+    let configuration = serde_json::json!({"cluster":"cli-cluster","node":0,"state":state.join("protocol.vsr"),"tls":root.join("tls-0"),"listen":"127.0.0.1:0","timeout_ms":PEER_TIMEOUT_MS,"peers":mapped,"cells":[{"pg":1,"view":view.0,"primary":0,"voters":[0,1]}]});
+    std::fs::write(&source_config, serde_json::to_vec(&configuration).unwrap()).unwrap();
+    let sync = || {
+        Command::new(env!("CARGO_BIN_EXE_rsfd"))
+            .args(["peer", "sync-learner", "--config"])
+            .arg(&source_config)
+            .args(["--pg", "1", "--target", "2"])
+            .output()
+            .unwrap()
+    };
+    let output = sync();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("peer.learner-synced"));
+    let output = sync();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    drop(learner);
+    {
+        let recovered = rsf_vsr::LearnerHistoryStore::open(
+            root.join("store-2/learner-1"),
+            PlacementGroupId(1),
+            NodeId(2),
+            NodeId(0),
+        )
+        .unwrap();
+        assert_eq!(recovered.committed_entries().unwrap(), expected);
+        let kv = follower_kv(&root, 2);
+        assert_eq!(kv.get(b"learner/key").unwrap().value, b"transferred value");
+        assert_eq!(kv.changes_since(rsf_core::CommitVersion(0)).len(), 1);
+    }
+    let learner = Process::start(&learner_config);
+    drop(learner);
+    assert_eq!(
+        follower_kv(&root, 2)
+            .changes_since(rsf_core::CommitVersion(0))
+            .len(),
+        1
+    );
+    // Changing a config flag cannot silently turn the staged store into a voter.
+    config["cells"][0] = serde_json::json!({"pg":1,"view":view.0,"primary":0,"voters":[0,1,2]});
+    std::fs::write(&learner_config, serde_json::to_vec(&config).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rsfd"))
+        .args(["peer", "serve", "--config"])
+        .arg(&learner_config)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("certified membership"));
+    drop(first);
+    let output = sync();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("lacks current primary quorum"));
 }

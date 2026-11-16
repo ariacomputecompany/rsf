@@ -8,6 +8,9 @@ Testing is not enough for RSF. The database must be designed so its failure case
 
 ## Running the release checks
 
+Run these checks locally. Repository delivery uses direct pushes to remote `main`;
+no CI/CD workflows, hosted runners or deployment automation are authorized.
+
 Use the Fozzy determinism engine. `fz` is the FozzyLang compiler, and some
 machines also install that compiler under the name `fozzy`. The verification
 script checks the CLI identity and accepts an explicit engine path:
@@ -16,10 +19,56 @@ script checks the CLI identity and accepts an explicit engine path:
 FOZZY_BIN=/path/to/fozzy FOZZY_SEED=20260930 sh scripts/verify-fozzy.sh
 ```
 
-Each invocation creates a fresh `artifacts/verification.*` directory containing
+By default, each invocation creates a fresh `artifacts/verification.*` directory containing
 host scenarios and recorded traces for storage, VSR, membership, protocol, authenticated peer RPC, KV
 transactions, SQL, authentication, tenancy, the daemon, objects/blobs, recovery, policy, the POC, and the
-complete workspace test suite.
+complete workspace test suite, plus automatic client takeover in debug and release.
+Use `--artifact-dir artifacts/verification.example` to choose a new directory.
+The runner saves each phase's raw outputs and exit codes alongside an atomic
+run checkpoint. Run `python3 -B scripts/test_verify_fozzy.py` to check the bookkeeping;
+those isolated fake-engine tests do not qualify RSF itself.
+
+An existing run can be resumed with `--resume <artifact-directory>`. Completed
+domains are reused only after checking their complete six-phase evidence,
+source, engine, toolchain, Cargo configuration and test-concurrency identity.
+Recorded failures stay failed. An observed identity change invalidates that
+run permanently; use a fresh directory after fixing the source.
+
+If the checkpoint has an active owner, inspect the runner and all relevant
+Fozzy/Cargo/daemon descendants before resuming. A released lock or missing tool
+session does not prove those processes have stopped. The `--no-live-processes`
+option requires a JSON attestation with `version: 1`, the absolute
+`artifact_root`, current `checkpoint_sha256`, `no_live_processes: true`, a
+nonempty `checked_by` description, and the absolute `evidence` path and
+`evidence_sha256` for the saved process inspection. The runner retains that
+attestation and any interrupted attempt before creating a new attempt. It does
+not import older uncheckpointed runs or overwrite their failures.
+
+It also runs two real-process KV stress workloads:
+
+| Profile | Clients | Acknowledged logical writes | Forced process shutdowns | Uncertain writes resolved |
+| --- | --- | --- | --- | --- |
+| Debug | 4 | 198 | 18 | 3 |
+| Optimized release | 4 | 774 | 18 | 3 |
+
+Both workloads use actual TLS connections and independent daemon state
+directories. They grow history across three rounds, remove a minority and then
+the remaining quorum, kill/restart all processes, retry original request IDs,
+and inspect durable values and receipt counts on both followers. A write
+without a successful acknowledgement may still commit during recovery; the
+test resolves that uncertainty with the same request identity and requires
+exactly one applied version. Client I/O timeout limits stay enabled.
+
+The script continues independent domains after a failure and writes
+`summary.json` with their individual results, workload counts, build profiles,
+latency/throughput measurements and source fingerprints. Overall success
+requires all 25 domains, the expected real workload evidence, and unchanged
+Rust/test/script inputs throughout the run. A filter accidentally running zero
+stress tests, or edits made during verification, cannot produce a successful
+release summary. Hardware/WAN capacity targets and the complete machine-failure
+matrix still require separate qualification; these single-host measurements
+are not a production capacity guarantee.
+
 It first runs five seeded doctor checks and strict deterministic tests. Those
 checks use scripted process responses and verify scenario orchestration; they
 do not execute Rust tests. The script then removes `proc_when` mock responses
@@ -27,13 +76,24 @@ from a copy of each scenario and runs its actual process steps with host
 backends. Cargo must exit successfully. Host stdout and stderr are recorded
 without asserting that variable test timing or scheduling matches empty mock
 output. Every host trace must pass strict integrity verification, replay, and
-CI. Replay verifies recorded observations; it does not constitute another fresh
-execution of the Rust tests.
+the local `fozzy ci` trace-parity command. That command checks a local trace; it
+does not create or run a CI/CD pipeline. Replay verifies recorded observations;
+it does not constitute another fresh execution of the Rust tests.
 
 The script requires Python 3 to prepare host scenarios and Cargo to execute
 them. A pass from a compiler shim or a scripted-only scenario is insufficient
 release evidence. The historical run IDs below do not replace a fresh host
 run against the current source.
+
+SQL page tests cover 160 physical pages with a 128-frame buffer, growing-row
+relocation, physical snapshot replay and canonical KV recovery followed by
+writes. Atomic relocation redo is tested with either, both, or neither page
+already flushed, duplicate records, reversed input ordering across two moves,
+conflicting records, and every truncated prefix of a move record. Replicated
+SQL tests reopen the follower after each command, then check grown values,
+deletions, original receipt retries, and post-restart writes. Oversized rows
+must fail before protocol commit. These tests establish functional behavior;
+they do not qualify SQL throughput or replace incremental persistence.
 
 SQL durability coverage includes transaction-control rejection through the
 same parser used for execution, checkpoint byte corruption and truncation,
@@ -58,6 +118,44 @@ protocol and admin voter sets agree. Uncommitted prepares cannot reuse votes
 across a view change. Legacy logs without a bootstrap record still require
 their original initial configuration; an explicit migration remains required
 before upgrading such state and changing its topology.
+
+View-change tests persist a mandatory promise record before exporting recovery
+input. They check all majority subsets of three and five voters after reopen,
+delayed old-view certificates, forbidden post-fence WAL writes, truncation,
+conflicting candidates, and frozen snapshot identity over real TLS process
+restarts. Selection tests replay the reporting quorum, reject forged or forked input,
+and preserve commit evidence and client identities. Local installation tests
+exercise successive generations, abrupt process exit at publication boundaries,
+corrupt pointers/seals, idempotent retries after later commits, and generation
+reclamation. A TLS process test installs the selected view on a running remote
+survivor and resumes replication from the replacement primary. Another kills
+the recipient mid-upload and restarts the candidate after local publication;
+both resume the same durable input. Tests reject changed/gapped uploads and
+wrong candidates, and require materialization to succeed before a finish
+acknowledgement or normal traffic, including after restart. A minority installation
+cannot report quorum success. These do not establish automatic primary takeover:
+election scheduling, application recovery integration, and daemon/client
+orchestration remain required. Mixed-view tests select the latest normal view,
+merge late older certificates without reopening stale traffic, reject committed
+forks, and recover after a candidate alone activated before restart. Legacy
+installation-marker replay and equivalent retry across codec versions are also
+covered. See
+`primary-failover.md` for the implemented boundary.
+
+Installed-cell coordinator recovery is tested after killing the original daemon
+and deleting its entire state directory. The replacement reconstructs metadata
+and application receipts from survivor logs, retries original certificates, and
+commits new SQL/KV/object/blob writes through a running TLS peer. Both stores are
+reopened to inspect values and exact histories; strict read confirmation fails
+without quorum and succeeds after the peer restarts. Unit checks cover receipt
+persistence failure, exclusive ownership handoff, conflicting inventories and
+receipts, protocol codec bounds, and request collisions. The test invokes the
+recovery API directly; it does not establish automatic daemon takeover.
+Adoption rejects ordinary SQL/KV/object/blob protocol records without their
+surface payloads. Internal object pins use an explicit immutable-dependency
+encoding; tests cover orphan recovery, exact identity retries, wrong digests,
+purpose confusion, routed user-blob retries, and preflight. Object process-kill
+tests preserve the dependency tag across both pin and object-commit boundaries.
 
 Data-plane tests use real TLS 1.3 handshakes with generated test certificates.
 They reject plaintext, missing/expired/untrusted certificates, unregistered
@@ -300,3 +398,92 @@ No RSF protocol or storage-engine release is acceptable unless:
 - at least one real host-backed run passes
 - performance regressions are explained
 - consistency mode behavior is documented
+
+Automatic peer control is also covered by real daemon tests: primary loss and
+stale-primary rejoin preserve the acknowledged payload, minority observations
+cannot establish a new normal view, and a candidate killed after local-only
+publication resumes its retained input on daemon restart. Authenticated status
+queries do not refresh failure timers; failed materialization blocks heartbeat
+success. A separate required automatic-client domain now exercises actual replacement
+listeners, all four application surfaces, primary state deletion, four concurrent
+clients and 32 identity-preserving retries, replacement restart, certificate
+revocation, redirects, and quorum loss/restoration. It validates actual debug
+and release workload output; zero-test filters cannot satisfy the gate. These
+loopback process tests do not establish machine-failure or WAN capacity readiness.
+
+Authority-fence regressions distinguish simulated local changes from network
+configuration. They require unchanged cell WAL/state after rejected shortcuts,
+reopen and rejection again, rejection of validly checksummed unchecked authority
+records after installation, and a successful subsequent quorum-selected view.
+The real TLS router test exercises the same rejection with quorum present and
+absent, then restores quorum and commits in the original configuration. This
+coverage is included in the VSR/RPC host traces and full workspace suite.
+
+The automatic-client domain now requires 128 acknowledged history-growth writes
+before the crash, at least 128 observed retained coordinator uses, and fewer
+full recoveries than retained uses. Each profile then resolves 32 concurrent
+request identities and verifies exactly 162 logical KV writes plus all four
+surface recovery paths. Actual JSON workload output is required in both debug
+and optimized-release traces. Reported history-growth time is a loopback work
+measurement, not an independent-host capacity or latency guarantee.
+
+Resident-coordinator regressions verify shared multi-group WAL writers, cached
+logical tail invalidation, checksum failure after changed disk state, receipt/
+policy/generation/reopen invalidation, and ownership restoration after errors
+and unwinding. Installed-prefix recovery is tested with quorum lost before or
+after receipt reconstruction and with an accepted-only suffix that still needs
+fresh prepare acknowledgements. Both cold and retained execution continue to
+require fresh quorum before client admission.
+
+The growing workload also checks that object-internal tagged pins remain absent
+from the user blob surface. A deliberately rejected blob read invalidates its
+coordinator entry, so this profile can include an additional cold reconstruction
+before the history-growth phase. Post-execution materialization visits every new
+certified payload command before advancing the cursor; protocol-only dependencies
+are excluded from that index. Workload cache counters describe observed use, not
+an entitlement to serve without fresh authority/quorum checks.
+
+Cold materializer coverage evicts a namespace writer, removes its derived files,
+and verifies reconstruction before the next read. The regression first reproduced
+an incorrect empty read, then passed with per-writer cold replay. Election-disabled
+seed processes bind port zero atomically and advertise their actual addresses;
+automatic-election phases retain their configured fixed endpoints. This removes
+the seed fixture's reserve/exec gap without relaxing RPC deadlines or crash checks.
+
+## Pinned Fozzy builds
+
+`scripts/fozzy-engine.json` pins the public engine source commit, tree, lockfile
+and Rust 1.92.0. With that named toolchain installed and Python 3.11 or newer,
+build from a fresh checkout outside any ancestor Cargo workspace:
+
+```sh
+RUSTUP_TOOLCHAIN=1.92.0 python3 -B scripts/bootstrap-fozzy.py /absolute/clean-engine-checkout /absolute/new-engine-prefix
+python3 -B scripts/test_bootstrap_fozzy.py
+```
+
+The bootstrap checks every tracked source file and executable mode, rejects
+additional or aliased files and compiler redirection, builds locked dependencies,
+embeds the actual engine commit, and writes provenance beside the new binary.
+It requires a new prefix and does not replace the installed engine. Source,
+compiler and configuration identities do not imply bit-for-bit reproducibility
+across different host images. An installed engine's unembedded version metadata
+can report the calling repository's commit; that is not engine provenance.
+
+The 28 Python tests use fake subprocesses and validate bootstrap rejection and
+bookkeeping only. A real pinned release build, 447 actual engine tests, the prior
+11-test RSF control/TLS smoke run and subsequent complete local qualification are
+recorded in `docs/fozzy-engine-qualification-2026-11-03.json`. The candidate passes
+all 25 source-frozen RSF domains with 1,392 workspace tests and both separate stress
+profiles; exact evidence is in `docs/baseline-full-v5-verification-2026-11-03.json`.
+This does not establish binary equivalence to the installed engine or hosted CI.
+Full qualification uses an explicit `FOZZY_BIN` and retains the complete
+source-frozen gate evidence for the selected engine. No hosted workflow or
+required check is enabled by these bootstrap scripts.
+
+Linux is the only production target. Run verification manually on the development
+host during implementation and on the actual Linux VM for platform qualification.
+Targeted mocks and fault injection exercise contracts but do not establish Linux
+kernel, filesystem or machine-failure behavior. No hosted CI/CD workflow or
+required branch check is configured; publish verified milestones by pushing to
+remote `main`. Fozzy's local `ci` command remains a recorded-trace verification
+step and does not launch a hosted workflow.

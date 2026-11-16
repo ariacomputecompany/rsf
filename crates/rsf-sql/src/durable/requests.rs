@@ -8,14 +8,21 @@ const INTENT_TMP_FILE: &str = "sql.intent.tmp";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PendingRequest {
+    pub key_format: RelationalKeyFormat,
     pub client: String,
     pub statement: String,
     pub pg: PlacementGroupId,
+    pub session: Option<Box<session::SessionProposal>>,
 }
 
 impl PendingRequest {
     pub fn persist(&self, root: &Path) -> RsfResult<()> {
-        let mut encoded = format!("RSF_SQL_INTENT_V1\n{}\n", self.encode());
+        let header = if self.key_format == RelationalKeyFormat::LegacyDelimitedV1 {
+            "RSF_SQL_INTENT_V1"
+        } else {
+            "RSF_SQL_INTENT_V2"
+        };
+        let mut encoded = format!("{header}\n{}\n", self.encode()?);
         append_checksum(&mut encoded);
         atomic_write(root, INTENT_FILE, INTENT_TMP_FILE, &encoded)
     }
@@ -35,44 +42,111 @@ impl PendingRequest {
         let contents = verify_checksum(&encoded)?;
         let lines = contents.lines().collect::<Vec<_>>();
         match lines.as_slice() {
-            ["RSF_SQL_INTENT_V1", request] => {
-                Self::decode(&request.split('\t').collect::<Vec<_>>()).map(Some)
+            [
+                header @ ("RSF_SQL_INTENT_V1" | "RSF_SQL_INTENT_V2"),
+                request,
+            ] => {
+                let pending = Self::decode(&request.split('\t').collect::<Vec<_>>())?;
+                if (*header == "RSF_SQL_INTENT_V1")
+                    != (pending.key_format == RelationalKeyFormat::LegacyDelimitedV1)
+                {
+                    return Err(corruption("SQL intent header differs from key format"));
+                }
+                Ok(Some(pending))
             }
             _ => Err(corruption("invalid SQL intent format")),
         }
     }
 
-    pub fn encode(&self) -> String {
-        format!(
+    pub fn encode(&self) -> RsfResult<String> {
+        let mut text = format!(
             "{}\t{}\t{}",
             hex_bytes(self.client.as_bytes()),
             hex_bytes(self.statement.as_bytes()),
             self.pg.0
-        )
+        );
+        if self.key_format == RelationalKeyFormat::LengthPrefixedV2 {
+            text.insert_str(0, "KEY2\t");
+        }
+        if let Some(session) = &self.session {
+            text.push('\t');
+            text.push_str(&hex_bytes(&session.encode()?));
+        }
+        Ok(text)
     }
 
     pub fn decode(fields: &[&str]) -> RsfResult<Self> {
-        let [client, statement, pg] = fields else {
-            return Err(corruption("malformed SQL request"));
+        let (key_format, fields) = if let ["KEY2", rest @ ..] = fields {
+            (RelationalKeyFormat::LengthPrefixedV2, rest)
+        } else {
+            (RelationalKeyFormat::LegacyDelimitedV1, fields)
+        };
+        let (client, statement, pg, session) = match fields {
+            [client, statement, pg] => (*client, *statement, *pg, None),
+            [client, statement, pg, proposal] => (
+                *client,
+                *statement,
+                *pg,
+                Some(Box::new(session::SessionProposal::decode(&hex_decode(
+                    proposal,
+                )?)?)),
+            ),
+            _ => return Err(corruption("malformed SQL request")),
         };
         let client = decode_string(client, "SQL request client")?;
         if client.trim().is_empty() {
             return Err(corruption("SQL request client is empty"));
         }
         let statement = decode_string(statement, "SQL request statement")?;
-        reject_transaction_control(&statement).map_err(|err| corruption(err.message))?;
-        if matches!(parse_statement(&statement)?, ParsedStatement::Select { .. }) {
-            return Err(corruption("read-only SQL request must not be journaled"));
+        let pg = PlacementGroupId(number(pg)?);
+        if let Some(proposal) = &session {
+            if proposal.request.client != client
+                || proposal.request.statement != statement
+                || proposal.request.pg != pg.0
+            {
+                return Err(corruption(
+                    "SQL session request differs from its transition",
+                ));
+            }
+        } else {
+            reject_transaction_control(&statement).map_err(|err| corruption(err.message))?;
+            if matches!(parse_statement(&statement)?, ParsedStatement::Select { .. }) {
+                return Err(corruption("read-only SQL request must not be journaled"));
+            }
         }
         Ok(Self {
+            key_format,
             client,
             statement,
-            pg: PlacementGroupId(number(pg)?),
+            pg,
+            session,
         })
+    }
+    pub fn matches_request(&self, other: &Self) -> RsfResult<()> {
+        if self != other {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "SQL idempotency key was used for a different complete request",
+            ));
+        }
+        Ok(())
+    }
+    pub fn matches_session(&self, request: &session::SessionRequest) -> RsfResult<()> {
+        if self
+            .session
+            .as_ref()
+            .is_none_or(|proposal| proposal.request != *request)
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "SQL idempotency key was used for a different session request",
+            ));
+        }
+        Ok(())
     }
 
     pub fn matches(&self, pg: PlacementGroupId, statement: &str) -> RsfResult<()> {
-        if self.pg != pg || self.statement != statement {
+        if self.session.is_some() || self.pg != pg || self.statement != statement {
             return Err(RsfError::new(
                 ErrorCode::InvalidInput,
                 "SQL idempotency key was already used for a different request",
@@ -89,21 +163,25 @@ pub(super) struct RequestReceipt {
 }
 
 impl RequestReceipt {
-    pub fn encode(&self) -> String {
-        format!(
+    pub fn encode(&self) -> RsfResult<String> {
+        Ok(format!(
             "request\t{}\t{}\t{}\t{}\n",
-            self.request.encode(),
+            self.request.encode()?,
             self.evidence.log_index.0,
             self.evidence.version.0,
             self.evidence.operation_id.0
-        )
+        ))
     }
 
     pub fn decode(fields: &[&str]) -> RsfResult<Self> {
-        let [client, statement, pg, index, version, operation] = fields else {
+        if !(6..=8).contains(&fields.len()) {
             return Err(corruption("malformed SQL request receipt"));
+        }
+        let split = fields.len() - 3;
+        let request = PendingRequest::decode(&fields[..split])?;
+        let [index, version, operation] = &fields[split..] else {
+            unreachable!("three evidence fields")
         };
-        let request = PendingRequest::decode(&[client, statement, pg])?;
         let evidence = CommitEvidence {
             placement_group: request.pg,
             log_index: LogIndex(number(index)?),
@@ -121,8 +199,11 @@ impl RequestReceipt {
     // the row at the receipt's version preserves the original result after updates.
     pub fn outcome(&self, engine: &SqlEngine) -> RsfResult<SqlOutcome> {
         let evidence = self.evidence.clone();
+        if let Some(proposal) = &self.request.session {
+            return Ok(proposal.result.outcome(&evidence));
+        }
         let row_at_commit = |table: &str, primary_key: &str| {
-            let key = crate::logical_row_key(table, primary_key);
+            let key = engine.row_key(table, primary_key);
             let value = engine
                 .kv
                 .get_at(
@@ -178,7 +259,7 @@ impl RequestReceipt {
                 evidence: SqlMutationEvidence::Committed(evidence),
             }),
             ParsedStatement::Delete { table, predicate } => {
-                let key = crate::logical_row_key(&table, &predicate.value);
+                let key = engine.row_key(&table, &predicate.value);
                 let versions = engine.kv.scan_prefix_versions(&key);
                 if !versions.iter().any(|(candidate, values)| {
                     candidate == &key

@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-03",
+  "status": "completed-full-gate-with-two-failed-domains",
+  "production_qualified": false,
+  "full_gate_passed": false,
+  "source_sha256": "34f20bf4e9d9ab4cad540e06d8fb54a6469fc2c9c24ad877ddadce6db16dc938",
+  "source_identity_invalidated": null,
+  "artifact_root": "artifacts/verification.baseline-20261103-v3",
+  "passed_domains": [
+    "authentication",
+    "automatic-client",
+    "control-state",
+    "daemon",
+    "daemon-stress",
+    "end-to-end",
+    "kv-transactions",
+    "membership",
+    "membership-activation",
+    "membership-decision",
+    "membership-staging",
+    "native-membership",
+    "object-blob",
+    "peer-rpc",
+    "policy",
+    "protocol",
+    "recovery",
+    "release-stress",
+    "sql",
+    "sql-stream",
+    "storage",
+    "tenancy",
+    "vsr"
+  ],
+  "failed_domains": [
+    "membership-peer",
+    "workspace"
+  ],
+  "workspace_counts": {
+    "passed": 1373,
+    "failed": 1,
+    "ignored": 1
+  },
+  "failures": [
+    {
+      "domain": "membership-peer",
+      "test": "stale_primary_waits_once_for_newer_installed_view_then_recovers_if_repair_never_arrives",
+      "observed": "Unconfirmed local publication at Epoch(4); test incorrectly required Epoch(2).",
+      "fix_scope": "Test oracle; production election timing and policy unchanged."
+    },
+    {
+      "domain": "workspace",
+      "test": "automatic_daemon_restart_resumes_a_candidate_killed_after_only_local_publication",
+      "observed": "Two resume attempts, then quorum-confirmed view3 on primary1; test required view2.",
+      "fix_scope": "Under review; failed trace does not attribute a specific timeout."
+    }
+  ],
+  "limits": [
+    "Failed attempts remain failed; fresh complete gate required after corrections.",
+    "Single-host loopback TLS/fsync does not qualify independent-host capacity or machine power loss."
+  ],
+  "evidence_sha256": {
+    "artifacts/verification.baseline-20261103-v3/checkpoint.json": "4df7cbf6240bcdae46805e6bd67b61586963a392c02ff19765736c71c375f111",
+    "artifacts/verification.baseline-20261103-v3/summary.json": "0bda787d136db4cd4aebdc814369b6876a520700ee9d1b2d90e1930074d8bd31",
+    "artifacts/verification.baseline-20261103-v3/membership-peer/attempt-0001/trace.fozzy": "cde53563944e46e4f47b09c29cf92e77651e3bd692fa05e1e70487d51af507a7",
+    "artifacts/verification.baseline-20261103-v3/workspace/attempt-0001/trace.fozzy": "953106fcc93d359d0b52b396f7f6fd7c7357b216678b9401ca0abe1bc726852c"
+  }
+}

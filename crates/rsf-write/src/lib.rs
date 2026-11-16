@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use rsf_core::relational_key::RelationalKeyFormat;
 use std::collections::BTreeMap;
 
 use rsf_constraints::{ConstraintDecision, ConstraintState, ConstraintValidator, RowMutation};
@@ -48,6 +49,7 @@ pub enum WriteStep {
 
 #[derive(Clone, Debug)]
 pub struct WritePlanner {
+    key_format: RelationalKeyFormat,
     constraints: ConstraintValidator,
     indexes: Vec<IndexDescriptor>,
 }
@@ -62,9 +64,15 @@ impl WritePlanner {
             validate_index(table, index)?;
         }
         Ok(Self {
+            key_format: RelationalKeyFormat::default(),
             constraints,
             indexes,
         })
+    }
+
+    pub fn with_key_format(mut self, key_format: RelationalKeyFormat) -> Self {
+        self.key_format = key_format;
+        self
     }
 
     pub fn plan_insert(
@@ -107,7 +115,9 @@ impl WritePlanner {
             }
         };
 
-        let row_key = row_key(&request.table, &request.primary_key);
+        let row_key = self
+            .key_format
+            .row_key(&request.table.0, &request.primary_key);
         let row_value = encode_row(&request.values);
         let row = RowImage {
             primary_key: request.primary_key.clone(),
@@ -138,6 +148,7 @@ impl WritePlanner {
         let conflict_ranges = vec![
             point_range(&row_key),
             unique_range(
+                self.key_format,
                 &request.table,
                 "primary",
                 std::slice::from_ref(&request.primary_key),
@@ -218,7 +229,9 @@ impl WritePlanner {
             }
         };
 
-        let row_key = row_key(&request.table, &request.primary_key);
+        let row_key = self
+            .key_format
+            .row_key(&request.table.0, &request.primary_key);
         let row_value = encode_row(&request.values);
         let after = RowImage {
             primary_key: request.primary_key.clone(),
@@ -235,6 +248,7 @@ impl WritePlanner {
         let conflict_ranges = vec![
             point_range(&row_key),
             unique_range(
+                self.key_format,
                 &request.table,
                 "primary",
                 std::slice::from_ref(&request.primary_key),
@@ -275,7 +289,7 @@ impl WritePlanner {
         row: RowImage,
         id: TransactionId,
     ) -> RsfResult<WriteDecision> {
-        let row_key = row_key(&table.name, &row.primary_key);
+        let row_key = self.key_format.row_key(&table.name.0, &row.primary_key);
         let index_plan =
             IndexPlanner::new(table, self.indexes.clone())?.plan_delete(table, &row)?;
         let mut mutations = vec![Mutation::Clear {
@@ -286,6 +300,7 @@ impl WritePlanner {
         let conflict_ranges = vec![
             point_range(&row_key),
             unique_range(
+                self.key_format,
                 &table.name,
                 "primary",
                 std::slice::from_ref(&row.primary_key),
@@ -360,12 +375,13 @@ fn validate_index(table: &TableDescriptor, index: &IndexDescriptor) -> RsfResult
     Ok(())
 }
 
-fn row_key(table: &TableName, primary_key: &str) -> Bytes {
-    format!("table/{}/pk/{primary_key}", table.0).into_bytes()
-}
-
-fn unique_range(table: &TableName, name: &str, values: &[String]) -> KeyRange {
-    point_range(format!("unique/{}/{name}/{}", table.0, values.join("/")).as_bytes())
+fn unique_range(
+    format: RelationalKeyFormat,
+    table: &TableName,
+    name: &str,
+    values: &[String],
+) -> KeyRange {
+    point_range(&format.constraint_identity(&table.0, name, values))
 }
 
 fn point_range(key: &[u8]) -> KeyRange {
@@ -469,7 +485,7 @@ mod tests {
         assert_eq!(plan.index_mutations.len(), 1);
         assert_eq!(plan.intent.mutations.len(), 2);
         assert_eq!(plan.intent.write_conflicts.len(), 2);
-        assert_eq!(plan.row_key, b"table/users/pk/1".to_vec());
+        assert_eq!(plan.row_key, b"\0RSFSQLR2\0\0\0\0\0\0\0\x05users1".to_vec());
     }
 
     #[test]

@@ -314,13 +314,15 @@ impl RepairPlanner {
         }
         source.checksum.validate()?;
 
-        if let Some(target) = states.iter().find(|state| state.node == to) {
-            if target.present && target.digest_ok && target.lag_bytes <= self.slow_lag_bytes {
-                return Err(RsfError::new(
-                    ErrorCode::InvalidInput,
-                    format!("repair copy target node {} is already healthy", to.0),
-                ));
-            }
+        if let Some(target) = states.iter().find(|state| state.node == to)
+            && target.present
+            && target.digest_ok
+            && target.lag_bytes <= self.slow_lag_bytes
+        {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("repair copy target node {} is already healthy", to.0),
+            ));
         }
 
         let restored = ReplicaState {

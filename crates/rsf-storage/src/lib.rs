@@ -1,10 +1,16 @@
 #![forbid(unsafe_code)]
 
+mod durable_directory;
+pub use durable_directory::{create_dir_all_synced, sync_existing_directory};
+
 mod exclusive_lock;
 pub use exclusive_lock::ExclusiveFileLock;
 
 mod catalog;
+mod reader;
 mod store;
+#[cfg(test)]
+mod sync_observation;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -19,13 +25,51 @@ use rsf_core::storage::{WalRecord, WalRecordKind};
 use rsf_core::{Epoch, ErrorCode, LogIndex, PlacementGroupId, RsfError, RsfResult};
 use rsf_manifest::{ExtentManifest, ManifestKind};
 pub use store::{
-    CompactionReport, QuarantineReport, SegmentDescriptor, SegmentScan, SegmentScanFilter,
-    SegmentStore, SegmentStoreBenchmark, SegmentStoreOptions, SegmentStoreRecovery, TruncateReport,
+    CompactionReport, OwnedWalGroup, ProvisionalBootstrap, QuarantineReport, SegmentDescriptor,
+    SegmentDiscardInventory, SegmentDiscardRemainder, SegmentReadCursor, SegmentReadCustody,
+    SegmentReadError, SegmentReadLimit, SegmentReadLimits, SegmentScan, SegmentScanControl,
+    SegmentScanFilter, SegmentScanOutcome, SegmentStore, SegmentStoreBenchmark,
+    SegmentStoreCustody, SegmentStoreOptions, SegmentStoreRecovery, SegmentStoreRevision,
+    TruncateReport, WalGroupEntry, WalGroupRecord, append_only_manifest_byte_bound,
+    wal_record_disk_bytes,
 };
+
+// Shared exact physical frame header for ordinary writes and provisional prefixes.
+fn encode_segment_header(payload: &[u8]) -> RsfResult<[u8; HEADER_LEN]> {
+    let len = u64::try_from(payload.len())
+        .map_err(|_| RsfError::new(ErrorCode::InvalidInput, "segment payload length overflow"))?;
+    let mut header = [0; HEADER_LEN];
+    header[..4].copy_from_slice(&MAGIC);
+    header[4..6].copy_from_slice(&SEGMENT_RECORD_VERSION.to_le_bytes());
+    header[6..8].copy_from_slice(&DEFAULT_CHECKSUM_ALGORITHM.to_u16().to_le_bytes());
+    header[8..16].copy_from_slice(&len.to_le_bytes());
+    header[16..24].copy_from_slice(&DEFAULT_CHECKSUM_ALGORITHM.checksum(payload).to_le_bytes());
+    Ok(header)
+}
+
+fn sync_segment(file: &File, path: &Path, policy: SyncPolicy) -> RsfResult<()> {
+    #[cfg(test)]
+    let observed = sync_observation::before(path, policy)?;
+    #[cfg(not(test))]
+    let _ = path;
+    let result = match policy {
+        SyncPolicy::None => Ok(()),
+        SyncPolicy::Data => file
+            .sync_data()
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
+        SyncPolicy::Full => file
+            .sync_all()
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
+    };
+    #[cfg(test)]
+    sync_observation::after(observed, result.is_ok());
+    result
+}
 
 const MAGIC: [u8; 4] = *b"RSF1";
 const SEGMENT_RECORD_VERSION: u16 = 1;
 const HEADER_LEN: usize = 4 + 2 + 2 + 8 + 8;
+const WAL_HEADER_LEN: usize = 4 + 8 + 8 + 8 + 1 + 32 + 32 + 32 + 8;
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 const DEFAULT_CHECKSUM_ALGORITHM: ChecksumAlgorithm = ChecksumAlgorithm::Blake3_64;
@@ -100,10 +144,59 @@ impl SegmentLog {
         Self::open_locked(path, lock, options)
     }
 
+    #[cfg(unix)]
+    pub(crate) fn open_after_fresh_recovery(
+        path: PathBuf,
+        options: SegmentLogOptions,
+        publication: durable_directory::FreshPublication,
+        manifest_lock: &SegmentLock,
+        manifest_path: &Path,
+    ) -> RsfResult<Self> {
+        publication
+            .validate_routes()
+            .map_err(|e| storage_error(StorageIoOperation::Sync, e))?;
+        let lock = SegmentLock::acquire(&path)?;
+        #[cfg(test)]
+        durable_directory::fresh_publication::observation::at(
+            durable_directory::fresh_publication::observation::Phase::BeforeFileOpen,
+        )
+        .map_err(|e| storage_error(StorageIoOperation::Sync, e))?;
+        Self::open_locked_with_file_publication(path, lock, options, |path, file, lock| {
+            manifest_lock.validate_named(manifest_path)?;
+            lock.validate_named(path)?;
+            publication.finish(path, file)?;
+            manifest_lock.validate_named(manifest_path)?;
+            lock.validate_named(path)
+        })
+    }
+
     fn open_locked(
         path: PathBuf,
         lock: SegmentLock,
         options: SegmentLogOptions,
+    ) -> RsfResult<Self> {
+        Self::open_locked_with_publication(
+            path,
+            lock,
+            options,
+            durable_directory::sync_file_publication,
+        )
+    }
+
+    fn open_locked_with_publication(
+        path: PathBuf,
+        lock: SegmentLock,
+        options: SegmentLogOptions,
+        publish: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> RsfResult<Self> {
+        Self::open_locked_with_file_publication(path, lock, options, |path, _, _| publish(path))
+    }
+
+    fn open_locked_with_file_publication(
+        path: PathBuf,
+        lock: SegmentLock,
+        options: SegmentLogOptions,
+        publish: impl FnOnce(&Path, &File, &SegmentLock) -> io::Result<()>,
     ) -> RsfResult<Self> {
         let file = OpenOptions::new()
             .create(true)
@@ -111,6 +204,10 @@ impl SegmentLog {
             .append(true)
             .open(&path)
             .map_err(|err| storage_error(StorageIoOperation::Open, err))?;
+        // Existing-file retries also need this barrier: a visible segment name
+        // can remain after an interrupted creation. Failure drops file and lock;
+        // no writable handle escapes before the name is durably published.
+        publish(&path, &file, &lock).map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
 
         Ok(Self {
             path,
@@ -125,42 +222,30 @@ impl SegmentLog {
     }
 
     pub fn recover_current(&self) -> RsfResult<Recovery> {
-        Self::recover_unlocked(&self.path)
+        // This handle already owns a published segment. Missing custody cannot
+        // become a fresh empty file during an append/recovery read.
+        Self::recover_existing_with_tails(&self.path, BTreeMap::new(), true)
     }
 
     pub fn append(&mut self, payload: &[u8]) -> RsfResult<u64> {
+        let offset = self.append_unsynced(payload)?;
+        self.sync_after_append()?;
+        Ok(offset)
+    }
+
+    // Private framing primitive. The store-owned durable group is the only
+    // alternate caller; it must flush before returning or rotating this file.
+    fn append_unsynced(&mut self, payload: &[u8]) -> RsfResult<u64> {
         let offset = self
             .file
             .seek(SeekFrom::End(0))
             .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        let len = u64::try_from(payload.len()).map_err(|_| {
-            RsfError::new(
-                ErrorCode::InvalidInput,
-                "payload length does not fit in segment record header",
-            )
-        })?;
-        let checksum_algorithm = DEFAULT_CHECKSUM_ALGORITHM;
-        let checksum = checksum_algorithm.checksum(payload);
-
         self.file
-            .write_all(&MAGIC)
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&SEGMENT_RECORD_VERSION.to_le_bytes())
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&checksum_algorithm.to_u16().to_le_bytes())
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&len.to_le_bytes())
-            .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.file
-            .write_all(&checksum.to_le_bytes())
+            .write_all(&encode_segment_header(payload)?)
             .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
         self.file
             .write_all(payload)
             .map_err(|err| storage_error(StorageIoOperation::Append, err))?;
-        self.sync_after_append()?;
 
         Ok(offset)
     }
@@ -231,7 +316,12 @@ impl SegmentLog {
     pub fn recover(path: impl AsRef<Path>) -> RsfResult<Recovery> {
         let path = path.as_ref();
         let _lock = SegmentLock::acquire(path)?;
-        Self::recover_unlocked(path)
+        let recovery = Self::recover_unlocked(path)?;
+        // Public recovery can create a file. Publish that name even when this
+        // is a retry of an interrupted visible creation before returning data.
+        durable_directory::sync_file_publication(path)
+            .map_err(|err| storage_error(StorageIoOperation::Sync, err))?;
+        Ok(recovery)
     }
 
     fn recover_unlocked(path: &Path) -> RsfResult<Recovery> {
@@ -242,27 +332,59 @@ impl SegmentLog {
         path: &Path,
         initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
     ) -> RsfResult<Recovery> {
-        let mut file = OpenOptions::new()
-            .create(true)
+        Self::recover_file(path, initial_pg_tails, true, true)
+    }
+
+    // Manifest-referenced files are already published durable state. Creating
+    // an absent file here would conceal disk loss as an empty recovered log.
+    pub(crate) fn recover_existing_with_tails(
+        path: &Path,
+        initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
+        repair_tail: bool,
+    ) -> RsfResult<Recovery> {
+        Self::recover_file(path, initial_pg_tails, false, repair_tail)
+    }
+
+    fn recover_file(
+        path: &Path,
+        initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
+        create: bool,
+        repair_tail: bool,
+    ) -> RsfResult<Recovery> {
+        let file = OpenOptions::new()
+            .create(create)
             .read(true)
             .write(true)
             .truncate(false)
             .open(path)
             .map_err(|err| storage_error(StorageIoOperation::Recover, err))?;
+        Self::recover_opened(file, initial_pg_tails, repair_tail)
+    }
 
+    // The immutable store reader supplies its already identity-checked,
+    // read-only descriptor and forbids repair. Existing callers retain their
+    // original open/create/repair behavior through recover_file above.
+    pub(crate) fn recover_opened(
+        mut file: File,
+        initial_pg_tails: BTreeMap<PlacementGroupId, WalTail>,
+        repair_tail: bool,
+    ) -> RsfResult<Recovery> {
+        let file_len = file
+            .metadata()
+            .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+            .len();
         let mut offset = 0_u64;
         let mut records = Vec::new();
         let mut wal_records = Vec::new();
         let mut maintenance_records = Vec::new();
         let mut pg_tails = initial_pg_tails;
-        let mut header = [0_u8; HEADER_LEN];
-
         loop {
-            match file.read_exact(&mut header) {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    file.set_len(offset)
-                        .map_err(|err| storage_error(StorageIoOperation::Truncate, err))?;
+            let record = match reader::next_frame(&mut file, file_len, offset, |_| {
+                Ok::<(), std::convert::Infallible>(())
+            }) {
+                Ok(Some(record)) => record,
+                Ok(None) => {
+                    truncate_recovery_tail(&file, offset, repair_tail)?;
                     return Ok(Recovery {
                         records,
                         wal_records,
@@ -272,149 +394,23 @@ impl SegmentLog {
                         truncated_to: offset,
                     });
                 }
-                Err(err) => return Err(storage_error(StorageIoOperation::Recover, err)),
-            }
-
-            if header[0..4] != MAGIC {
-                return Err(RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!("invalid segment magic at offset {offset}"),
-                ));
-            }
-
-            let version = u16::from_le_bytes(header[4..6].try_into().expect("slice length"));
-            if version != SEGMENT_RECORD_VERSION {
-                return Err(RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!(
-                        "unsupported segment record version {version} at offset {offset}; expected {SEGMENT_RECORD_VERSION}"
-                    ),
-                ));
-            }
-            let checksum_algorithm_id =
-                u16::from_le_bytes(header[6..8].try_into().expect("slice length"));
-            let checksum_algorithm =
-                ChecksumAlgorithm::from_u16(checksum_algorithm_id).ok_or_else(|| {
-                    RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "unsupported checksum algorithm {checksum_algorithm_id} at offset {offset}"
-                        ),
-                    )
-                })?;
-            let len = u64::from_le_bytes(header[8..16].try_into().expect("slice length"));
-            let expected_checksum =
-                u64::from_le_bytes(header[16..24].try_into().expect("slice length"));
-            let payload_len = usize::try_from(len).map_err(|_| {
-                RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!("record length too large at offset {offset}"),
-                )
-            })?;
-            let mut payload = vec![0_u8; payload_len];
-
-            match file.read_exact(&mut payload) {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    file.set_len(offset)
-                        .map_err(|err| storage_error(StorageIoOperation::Truncate, err))?;
-                    return Ok(Recovery {
-                        records,
-                        wal_records,
-                        maintenance_records,
-                        pg_tails,
-                        compacted_prefixes: BTreeMap::new(),
-                        truncated_to: offset,
-                    });
-                }
-                Err(err) => return Err(storage_error(StorageIoOperation::Recover, err)),
-            }
-
-            let actual_checksum = checksum_algorithm.checksum(&payload);
-            if actual_checksum != expected_checksum {
-                return Err(RsfError::new(
-                    ErrorCode::CorruptionDetected,
-                    format!(
-                        "checksum mismatch at offset {offset} using {:?}",
-                        checksum_algorithm
-                    ),
-                ));
-            }
-
-            let segment_record = SegmentRecord {
-                offset,
-                header: SegmentRecordHeader {
-                    version,
-                    checksum_algorithm,
-                    payload_len: len,
-                    checksum: expected_checksum,
-                },
-                payload: payload.clone(),
+                Err(reader::FrameError::Failure(error)) => return Err(error),
+                Err(reader::FrameError::Policy(impossible)) => match impossible {},
             };
-
-            if let Some(record) = decode_maintenance_record(&payload)? {
-                maintenance_records.push(record);
-            } else if let Some(wal_record) = decode_wal_record(&payload)? {
-                let tail = pg_tails.get(&wal_record.pg).copied();
-                let expected_previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-                if wal_record.previous_hash != expected_previous_hash {
-                    return Err(RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "wal hash-chain mismatch for pg {} at offset {offset}",
-                            wal_record.pg.0
-                        ),
-                    ));
-                }
-                let expected_index = tail.map_or(1, |tail| tail.index.0 + 1);
-                if wal_record.index.0 != expected_index {
-                    return Err(RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!(
-                            "wal index {} is not monotonic for pg {}; expected {expected_index}",
-                            wal_record.index.0, wal_record.pg.0
-                        ),
-                    ));
-                }
-                if let Some(tail) = tail
-                    && wal_record.epoch.0 < tail.epoch.0
-                {
-                    return Err(RsfError::new(
-                        ErrorCode::StaleEpoch,
-                        format!(
-                            "wal epoch {} moved backward for pg {} from epoch {}",
-                            wal_record.epoch.0, wal_record.pg.0, tail.epoch.0
-                        ),
-                    ));
-                }
-                pg_tails.insert(
-                    wal_record.pg,
-                    WalTail {
-                        epoch: wal_record.epoch,
-                        index: wal_record.index,
-                        record_hash: wal_record.record_hash,
-                    },
-                );
-                wal_records.push(wal_record);
+            let decoded = reader::decode_and_chain(&record, &mut pg_tails)?;
+            if let Some(wal) = decoded.wal {
+                wal_records.push(wal);
             }
-
-            records.push(segment_record);
-            offset += HEADER_LEN as u64 + len;
+            if let Some(maintenance) = decoded.maintenance {
+                maintenance_records.push(maintenance);
+            }
+            offset += HEADER_LEN as u64 + record.header.payload_len;
+            records.push(record);
         }
     }
 
     fn sync_after_append(&mut self) -> RsfResult<()> {
-        match self.options.sync_policy {
-            SyncPolicy::None => Ok(()),
-            SyncPolicy::Data => self
-                .file
-                .sync_data()
-                .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
-            SyncPolicy::Full => self
-                .file
-                .sync_all()
-                .map_err(|err| storage_error(StorageIoOperation::Sync, err)),
-        }
+        sync_segment(&self.file, &self.path, self.options.sync_policy)
     }
 
     pub fn benchmark_append_replay(
@@ -494,12 +490,38 @@ impl Drop for SegmentLockOwner {
 }
 
 impl SegmentLock {
+    #[cfg(unix)]
+    fn validate_named(&self, segment_path: &Path) -> io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let registry = lock_registry()
+            .lock()
+            .map_err(|_| io::Error::other("segment lock registry is poisoned"))?;
+        let owner = registry
+            .get(&self.path)
+            .ok_or_else(|| io::Error::other("original segment lock is missing"))?;
+        let held = owner._file.metadata()?;
+        let named = std::fs::metadata(segment_path.with_extension("lock"))?;
+        if !held.is_file()
+            || !named.is_file()
+            || (held.dev(), held.ino()) != (named.dev(), named.ino())
+        {
+            return Err(io::Error::other(
+                "fresh store publication lost original lock custody",
+            ));
+        }
+        Ok(())
+    }
+
     fn acquire(segment_path: &Path) -> RsfResult<Self> {
         let lock_path = segment_path.with_extension("lock");
         if let Some(parent) = lock_path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
         {
+            // A sidecar lock establishes exclusion, not durable data custody.
+            // Create-capable factories/recovery and writable handles publish
+            // their own data paths explicitly; read scans must not repeat that
+            // publication merely to acquire this ephemeral ownership lock.
             std::fs::create_dir_all(parent)
                 .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         }
@@ -511,6 +533,38 @@ impl SegmentLock {
             .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
         let lock_path = std::fs::canonicalize(&lock_path)
             .map_err(|err| storage_error(StorageIoOperation::Lock, err))?;
+        Self::register_opened(lock_path, file)
+    }
+
+    // Provisional factories must not reenter an existing local writer. The
+    // exact acquired descriptor remains in the registry through writer handoff.
+    fn register_exclusive_opened(lock_path: PathBuf, file: File) -> RsfResult<Self> {
+        let mut registry = lock_registry().lock().map_err(|_| {
+            RsfError::new(ErrorCode::InvalidInput, "segment lock registry is poisoned")
+        })?;
+        if registry.contains_key(&lock_path) {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "provisional lock already owned",
+            ));
+        }
+        file.try_lock().map_err(|err| {
+            RsfError::new(
+                ErrorCode::InvalidInput,
+                format!("provisional lock unavailable: {err}"),
+            )
+        })?;
+        registry.insert(
+            lock_path.clone(),
+            SegmentLockOwner {
+                references: 1,
+                _file: file,
+            },
+        );
+        Ok(Self { path: lock_path })
+    }
+
+    fn register_opened(lock_path: PathBuf, file: File) -> RsfResult<Self> {
         let mut registry = lock_registry().lock().map_err(|_| {
             RsfError::new(ErrorCode::InvalidInput, "segment lock registry is poisoned")
         })?;
@@ -963,7 +1017,6 @@ fn decode_wal_record(bytes: &[u8]) -> RsfResult<Option<WalRecord>> {
         return Ok(None);
     }
 
-    const WAL_HEADER_LEN: usize = 4 + 8 + 8 + 8 + 1 + 32 + 32 + 32 + 8;
     if bytes.len() < WAL_HEADER_LEN {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
@@ -1122,6 +1175,28 @@ pub enum StorageIoOperation {
     Truncate,
 }
 
+fn truncate_recovery_tail(file: &File, offset: u64, repair_tail: bool) -> RsfResult<()> {
+    let length = file
+        .metadata()
+        .map_err(|err| storage_error(StorageIoOperation::Recover, err))?
+        .len();
+    if length == offset {
+        return Ok(());
+    }
+    if !repair_tail {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            format!(
+                "torn record in sealed segment at offset {offset}; refusing to truncate durable history"
+            ),
+        ));
+    }
+    file.set_len(offset)
+        .map_err(|err| storage_error(StorageIoOperation::Truncate, err))?;
+    file.sync_all()
+        .map_err(|err| storage_error(StorageIoOperation::Sync, err))
+}
+
 fn storage_error(operation: StorageIoOperation, err: io::Error) -> RsfError {
     let code = match err.kind() {
         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof | io::ErrorKind::WriteZero => {
@@ -1138,7 +1213,7 @@ mod tests {
 
     use super::*;
     use rsf_core::{CommitVersion, Digest};
-    use rsf_manifest::{ByteRange, ManifestEntry};
+    use rsf_manifest::{ByteRange, ManifestEntry, ManifestObject};
 
     #[test]
     fn append_and_recover_records_in_order() {
@@ -1209,6 +1284,25 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn recovery_checks_payload_length_before_allocating_from_a_torn_header() {
+        let path = test_path("untrusted_record_length");
+        let mut log = SegmentLog::open(&path).unwrap();
+        log.append(b"stable").unwrap();
+        drop(log);
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        write_segment_header(&mut file, u64::MAX, 0).unwrap();
+        drop(file);
+        let recovery = SegmentLog::recover(&path).unwrap();
+        assert_eq!(recovery.records.len(), 1);
+        assert_eq!(recovery.records[0].payload, b"stable");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            recovery.truncated_to
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -1982,8 +2076,7 @@ mod tests {
     ) -> ManifestEntry {
         ManifestEntry::new(
             kind,
-            "app",
-            object,
+            ManifestObject::new("app", object),
             version,
             Digest::blake3_bytes(format!("storage-manifest-extent:{object}:{seed}").as_bytes()),
             pg,
@@ -2001,3 +2094,12 @@ mod tests {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod segment_publication_tests;
+
+#[cfg(test)]
+mod recovery_publication_tests;
+
+#[cfg(all(test, unix))]
+mod store_open_publication_tests;

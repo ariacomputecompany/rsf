@@ -1,4 +1,4 @@
-# RSF
+# RSF - Replicated Storage Fabric
 
 RSF is a full distributed database system with an internal replicated storage-fabric protocol.
 
@@ -17,10 +17,19 @@ The developer experience standard is equally high: scaling from one server to re
 
 ## Current Docs
 
-RSF is still under development. The daemon has local durable SQL autocommit,
-KV, object, and blob paths, but its default replication transport is local.
-Authenticated network replication, legacy-state migration, durable SQL sessions, and
-measured production release gates remain open in [WORK.md](./WORK.md).
+RSF is still under development and is not production qualified. The daemon
+supports durable SQL sessions, KV, object, and blob paths, with authenticated
+peer replication and opt-in automatic primary/client takeover. Standalone
+initialization provides one durable copy. Some admin/policy paths still use local
+transport. Certified peer membership publication and learner promotion have
+local TLS recovery coverage. Native peers recover existing chosen transitions
+with bounded background work and keep clients closed pending replicated control
+admission. Authenticated incremental higher-round recovery and safe partial input
+continuation are implemented in the kernel/peer protocol; autonomous native
+pre-choice scheduling and complete membership lifecycles remain unfinished.
+Independent-group routing, legacy migration,
+bounded storage lifecycle, and independent-host performance/fault qualification
+also remain open in [WORK.md](./WORK.md).
 
 `rsfd init` selects a standalone policy with one durable copy. That node can
 serve writes and recover them after restart, but cannot survive loss of its

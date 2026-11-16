@@ -7,7 +7,7 @@ use rsf_core::{
 };
 use rsf_manifest::{
     ByteRange, ExtentManifest, ManifestChecksumProof, ManifestChecksumReport, ManifestEntry,
-    ManifestKind, ProviderMetadata, ProviderReplica, ProviderStorageClass,
+    ManifestKind, ManifestObject, ProviderMetadata, ProviderReplica, ProviderStorageClass,
 };
 
 use crate::{SegmentScanFilter, SegmentStore, WalAppend};
@@ -287,8 +287,7 @@ fn decode_entry(bytes: &[u8], offset: &mut usize) -> RsfResult<ManifestEntry> {
     let provider = decode_provider(bytes, offset)?;
     Ok(ManifestEntry::new(
         kind,
-        namespace,
-        object,
+        ManifestObject::new(namespace, object),
         version,
         extent_id,
         placement_group,
@@ -609,8 +608,7 @@ mod tests {
     fn entry(kind: ManifestKind, object: &str, seed: u8, offset: u64, len: u64) -> ManifestEntry {
         ManifestEntry::new(
             kind,
-            "app",
-            object,
+            ManifestObject::new("app", object),
             CommitVersion(22),
             Digest::blake3_bytes(format!("extent:{object}:{seed}").as_bytes()),
             PlacementGroupId(u64::from(seed % 3) + 1),

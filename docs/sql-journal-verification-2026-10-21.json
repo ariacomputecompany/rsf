@@ -1,0 +1,78 @@
+{
+  "all_pass": false,
+  "production_qualified": false,
+  "source_sha256": "8a5ee6dfb055e949505082f3f2a9c27f259b439a5f01c98e4bddb484b4c8c20b",
+  "seed": 20261021,
+  "milestone": "Namespace-bound SQL command journal and periodic checkpoints",
+  "passed": {
+    "sql_host_suite": {
+      "trace": "artifacts/verification.4rk14a/sql.trace.fozzy",
+      "sql_tests": 66,
+      "strict_trace_verify": true,
+      "replay": true,
+      "ci": true
+    },
+    "sql_native_network": {
+      "trace": "artifacts/sql-journal-native.trace.fozzy",
+      "tests": 1,
+      "strict_trace_verify": true,
+      "replay": true,
+      "ci": true
+    },
+    "sql_clippy": {
+      "log": "artifacts/sql-journal-clippy.log",
+      "all_targets": true,
+      "no_deps": true,
+      "deny_warnings": true
+    }
+  },
+  "full_gate_attempt": {
+    "log": "artifacts/sql-journal-qualified-20261021.log",
+    "trace_directory": "artifacts/verification.4rk14a",
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "protocol",
+      "peer-rpc",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy"
+    ],
+    "failed_domains": [
+      "daemon",
+      "automatic-client",
+      "daemon-stress"
+    ],
+    "not_completed": [
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end",
+      "workspace"
+    ],
+    "stopped_during": "release-stress compilation after preceding failures",
+    "observations": [
+      "Peer listener address collision in automatic election fixture",
+      "RPC timeouts in object and KV traffic",
+      "Automatic election/restart convergence failure",
+      "Debug KV stress request timeout"
+    ]
+  },
+  "isolated_automatic_client": {
+    "passed": false,
+    "log": "artifacts/sql-journal-client-isolation.log",
+    "history_growth_writes_completed": 128,
+    "history_growth_ms": 100880,
+    "failure": "Election did not converge after primary loss; surviving peer request timed out"
+  },
+  "limits": [
+    "Failures have not been attributed to the SQL change or conclusively to the host/test fixtures",
+    "Single-host loopback TLS with fsync; no independent-host capacity or power-loss qualification",
+    "SQL physical planning and cold checkpoint loading still process complete materialized history",
+    "Request receipts, MVCC history, and storage maintenance metadata remain unbounded",
+    "Legacy unbound SQL retains full-checkpoint persistence"
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "source_sha256": "c027397007d71477981fb3a48b341079f03f779d70ac4a754d9183eed0d4a64a",
+  "status": "initial sender library integrated; native orchestration and production qualification remain open",
+  "changes": [
+    "Bounded initial learner sender requires genuine Genesis delivery and original current-primary source custody.",
+    "Lost Batch/Finish replies reconcile from authenticated receiver Status; exact replacement binds original generation.",
+    "Cancellation joins the bounded local worker without deleting remote progress; historical relay preserves the descriptor's source identity."
+  ],
+  "full_suites": {
+    "rsf-rpc": {
+      "directory": "artifacts/initial-sender-context-qualification-20261106/observation-initial-sender-context-v1-rsf-rpc",
+      "immutable_throughout": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": true,
+      "actual_default_suite_passed": true,
+      "summaries": [
+        "test result: ok. 171 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 96.29s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "65c6ba827a38e4baf468f2a249b2c8e8e45126bf056685ef1a141a59fb230884",
+        "trace.fozzy": "009fd28e27fab95935614f38d5d996fca529129fe78081edaf889925ddda40c0",
+        "cargo.stdout": "8dcf389b095148ec3b65b9dd6ea64200cf8a9e84a60a0c3451a51d385b39c761",
+        "cargo.stderr": "8ca1852854f5704811de5c11dc5d5e357fd6647a99413e2b8a0d6d6bf62aebd0",
+        "cargo-process.json": "a3957b2651103f36510c483c74e96931e195ff40573142e4c04b88bcd3d4e7ae",
+        "discovery.stdout": "97b6b0c562095d78f37198a6ae94639abe3f2998cad2b86ea0ae864a208ce486",
+        "discovery-process.json": "4ed0414fb6946d2c63e127bf8eae304bcc33e0c869da62af1af9ac1895cf63e8"
+      }
+    },
+    "rsf-vsr": {
+      "directory": "artifacts/initial-sender-context-qualification-20261106/observation-initial-sender-context-v1-rsf-vsr",
+      "immutable_throughout": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": true,
+      "actual_default_suite_passed": true,
+      "summaries": [
+        "test result: ok. 384 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 131.50s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "090313ab087c004a0398e6a0df94c17f78364f54b073a18e49a14659de69747f",
+        "trace.fozzy": "d0ac6e74a249afd2f9de5444e787a94b3e62cbce171af5812374bf2b5f78c98f",
+        "cargo.stdout": "f2a87b4386c3c0f97195fce75810de2a9a8b1c8fb194de2ed71a209e58a8dd5d",
+        "cargo.stderr": "cb8e3eab87430c391db814f8e400810557fa89d335c00288362261d0737c0250",
+        "cargo-process.json": "cf08c3a750346d21fc4129462b4aefc552da5b983ad825d2b77c6718334298b3",
+        "discovery.stdout": "9e25d7973c8163e546078f2575fa6ec9c16dddbaf9b25619f3516f2d9ddc2559",
+        "discovery-process.json": "dae02d3f4692fdb8440a13bcdbb6dc9196cbef9120f65bd7aa86c296e331bd2a"
+      }
+    },
+    "rsfd": {
+      "directory": "artifacts/initial-sender-context-qualification-20261106/observation-initial-sender-context-v1-rsfd",
+      "immutable_throughout": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": false,
+      "actual_default_suite_passed": true,
+      "summaries": [
+        "test result: ok. 130 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.25s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+        "test result: ok. 29 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 243.79s"
+      ],
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "hashes": {
+        "execution.json": "dd16af2d54599e060c81b8f59e2acfdb7ac4e0e221ec677641b7b391ff4561e1",
+        "trace.fozzy": "34d37b37ea180c2e67e7d30c8d0b0ce5638a6f586ec79eeaeaaca7b856eb6828",
+        "cargo.stdout": "6da2f9b4806b8dd203819dbbe543ae03f35e90d81fbbbebeb25d0779602ab49c",
+        "cargo.stderr": "de835d847bc736e20383a6e1d773decde1d97f771f7ca992301bfbc35ff4dd6f",
+        "cargo-process.json": "4e4c66a92069a3abaa59cd8e45e2105d91ceb46d717057fc6bebde5822982ec4",
+        "discovery.stdout": "68286a4f2ac91b3256f055f32325c5356c9821524f64d36dd004b0c518dd4522",
+        "discovery-process.json": "87455319351f148b5f5b35d2c797310fe759bdfb611c05365cb0de90fbb5a0fb"
+      }
+    }
+  },
+  "production_qualified": false,
+  "full_baseline_passed": false,
+  "stress_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "checks": {
+    "fmt_session": 77078,
+    "fmt_exit": 0,
+    "clippy_session": 91638,
+    "clippy_exit": 0
+  },
+  "limits": [
+    "New sender fixtures use mock transition ledgers; actual native target scheduling remains separate.",
+    "Native default stress ignore remains explicit; actual debug/release stress is outstanding.",
+    "This passing milestone does not establish the cause or correction of earlier intermittent transport deadline failures.",
+    "No changed deadlines, concurrency, retry budgets or baseline workloads; no Linux/power-loss qualification."
+  ],
+  "required_sender_tests": [
+    "replication::tests::managed_control::initial::sender::failures::real_tls_sender_recovers_actual_lost_batch_and_finish_replies_from_receiver_status",
+    "replication::tests::managed_control::initial::sender::failures::real_tls_sender_automatically_reconciles_lost_batch_and_finish_without_cancellation",
+    "replication::tests::managed_control::initial::sender::failures::real_tls_sender_source_custody_loss_dominates_semantic_refusal_and_clears_attempt",
+    "replication::tests::managed_control::initial::sender::failures::unavailable_initial_target_can_be_cancelled_and_pending_control_work_progresses",
+    "replication::tests::managed_control::initial::sender::relay::real_tls_sender_current_primary_relays_original_historical_source_after_both_source_losses",
+    "replication::tests::managed_control::initial::sender::real_tls_sender_publication_and_cold_retry_preserve_exact_origin_without_admission",
+    "replication::tests::managed_control::initial::sender::real_tls_sender_exact_replacement_refuses_stale_selection_aba",
+    "replication::tests::managed_control::initial::sender::real_tls_sender_cancel_preserves_remote_selection_and_releases_control_writer",
+    "replication::tests::managed_control::initial::sender::sender_rejects_wrong_target_identity_and_old_primary_source_before_remote_mutation",
+    "replication::tests::managed_control::initial::sender::real_tls_sender_never_abandons_foreign_selection_without_exact_replacement"
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "all_pass": true,
+  "production_qualified": false,
+  "source_sha256": "2461ff207f7e6a85efad30ed864559b50a0437afcab6bfc9325ddfecbd9b2dde",
+  "milestone": "Bounded idempotent recovery RPC retry and learner finish acknowledgement recovery",
+  "targeted_checks": {
+    "rpc_tests": 32,
+    "trace": "artifacts/verification.89X15y/peer-rpc.trace.fozzy",
+    "recorded_host_exit": 0,
+    "strict_verify_replay_ci": true,
+    "clippy_log": "artifacts/recovery-rpc-qualified-clippy.log",
+    "clippy_crates": [
+      "rsf-rpc",
+      "rsfd"
+    ],
+    "clippy_all_targets_no_deps_deny_warnings": true
+  },
+  "full_gate": {
+    "status": "passed",
+    "source_unchanged": true,
+    "trace_directory": "artifacts/verification.89X15y",
+    "log": "artifacts/recovery-rpc-qualified-20261021.log",
+    "summary": "docs/verification-2026-10-21.json",
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "protocol",
+      "peer-rpc",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy",
+      "daemon",
+      "automatic-client",
+      "daemon-stress",
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end",
+      "workspace"
+    ],
+    "failed_domains": [],
+    "workload_evidence_valid": true,
+    "automatic_client_evidence_valid": true
+  },
+  "limits": [
+    "A recovery RPC may make at most two attempts, each using the configured absolute deadline",
+    "Voting RPCs, quorum probes, heartbeats and status do not automatically retry",
+    "Rejected requests and invalid authenticated responses are not retried",
+    "Learner materialization completion is cached only for the current server lifetime; restart must reapply",
+    "Independent-host fault/capacity qualification and remaining architectural release blockers are not complete."
+  ],
+  "workspace_audit": {
+    "host_exit": 0,
+    "verified_named_regressions": [
+      "learner_finish_resolves_a_lost_tls_reply_once_and_materializes_again_after_restart",
+      "only_recovery_requests_retry_a_lost_reply_and_never_more_than_once",
+      "rejected_request_or_bad_authenticated_response_is_not_retried",
+      "torn_staged_batch_recovers_only_the_previous_logical_prefix_and_can_resume",
+      "installation_batches_recover_logical_ordinals_overlap_retries_and_reject_changed_prefixes",
+      "slow_execution_still_delivers_complete_tls_response_and_close_notification",
+      "slow_drips_do_not_renew_the_cumulative_io_budget",
+      "incremental_sql_preserves_checkpoint_bytes_then_reclaims_and_replays_original_results",
+      "killed_writer_recovers_append_head_checkpoint_and_compaction_boundaries",
+      "automatic_client_takeover_recovers_every_surface_routes_followers_and_rechecks_security"
+    ],
+    "passed": 1103,
+    "ignored": 1,
+    "test_groups": 163,
+    "ignored_scope": "The regular workspace skips its opt-in stress test; dedicated debug and release stress domains both passed."
+  }
+}

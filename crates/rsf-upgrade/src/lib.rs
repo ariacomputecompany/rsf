@@ -445,7 +445,7 @@ mod tests {
     fn rejects_rollout_that_would_drop_below_compatible_floor() {
         let err = UpgradePlanner
             .plan(
-                &vec![
+                &[
                     NodeVersion {
                         node: NodeId(0),
                         version: SoftwareVersion::new(1, 2, 0),

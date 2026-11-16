@@ -1,0 +1,62 @@
+{
+  "status": "incomplete_host_resource_failure",
+  "source_commit": "14d5697b347b744591a4337479e743a56aaa207c",
+  "artifact_root": "artifacts/verification.DN6gCa",
+  "log": "artifacts/membership-staging-full-qualification-20261021.log",
+  "log_sha256": "5972006d386947c9917c413d4a6759f6a6e940ee559e83dd25a0551731d1114b",
+  "full_release_gate_passed": false,
+  "production_qualified": false,
+  "failure": "Host filesystem exhausted (ENOSPC, os error 28); gate exited 1 without a summary. Partial domains do not qualify this source.",
+  "recovery": "Remove only rebuildable RSF compilation outputs; rerun all 22 domains with CARGO_INCREMENTAL=0.",
+  "preserved_trace_files": [
+    "authentication.trace.fozzy",
+    "kv-transactions.trace.fozzy",
+    "membership-decision.trace.fozzy",
+    "membership-peer.trace.fozzy",
+    "membership-staging.trace.fozzy",
+    "membership.trace.fozzy",
+    "peer-rpc.trace.fozzy",
+    "protocol.trace.fozzy",
+    "sql.trace.fozzy",
+    "storage.trace.fozzy",
+    "tenancy.trace.fozzy",
+    "vsr.trace.fozzy"
+  ],
+  "second_attempt": {
+    "artifact_root": "artifacts/verification.ZN4Y2J",
+    "source_commit": "5813612acb231aebcec6c0c4d277f8266f5ebe05",
+    "source_sha256": "960ccf6124d2186c3c779112cc04150b83b48bca5da3b1f5baa100def3b8597d",
+    "source_unchanged": true,
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "membership-decision",
+      "membership-peer",
+      "membership-staging",
+      "protocol",
+      "peer-rpc",
+      "kv-transactions",
+      "sql",
+      "authentication",
+      "tenancy",
+      "daemon",
+      "automatic-client",
+      "sql-stream",
+      "daemon-stress",
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end"
+    ],
+    "failed_domains": [
+      "workspace"
+    ],
+    "full_release_gate_passed": false,
+    "failure": "Final workspace host run failed real_tls_staged_membership_requires_materializer_and_survives_peer_restart at its first staged-quorum collection: node 2 WouldBlock under unchanged 800 ms TLS deadline; node 3 correctly rejected absent trusted materializer.",
+    "investigation_log": "artifacts/membership-staging-workspace-failure-investigation.log",
+    "observed_cold_stage_duration_ms": 1564,
+    "resolution": "Retain replay-validated states privately inside immutable old-quorum approvals; compare chosen/staged retained bytes with validated proof instead of replaying or rewriting existing input. Keep disk reopen full validation, payload size, deadlines and retry count unchanged. Full new-source gate required."
+  }
+}

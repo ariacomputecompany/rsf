@@ -1,0 +1,93 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "base_commit": "93a8f66737a709b25a82f00d49915faa88fbab3d",
+  "source_sha256": "3c32444da0da46e67a08b2d3ea37a667e991d1266e250703aa1752663b1ddc59",
+  "source_unchanged_during_checkpoint_checks": true,
+  "status": "Implementation checkpoint; latest affected-package run has an unresolved staging RPC timeout. Not a qualified release.",
+  "implementation": [
+    "Native recovery of an existing chosen transition through strict retained inbox/decision/role custody, one bounded transport worker, local materialization and authenticated staging/publication.",
+    "Monotonic managed-group identity policy; no proposal initialization or client admission from publication events. Managed promoted roles can recover and participate in ordinary elections.",
+    "Healthy replay-derived native startup/runtime admission checks catch publication ancestry inherited through ordinary TLS installation, including A-to-B-to-A voter sets.",
+    "Input creation/read/append reject pre-existing filesystem aliases; exclusive descriptor temporary creation preserves foreign targets and resumes regular unacknowledged temporaries.",
+    "BEGIN/APPEND/chosen import reject shortened acknowledged authority/accepted/chosen input; unacknowledged staged prefixes remain resumable. Existing chosen retry avoids duplicate replay."
+  ],
+  "checkpoint_checks": {
+    "passed": 6,
+    "failed": 0,
+    "trace": "artifacts/native-managed-checkpoint-20261102.trace.fozzy",
+    "seed": 20260912,
+    "doctor_runs": 5,
+    "strict_orchestration": true,
+    "host_execution": true,
+    "trace_verify": true,
+    "replay": true,
+    "ci": true,
+    "scope": "Four input custody regressions and two acknowledged/partial prefix regressions on final checkpoint source."
+  },
+  "clippy": {
+    "passed": true,
+    "all_targets": true,
+    "warnings_denied": true,
+    "no_deps": true,
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsfd"
+    ],
+    "log": "artifacts/native-managed-checkpoint-20261102-clippy.log"
+  },
+  "earlier_affected_run": {
+    "passed": 431,
+    "failed": 0,
+    "ignored": 1,
+    "source_sha256": "bc7b5a5a8041163dfe93b4adac0047b1d15e560cec716266e546173445c454e0",
+    "trace": "artifacts/native-managed-final-20261102.trace.fozzy",
+    "scope": "Native recovery/admission source before the six custody regressions and their fixes; not final-source qualification."
+  },
+  "earlier_membership_run": {
+    "passed": 99,
+    "failed": 0,
+    "trace": "artifacts/native-input-custody-final-20261102.trace.fozzy",
+    "scope": "Includes alias fix before acknowledged-prefix fix; strict trace/replay/CI passed. Subsequent Clippy flagged test enum size, fixed by boxing both test-owner variants."
+  },
+  "latest_affected_attempt": {
+    "complete": false,
+    "passed_before_stop": 113,
+    "failed": 1,
+    "trace": "artifacts/native-managed-qualified-20261102.trace.fozzy",
+    "stdout": "artifacts/native-managed-qualified-20261102-process.log",
+    "stderr": "artifacts/native-managed-qualified-20261102-process.log.stderr",
+    "test": "real_tls_stage_uses_finished_inbox_b_after_another_upload_selects_a",
+    "failure": "First stage request exhausted unchanged 800 ms transport attempts with Resource temporarily unavailable. Concurrent peer diagnostics include a 1.4009 s service operation. Exact phase attribution still requires investigation.",
+    "resolution": "Unresolved; no isolated rerun or scripted success clears this failure."
+  },
+  "red_reproductions": [
+    {
+      "trace": "artifacts/native-input-custody-red-20261102.trace.fozzy",
+      "failure": "Descriptor temporary followed a symlink and changed isolated external sentinel bytes."
+    },
+    {
+      "trace": "artifacts/native-bound-input-red-20261102.trace.fozzy",
+      "failure": "BEGIN returned a continuation cursor for a structurally valid shortened authoritative input."
+    }
+  ],
+  "expanded_gate": {
+    "domains": 24,
+    "required_native_regressions": 32,
+    "native_debug_release_cases": 3,
+    "run_on_final_source": "required after resolving staging timeout"
+  },
+  "previous_full_gate": "docs/peer-publication-full-verification-2026-11-02.json",
+  "remaining": [
+    "Resolve the observed staging timeout without loosening deadlines or retries, then pass all affected packages and the complete expanded gate.",
+    "Autonomous accepted-only/higher-round recovery and valid partial decision-input continuation; repeated transitions, removed/readded roles, abort/conflict lifecycle.",
+    "Replicated control/catalog completion and exact-lineage admission across every native, standalone, library and admin route; no operator membership command enabled.",
+    "Actual two-PG scheduler contention, live-flight destruction and delayed-reply/inbound-mutation combined schedules remain focused test obligations.",
+    "Independent-group routing/global commit versions, bounded replay/history/retention and legacy migration.",
+    "Independent-host/region, power-loss, capacity and p99 qualification. Local host Fozzy traces do not make native sockets/threads deterministic.",
+    "V2 managed policy relies on surviving identity; whole-root replacement/rollback needs an independently trusted control binding. Unrestricted dependency Clippy debt remains."
+  ]
+}

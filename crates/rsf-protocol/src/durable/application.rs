@@ -1,8 +1,9 @@
 //! Complete application commands on the VSR spine. The protocol receipt is a
 //! derived index; the prepared command is authoritative across an uncertain commit.
+use super::command::PendingCommand;
 use super::*;
 
-mod codec;
+pub(super) mod codec;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApplicationSurface {
@@ -38,7 +39,7 @@ impl ReplicatedFabricCommand {
     pub fn certificate(&self) -> CommitCertificate {
         CommitCertificate::from(&self.commit)
     }
-    fn vsr_operation(&self) -> RsfResult<VsrOperation> {
+    pub(super) fn vsr_operation(&self) -> RsfResult<VsrOperation> {
         Ok(VsrOperation::ReplicatedCommand {
             operation_id: self.commit.operation_id,
             payload: self.encode()?,
@@ -54,6 +55,29 @@ fn corrupt(message: impl Into<String>) -> RsfError {
 
 impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     pub(super) fn recover_application_commands(&mut self) -> RsfResult<()> {
+        self.recover_application_commands_from(&SegmentStore::recover(&self.path)?)
+    }
+
+    pub(super) fn recover_application_commands_from(
+        &mut self,
+        recovery: &SegmentStoreRecovery,
+    ) -> RsfResult<()> {
+        let mut receipts = BTreeMap::new();
+        for wal in &recovery.recovery.wal_records {
+            if wal.kind == WalRecordKind::Commit
+                && ProtocolCommitRecord::is_protocol_payload(&wal.payload)
+            {
+                let receipt = ProtocolCommitRecord::decode(&wal.payload)?;
+                if receipts
+                    .insert((wal.pg, receipt.certificate.index), receipt)
+                    .is_some()
+                {
+                    return Err(corrupt("duplicate durable protocol receipt"));
+                }
+            }
+        }
+        let mut versions = std::collections::BTreeSet::new();
+        let mut requests = std::collections::BTreeSet::new();
         for (pg, cell) in &self.cells {
             for index in 1..cell.next_index().0 {
                 let Some(prepare) = cell.prepared(LogIndex(index)) else {
@@ -66,59 +90,98 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
                 else {
                     continue;
                 };
-                let command = ReplicatedFabricCommand::decode(payload)?;
-                if command.commit.pg != *pg
-                    || command.commit.index != prepare.index
-                    || command.commit.operation_id != *operation_id
+                let (commit, request) = if ReplicatedProtocolCommand::is_payload(payload) {
+                    let command = ReplicatedProtocolCommand::decode(payload)?;
+                    let commit = command.commit.clone();
+                    let request = command.request.clone();
+                    if let Some(request) = &command.request {
+                        self.protocol_requests
+                            .insert(request.clone(), commit.version);
+                    }
+                    if self
+                        .router
+                        .next_indexes
+                        .get(pg)
+                        .is_none_or(|next| *next <= index)
+                    {
+                        self.pending_commands
+                            .insert(commit.version, PendingCommand::Protocol(command.clone()));
+                    }
+                    self.protocol_commands.insert(commit.version, command);
+                    (commit, request)
+                } else {
+                    let command = ReplicatedFabricCommand::decode(payload)?;
+                    let commit = command.commit.clone();
+                    let request = Some(command.request.clone());
+                    if self.router.request_certificate(&command.request).is_some() {
+                        self.committed_applications
+                            .insert(commit.version, command.request.clone());
+                    } else {
+                        self.pending_commands
+                            .insert(commit.version, PendingCommand::Application(command.clone()));
+                    }
+                    self.application_commands
+                        .insert(command.request.clone(), command);
+                    (commit, request)
+                };
+                if commit.pg != *pg
+                    || commit.index != prepare.index
+                    || commit.operation_id != *operation_id
                 {
-                    return Err(corrupt("application command differs from its VSR prepare"));
+                    return Err(corrupt("replicated command differs from its VSR prepare"));
                 }
-                if let Some(certificate) = self.router.request_certificate(&command.request) {
-                    if certificate != command.certificate()
+                if !versions.insert(commit.version)
+                    || request
+                        .as_ref()
+                        .is_some_and(|r| !requests.insert(r.clone()))
+                {
+                    return Err(corrupt(
+                        "replicated commands reuse a commit version or client request",
+                    ));
+                }
+                if let Some(receipt) = receipts.get(&(*pg, prepare.index)) {
+                    if receipt.certificate != CommitCertificate::from(&commit)
+                        || receipt.client_request != request
                         || cell.committed_operation(prepare.index) != Some(&prepare.operation)
                     {
                         return Err(corrupt(
-                            "application protocol receipt lacks matching committed VSR evidence",
+                            "protocol receipt lacks matching committed command evidence",
                         ));
                     }
+                } else if self
+                    .router
+                    .next_indexes
+                    .get(pg)
+                    .is_some_and(|next| *next > index)
+                {
+                    return Err(corrupt("protocol receipt prefix has a gap"));
                 }
-                if self
-                    .application_commands
-                    .insert(command.request.clone(), command)
-                    .is_some()
+                if let Some(request) = request
+                    && let Some(certificate) = self.router.request_certificate(&request)
+                    && certificate != CommitCertificate::from(&commit)
                 {
                     return Err(corrupt(
-                        "application request appears at multiple VSR indexes",
+                        "protocol request receipt remaps a replicated command",
                     ));
                 }
-            }
-        }
-        let mut versions = BTreeMap::new();
-        for command in self.application_commands.values() {
-            if versions
-                .insert(command.commit.version, &command.request)
-                .is_some()
-            {
-                return Err(corrupt("application commands reuse a commit version"));
             }
         }
         Ok(())
     }
 
-    /// Complete any VSR-durable application command whose protocol receipt was
-    /// interrupted. Must succeed before allocating another global commit version.
+    /// Complete durable application and metadata commands in their original
+    /// global version order before allocating another version.
     pub fn reconcile_application_commands(&mut self) -> RsfResult<usize> {
         self.ensure_application_healthy()?;
-        let mut pending = self
-            .application_commands
-            .values()
-            .filter(|command| self.router.request_certificate(&command.request).is_none())
-            .cloned()
-            .collect::<Vec<_>>();
-        pending.sort_by_key(|command| command.commit.version);
+        let pending = self.pending_commands.values().cloned().collect::<Vec<_>>();
         let count = pending.len();
         for command in pending {
-            self.finish_application_command(&command)?;
+            match command {
+                PendingCommand::Application(command) => {
+                    self.finish_application_command(&command)?
+                }
+                PendingCommand::Protocol(command) => self.finish_protocol_command(&command)?,
+            }
         }
         Ok(count)
     }
@@ -162,6 +225,11 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         }
         .encode()?;
         self.reconcile_application_commands()?;
+        if original.is_none() && self.router.request_certificate(request).is_some() {
+            return Err(invalid(
+                "request identity belongs to a replicated protocol command",
+            ));
+        }
         let commit = match original {
             Some(original) => original.commit,
             None => self.router.next_commit(pg, mode, operation.clone())?,
@@ -219,12 +287,21 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         };
         preview.encode()?;
         self.reconcile_application_commands()?;
+        if self.router.request_certificate(&request).is_some() {
+            return Err(invalid(
+                "request identity belongs to a replicated protocol command",
+            ));
+        }
         let command = ReplicatedFabricCommand {
             commit: self.router.next_commit(pg, mode, operation)?,
             request: request.clone(),
             application,
         };
         self.prepare_application_command(&command)?;
+        self.pending_commands.insert(
+            command.commit.version,
+            PendingCommand::Application(command.clone()),
+        );
         self.application_commands.insert(request, command.clone());
         self.finish_application_command(&command)?;
         Ok(DurableRequestCommit {
@@ -233,10 +310,54 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
         })
     }
 
+    /// Rebuild derived receipts from an installed committed prefix after a fresh
+    /// quorum check. Accepted-only entries still use ordinary replication. A
+    /// second prefix/quorum confirmation is required before reporting success.
+    pub fn reconcile_installed_application_commands(&mut self) -> RsfResult<usize> {
+        self.ensure_application_healthy()?;
+        if self.provision_local_cells || self.cells.values().any(|cell| !cell.has_installed_view())
+        {
+            return Err(invalid(
+                "prefix receipt recovery requires installed peer cells",
+            ));
+        }
+        self.repair_and_confirm_read_quorum()?;
+        let pending = self.pending_commands.values().cloned().collect::<Vec<_>>();
+        let count = pending.len();
+        for command in pending {
+            match command {
+                PendingCommand::Application(command) => {
+                    if self.cells[&command.commit.pg].committed_operation(command.commit.index)
+                        == Some(&command.vsr_operation()?)
+                    {
+                        self.append_application_receipt(&command)?;
+                    } else {
+                        self.finish_application_command(&command)?;
+                    }
+                }
+                PendingCommand::Protocol(command) => {
+                    if self.cells[&command.commit.pg].committed_operation(command.commit.index)
+                        == Some(&command.vsr_operation()?)
+                    {
+                        self.append_protocol_receipt(&command)?;
+                    } else {
+                        self.finish_protocol_command(&command)?;
+                    }
+                }
+            }
+        }
+        self.repair_and_confirm_read_quorum()?;
+        Ok(count)
+    }
+
     /// Confirm the configured primary against a current quorum before serving
     /// local application reads. The caller must serialize the read with writes.
     pub fn confirm_read_quorum(&mut self) -> RsfResult<()> {
         self.reconcile_application_commands()?;
+        self.repair_and_confirm_read_quorum()
+    }
+
+    fn repair_and_confirm_read_quorum(&mut self) -> RsfResult<()> {
         for cell in self.cells.values_mut() {
             if cell.primary() != self.primary {
                 return Err(invalid("local node is not the current read primary"));
@@ -292,14 +413,18 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
     /// The ordered, locally certified commands available to an application
     /// materializer. Reconcile first to include an interrupted commit.
     pub fn committed_application_commands(&self) -> Vec<ReplicatedFabricCommand> {
-        let mut commands = self
-            .application_commands
-            .values()
-            .filter(|command| self.router.request_certificate(&command.request).is_some())
-            .cloned()
-            .collect::<Vec<_>>();
-        commands.sort_by_key(|command| command.commit.version);
-        commands
+        self.committed_application_commands_since(CommitVersion(0))
+    }
+
+    /// Return only certified application payloads newer than a materializer cursor.
+    pub fn committed_application_commands_since(
+        &self,
+        after: CommitVersion,
+    ) -> Vec<ReplicatedFabricCommand> {
+        self.committed_applications
+            .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+            .map(|(_, request)| self.application_commands[request].clone())
+            .collect()
     }
 
     pub(super) fn ensure_application_healthy(&self) -> RsfResult<()> {
@@ -367,12 +492,31 @@ impl<T: VsrTransport> VsrBackedFabricRouter<T> {
             ));
         }
         self.require_application_commit(command)?;
+        self.append_application_receipt(command)
+    }
+
+    fn append_application_receipt(&mut self, command: &ReplicatedFabricCommand) -> RsfResult<()> {
+        let next = self.router.next_commit(
+            command.commit.pg,
+            command.commit.mode,
+            command.commit.operation.clone(),
+        )?;
+        if next != command.commit {
+            return Err(corrupt(
+                "application receipt would change its original commit version or index",
+            ));
+        }
         self.sync_protocol_epoch(command.commit.pg)?;
         match self
             .router
             .append_existing_request(command.commit.clone(), command.request.clone())
         {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.pending_commands.remove(&command.commit.version);
+                self.committed_applications
+                    .insert(command.commit.version, command.request.clone());
+                Ok(())
+            }
             Err(err) => {
                 self.application_failure = Some(err.message.clone());
                 Err(err)

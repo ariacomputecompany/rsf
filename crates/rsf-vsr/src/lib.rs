@@ -1,8 +1,40 @@
+mod bounded;
+pub use bounded::{ProvisionalVsrVoter, VsrBootstrapCompletion, VsrBootstrapSpec};
+mod election;
+mod installation;
+mod membership;
+pub use installation::{VsrInstallationInput, VsrViewInstallation};
+pub use membership::{
+    MembershipAuthorityInbox, MembershipDecisionStore, MembershipStagingStore,
+    VsrMembershipAccepted, VsrMembershipApproval, VsrMembershipChosen, VsrMembershipChosenInput,
+    VsrMembershipDecision, VsrMembershipDecisionState, VsrMembershipImportReply,
+    VsrMembershipInput, VsrMembershipInputProgress, VsrMembershipPromise,
+    VsrMembershipPromiseReply, VsrMembershipProposal, VsrMembershipPublication,
+    VsrMembershipPublishedQuorum, VsrMembershipPublishedReport, VsrMembershipReport,
+    VsrMembershipRound, VsrMembershipSnapshot, VsrMembershipStagedPlan, VsrMembershipStagedQuorum,
+    VsrMembershipStagedReport,
+};
+mod replay;
+pub use election::{VsrViewChangeReport, VsrViewChangeRequest, VsrViewChangeSnapshot};
 mod history;
+pub use history::VsrMembershipLineage;
+mod learner;
+mod transfer;
+pub use learner::{
+    InitialLearnerHistoryStore, LearnerHistoryStore, PublishedVsrReplay, VsrImportPreview,
+    VsrInitialBegin, VsrInitialCursor, VsrInitialError, VsrInitialPolicy, VsrInitialPublication,
+    VsrInitialRestriction, VsrInitialSelection, VsrInitialState, VsrInitialStatus,
+    VsrInitialTransition, VsrLearnerStateToken,
+};
+pub use transfer::{
+    HISTORY_BATCH_TARGET_BYTES, MAX_HISTORY_BATCH_RECORDS, VsrHistoryBatch, VsrHistoryDescriptor,
+    VsrHistoryRecord, VsrHistorySnapshot, VsrLearnerPrefixExport, VsrPrefixExportError,
+    VsrPrefixLimits, VsrVoterPrefixExport,
+};
 mod migration;
 mod probe;
 mod replica;
-pub use probe::VsrPrimaryProbe;
+pub use probe::{VsrPrimaryProbe, VsrReplicaStatus};
 
 pub const MAX_REPLICATED_COMMAND_BYTES: usize = 1024 * 1024;
 
@@ -121,6 +153,13 @@ pub struct VsrTransportError {
 }
 
 pub trait VsrTransport {
+    /// Only an explicit in-process simulation may use unilateral authority
+    /// changes. Network and custom transports must retain the default fence;
+    /// quorum installation is separate from local bootstrap/model operations.
+    fn allows_local_authority_changes(&self) -> bool {
+        false
+    }
+
     /// Authenticate current leadership and the committed tip without mutating
     /// remote state. Transports without this contract must fail closed.
     fn confirm_primary(
@@ -190,6 +229,10 @@ impl LocalVsrTransport {
 }
 
 impl VsrTransport for LocalVsrTransport {
+    fn allows_local_authority_changes(&self) -> bool {
+        true
+    }
+
     fn acknowledge_prepare(
         &mut self,
         message: VsrPrepareMessage,
@@ -293,7 +336,7 @@ struct PendingPrepare {
     committed: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VsrCell {
     pg: PlacementGroupId,
     view: Epoch,
@@ -305,15 +348,61 @@ pub struct VsrCell {
     client_table: BTreeMap<VsrClientRequestId, LogIndex>,
 }
 
+/// Process-local identity of one live cell state, not a durable recovery proof.
+#[derive(Clone, Debug)]
+pub struct VsrStateToken {
+    identity: std::sync::Arc<()>,
+    revision: u64,
+    installation: Option<[u8; 32]>,
+}
+impl PartialEq for VsrStateToken {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.identity, &other.identity)
+            && self.revision == other.revision
+            && self.installation == other.installation
+    }
+}
+impl Eq for VsrStateToken {}
+
 #[derive(Debug)]
 pub struct DurableVsrCell {
+    state_identity: std::sync::Arc<()>,
+    state_revision: u64,
+    root: std::path::PathBuf,
+    options: SegmentStoreOptions,
+    installed_plan: Option<[u8; 32]>,
+    quorum_history: bool,
+    installation_input: Option<installation::input::Stage>,
     cell: VsrCell,
     history: history::ConfigurationHistory,
     bootstrap_persisted: bool,
     initial_bootstrap: Vec<u8>,
     store: SegmentStore,
-    durability_failure: Option<String>,
+    store_custody: rsf_storage::SegmentStoreCustody,
+    durability_failure: std::sync::Mutex<Option<String>>,
+    view_change: Option<VsrViewChangeRequest>,
+    membership_fence: Option<VsrMembershipProposal>,
     _writer_lock: rsf_storage::ExclusiveFileLock,
+}
+
+// A real store owner and its just-validated recovery move together. Bounded
+// learner opening uses this same replay/constructor instead of opening again.
+struct OpenedVsrStore {
+    root: std::path::PathBuf,
+    active: installation::publication::Active,
+    store: SegmentStore,
+    recovery: rsf_storage::Recovery,
+    options: SegmentStoreOptions,
+    writer_lock: rsf_storage::ExclusiveFileLock,
+}
+
+// Ephemeral result of the one authoritative semantic replay. It stays private,
+// is never cached across owner boundaries, and does not itself grant authority.
+struct ReplayedVsrStore {
+    recovered: replay::Recovered,
+    initial_bootstrap: Vec<u8>,
+    bootstrap_persisted: bool,
+    quorum_history: bool,
 }
 
 impl VsrCell {
@@ -588,6 +677,81 @@ impl VsrCell {
 }
 
 impl DurableVsrCell {
+    /// Valid only for this exact owned handle and unchanged durable authority.
+    /// Reopen, any appended state/receipt/promise, or installation invalidates it.
+    pub fn state_token(&self) -> RsfResult<VsrStateToken> {
+        self.ensure_active_view()?;
+        Ok(VsrStateToken {
+            identity: self.state_identity.clone(),
+            revision: self.state_revision,
+            installation: self.installed_plan,
+        })
+    }
+    /// Read-only cache stamp for a fenced recovery anchor. This supplies no
+    /// voting authority or lease; writes/probes retain their active-view checks.
+    pub fn recovery_state_token(&self) -> RsfResult<VsrStateToken> {
+        self.ensure_healthy()?;
+        Ok(VsrStateToken {
+            identity: self.state_identity.clone(),
+            revision: self.state_revision,
+            installation: self.installed_plan,
+        })
+    }
+    fn next_state_revision(&self) -> RsfResult<u64> {
+        self.state_revision
+            .checked_add(1)
+            .ok_or_else(|| corrupt("VSR state revision exhausted; reopen required"))
+    }
+
+    /// Whether this store has published a quorum-selected generation.
+    /// Includes transferred logical quorum history without a local generation
+    /// pointer. This disables unilateral shortcuts; it does not admit clients.
+    pub fn has_installed_view(&self) -> bool {
+        self.installed_plan.is_some() || self.quorum_history
+    }
+
+    /// Open an authoritative existing history without accepting a caller's
+    /// bootstrap configuration or initializing missing placement-group state.
+    pub fn open_existing(path: impl AsRef<Path>, pg: PlacementGroupId) -> RsfResult<Self> {
+        let path = path.as_ref();
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path.join(".vsr-writer.lock"))
+            .map_err(|err| invalid_input(format!("cannot open existing VSR writer lock: {err}")))?;
+        let writer_lock = rsf_storage::ExclusiveFileLock::acquire(file).map_err(|err| {
+            RsfError::new(
+                ErrorCode::QuorumUnavailable,
+                format!("VSR store already has a writer: {err}"),
+            )
+        })?;
+        let active = installation::publication::active(path, pg)?;
+        let recovery = SegmentStore::recover_existing(&active.path)?.recovery;
+        let records = recovery
+            .wal_records
+            .iter()
+            .filter(|record| record.pg == pg)
+            .collect::<Vec<_>>();
+        let bootstrap = if let Some(record) = records
+            .first()
+            .filter(|record| record.payload.starts_with(VSR_BOOTSTRAP_MAGIC))
+        {
+            decode_bootstrap(&record.payload)?
+        } else {
+            migration::recover_bootstrap(&records, pg)?.ok_or_else(|| {
+                corrupt("existing VSR history requires persisted bootstrap authority")
+            })?
+        };
+        Self::open_locked(
+            path,
+            pg,
+            bootstrap.view,
+            bootstrap.primary,
+            bootstrap.replicas,
+            SegmentStoreOptions::default(),
+            writer_lock,
+        )
+    }
+
     pub fn open(
         path: impl AsRef<Path>,
         pg: PlacementGroupId,
@@ -617,7 +781,7 @@ impl DurableVsrCell {
         if options.log_options.sync_policy == rsf_storage::SyncPolicy::None {
             return Err(invalid_input("durable VSR requires sync on append"));
         }
-        std::fs::create_dir_all(path)
+        rsf_storage::create_dir_all_synced(path)
             .map_err(|err| invalid_input(format!("cannot create VSR store: {err}")))?;
         let writer_lock = std::fs::OpenOptions::new()
             .create(true)
@@ -643,7 +807,39 @@ impl DurableVsrCell {
         options: SegmentStoreOptions,
         writer_lock: rsf_storage::ExclusiveFileLock,
     ) -> RsfResult<Self> {
-        let recovery = SegmentStore::recover(path)?.recovery;
+        let active = installation::publication::active(path, pg)?;
+        if active.plan.is_some() {
+            SegmentStore::recover_existing(&active.path)?;
+        }
+        let (store, recovered) = SegmentStore::open_recovered(&active.path, options)?;
+        Self::from_opened_store(
+            OpenedVsrStore {
+                root: path.to_path_buf(),
+                active,
+                store,
+                recovery: recovered.recovery,
+                options,
+                writer_lock,
+            },
+            pg,
+            || VsrCell::new(pg, view, primary, replicas).map_err(invalid_input),
+        )
+    }
+
+    fn from_opened_store(
+        opened: OpenedVsrStore,
+        pg: PlacementGroupId,
+        fallback: impl FnOnce() -> RsfResult<VsrCell>,
+    ) -> RsfResult<Self> {
+        let replayed = Self::replay_store(&opened.recovery, pg, fallback)?;
+        Self::from_replayed_store(opened, pg, replayed)
+    }
+
+    fn replay_store(
+        recovery: &rsf_storage::Recovery,
+        pg: PlacementGroupId,
+        fallback: impl FnOnce() -> RsfResult<VsrCell>,
+    ) -> RsfResult<ReplayedVsrStore> {
         let records = recovery
             .wal_records
             .iter()
@@ -653,7 +849,7 @@ impl DurableVsrCell {
         let has_migration = migrated_bootstrap.is_some();
         // Replay certificates against the membership that existed when the log
         // began, never against a caller's newer desired configuration.
-        let mut cell = if let Some(first) = records
+        let cell = if let Some(first) = records
             .first()
             .filter(|record| record.payload.starts_with(VSR_BOOTSTRAP_MAGIC))
         {
@@ -665,7 +861,7 @@ impl DurableVsrCell {
         } else if let Some(bootstrap) = migrated_bootstrap {
             bootstrap
         } else {
-            VsrCell::new(pg, view, primary, replicas).map_err(invalid_input)?
+            fallback()?
         };
 
         let initial_bootstrap = encode_bootstrap(&cell);
@@ -674,185 +870,99 @@ impl DurableVsrCell {
             || records
                 .first()
                 .is_some_and(|record| record.payload.starts_with(VSR_BOOTSTRAP_MAGIC));
-        let mut history = history::ConfigurationHistory::new(&cell);
-        for (position, record) in records.iter().enumerate() {
-            if migration::is_record(&record.payload) {
-                if record.epoch != cell.view {
-                    return Err(corrupt(
-                        "VSR bootstrap migration epoch differs from replayed view",
-                    ));
-                }
-                continue;
-            }
-            if record.payload.starts_with(VSR_BOOTSTRAP_MAGIC) {
-                if position != 0 {
-                    return Err(corrupt("VSR bootstrap record must be first and unique"));
-                }
-                continue;
-            }
-            match record.kind {
-                WalRecordKind::Prepare => {
-                    let prepare = decode_prepare(&record.payload)?;
-                    if prepare.pg != pg {
-                        return Err(corrupt("vsr prepare payload placement group mismatch"));
-                    }
-                    replica::validate_payload(&prepare.operation, prepare.bytes)
-                        .map_err(corrupt)?;
-                    if prepare.index.0 == 0
-                        || prepare.bytes == 0
-                        || prepare.index.0 > cell.next_index
-                    {
-                        return Err(corrupt(
-                            "recovered VSR prepare has an invalid index, size, or missing prefix",
-                        ));
-                    }
-                    if let Some(previous) = cell.pending.get(&prepare.index) {
-                        if previous.committed
-                            || (previous.prepare != prepare
-                                && prepare.view <= previous.prepare.view)
-                        {
-                            return Err(corrupt(
-                                "recovered VSR prepare overwrites a committed entry or conflicts within a view",
-                            ));
-                        }
-                    }
-                    cell.next_index = cell.next_index.max(
-                        prepare
-                            .index
-                            .0
-                            .checked_add(1)
-                            .ok_or_else(|| corrupt("VSR index overflow"))?,
-                    );
-                    let mut acknowledgements = BTreeSet::new();
-                    acknowledgements.insert(prepare.primary);
-                    cell.pending.insert(
-                        prepare.index,
-                        PendingPrepare {
-                            prepare,
-                            acknowledgements,
-                            committed: false,
-                        },
-                    );
-                }
-                WalRecordKind::Commit => {
-                    if !is_vsr_commit_payload(&record.payload) {
-                        continue;
-                    }
-                    let commit = decode_commit(&record.payload)?;
-                    if commit.pg != pg {
-                        return Err(corrupt("vsr commit payload placement group mismatch"));
-                    }
-                    let Some(prepare) = cell
-                        .pending
-                        .get(&commit.index)
-                        .map(|pending| pending.prepare.clone())
-                    else {
-                        return Err(corrupt("vsr commit recovered without prepare"));
-                    };
-                    if cell.committed_tail().0.checked_add(1) != Some(commit.index.0) {
-                        return Err(corrupt(
-                            "recovered VSR commit does not extend the contiguous prefix",
-                        ));
-                    }
-                    history.validate(&prepare, &commit)?;
-                    let pending = cell
-                        .pending
-                        .get_mut(&commit.index)
-                        .ok_or_else(|| corrupt("vsr commit recovered without prepare"))?;
-                    pending.committed = true;
-                    cell.committed.push(commit);
-                }
-                WalRecordKind::Membership => {
-                    if is_vsr_membership_change_payload(&record.payload) {
-                        let change = decode_membership_change(&record.payload)?;
-                        if change.pg != pg {
-                            return Err(corrupt("vsr membership payload placement group mismatch"));
-                        }
-                        if change.view <= cell.view {
-                            return Err(corrupt(
-                                "recovered vsr membership must strictly advance view",
-                            ));
-                        }
-                        if change.old_replicas != cell.replicas {
-                            return Err(corrupt(
-                                "recovered vsr membership old voters do not match current voters",
-                            ));
-                        }
-                        if change.committed_tail != cell.committed_tail() {
-                            return Err(corrupt(
-                                "recovered vsr membership committed prefix proof does not match wal",
-                            ));
-                        }
-                        validate_membership_change(
-                            &cell.replicas,
-                            &change.new_replicas,
-                            change.primary,
-                        )
-                        .map_err(corrupt)?;
-                        cell.view = change.view;
-                        cell.primary = change.primary;
-                        cell.replicas = change.new_replicas;
-                        history.record(&cell);
-                        continue;
-                    }
-                    if !is_vsr_view_change_payload(&record.payload) {
-                        if !is_vsr_client_request_payload(&record.payload) {
-                            continue;
-                        }
-                        let request_commit = decode_client_request_commit(&record.payload)?;
-                        if request_commit.pg != pg {
-                            return Err(corrupt(
-                                "vsr client request payload placement group mismatch",
-                            ));
-                        }
-                        if !cell
-                            .pending
-                            .get(&request_commit.index)
-                            .is_some_and(|pending| pending.committed)
-                        {
-                            return Err(corrupt(
-                                "vsr client request recovered without committed prepare",
-                            ));
-                        }
-                        cell.client_table
-                            .insert(request_commit.request, request_commit.index);
-                        continue;
-                    }
-                    let change = decode_view_change(&record.payload)?;
-                    if change.pg != pg {
-                        return Err(corrupt("vsr view-change payload placement group mismatch"));
-                    }
-                    if change.view <= cell.view {
-                        return Err(corrupt(
-                            "recovered vsr view change must strictly advance view",
-                        ));
-                    }
-                    if !cell.replicas.contains(&change.primary) {
-                        return Err(corrupt(
-                            "recovered vsr view-change primary is not a replica",
-                        ));
-                    }
-                    let committed_tail = cell.committed_tail();
-                    if change.committed_tail != committed_tail {
-                        return Err(corrupt(
-                            "recovered vsr view-change committed prefix proof does not match wal",
-                        ));
-                    }
-                    cell.view = change.view;
-                    cell.primary = change.primary;
-                    history.record(&cell);
-                }
-                _ => {}
-            }
-        }
+        let replay = records
+            .iter()
+            .map(|record| replay::Record {
+                kind: record.kind,
+                epoch: record.epoch,
+                payload: &record.payload,
+            })
+            .collect::<Vec<_>>();
+        let recovered = replay::recover(cell, &replay)?;
+        let quorum_history = records.iter().any(|record| {
+            record.kind == WalRecordKind::ViewInstallation
+                && installation::is_activation_marker(&record.payload)
+        });
+        Ok(ReplayedVsrStore {
+            recovered,
+            initial_bootstrap,
+            bootstrap_persisted,
+            quorum_history,
+        })
+    }
 
+    fn from_replayed_store(
+        opened: OpenedVsrStore,
+        pg: PlacementGroupId,
+        replayed: ReplayedVsrStore,
+    ) -> RsfResult<Self> {
+        Self::from_replayed_store_with(opened, pg, replayed, |root, active, _| {
+            if active.plan.is_some() {
+                installation::publication::mark_published(root, pg)?;
+            }
+            Ok(())
+        })
+    }
+
+    // One owner construction and semantic handoff. Strict bounded recovery may
+    // constrain publication completion while retaining the same actual store.
+    fn from_replayed_store_with(
+        opened: OpenedVsrStore,
+        pg: PlacementGroupId,
+        replayed: ReplayedVsrStore,
+        finish: impl FnOnce(
+            &Path,
+            &installation::publication::Active,
+            &mut SegmentStore,
+        ) -> RsfResult<()>,
+    ) -> RsfResult<Self> {
+        let OpenedVsrStore {
+            root,
+            active,
+            mut store,
+            recovery,
+            options,
+            writer_lock,
+        } = opened;
+        let ReplayedVsrStore {
+            recovered: (cell, history, view_change, membership_fence),
+            initial_bootstrap,
+            bootstrap_persisted,
+            quorum_history,
+        } = replayed;
+        let path = root.as_path();
+        let records = recovery
+            .wal_records
+            .iter()
+            .filter(|record| record.pg == pg)
+            .collect::<Vec<_>>();
+        installation::publication::validate_active(&active, pg, &records)?;
+        learner::promotion::validate_history(
+            path,
+            pg,
+            records.iter().map(|r| (r.kind, r.payload.as_slice())),
+        )?;
+        // Complete the publication barrier only after seal and promotion
+        // provenance have passed the shared authoritative replay handoff.
+        finish(path, &active, &mut store)?;
+        let store_custody = store.capture_owned_custody()?;
         let mut durable = Self {
+            state_identity: std::sync::Arc::new(()),
+            state_revision: 0,
+            root: path.to_path_buf(),
+            options,
+            installed_plan: active.plan,
+            quorum_history,
+            installation_input: None,
             cell,
             history,
             bootstrap_persisted,
             initial_bootstrap,
-            store: SegmentStore::open_with_options(path, options)?,
-            durability_failure: None,
+            store,
+            store_custody,
+            durability_failure: std::sync::Mutex::new(None),
+            view_change,
+            membership_fence,
             _writer_lock: writer_lock,
         };
         if records.is_empty() {
@@ -867,7 +977,7 @@ impl DurableVsrCell {
         operation: VsrOperation,
         bytes: u32,
     ) -> RsfResult<VsrDecision> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         let decision = self.cell.prepare(primary, operation, bytes);
         if let VsrDecision::Prepared(prepare) = &decision {
             let result = encode_prepare(prepare)
@@ -882,29 +992,47 @@ impl DurableVsrCell {
     }
 
     pub fn acknowledge(&mut self, replica: NodeId, view: Epoch, index: LogIndex) -> VsrDecision {
+        if let Err(err) = self.ensure_active_view() {
+            return VsrDecision::Rejected {
+                node: replica,
+                reason: err.message,
+            };
+        }
         self.cell.acknowledge(replica, view, index)
     }
 
     pub fn commit(&mut self, primary: NodeId, index: LogIndex) -> RsfResult<VsrDecision> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         let decision = self.cell.commit(primary, index);
-        if let VsrDecision::Committed(commit) = &decision {
-            if let Err(err) = self.append(WalRecordKind::Commit, &encode_commit(commit)) {
-                self.cell.committed.pop();
-                if let Some(pending) = self.cell.pending.get_mut(&index) {
-                    pending.committed = false;
-                }
-                return Err(err);
+        if let VsrDecision::Committed(commit) = &decision
+            && let Err(err) = self.append(WalRecordKind::Commit, &encode_commit(commit))
+        {
+            self.cell.committed.pop();
+            if let Some(pending) = self.cell.pending.get_mut(&index) {
+                pending.committed = false;
             }
+            return Err(err);
         }
         Ok(decision)
     }
 
     pub fn view_change(&mut self, view: Epoch, primary: NodeId) -> VsrDecision {
+        if let Err(err) = self.ensure_active_view() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: err.message,
+            };
+        }
         if !self.bootstrap_persisted {
             return VsrDecision::Rejected {
                 node: primary,
                 reason: "legacy VSR bootstrap migration is required before changing views".into(),
+            };
+        }
+        if self.has_installed_view() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "installed VSR authority requires quorum view installation; local view changes are disabled".into(),
             };
         }
         if view <= self.cell.view {
@@ -966,6 +1094,18 @@ impl DurableVsrCell {
                     .into(),
             };
         }
+        if let Err(err) = self.ensure_active_view() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: err.message,
+            };
+        }
+        if self.has_installed_view() {
+            return VsrDecision::Rejected {
+                node: primary,
+                reason: "installed VSR authority requires certified membership installation; local reconfiguration is disabled".into(),
+            };
+        }
         let replicas = replicas.into_iter().collect::<BTreeSet<_>>();
         if view <= self.cell.view {
             return VsrDecision::Rejected {
@@ -997,7 +1137,7 @@ impl DurableVsrCell {
             };
         }
         let decision = self.cell.reconfigure(view, primary, replicas);
-        self.history.record(&self.cell);
+        self.history.record_legacy_membership(&self.cell);
         decision
     }
 
@@ -1059,7 +1199,7 @@ impl DurableVsrCell {
     }
 
     pub fn catch_up_from(&mut self, entries: &[VsrCommittedEntry]) -> RsfResult<usize> {
-        self.ensure_healthy()?;
+        self.ensure_active_view()?;
         let mut applied = 0;
         for entry in entries {
             if entry.prepare.pg != self.cell.pg || entry.commit.pg != self.cell.pg {
@@ -1139,6 +1279,7 @@ impl DurableVsrCell {
         request: VsrClientRequestId,
         index: LogIndex,
     ) -> RsfResult<()> {
+        self.ensure_active_view()?;
         if let Some(existing) = self.cell.client_table.get(&request).copied() {
             if existing == index {
                 return Ok(());
@@ -1196,37 +1337,64 @@ impl DurableVsrCell {
     }
 
     fn ensure_healthy(&self) -> RsfResult<()> {
-        match &self.durability_failure {
-            Some(reason) => Err(RsfError::new(
+        let failure = self
+            .durability_failure
+            .lock()
+            .map_err(|_| corrupt("VSR durability fence is poisoned"))?
+            .clone();
+        if let Some(reason) = failure {
+            return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
                 format!("VSR durability failed; reopen before further operations: {reason}"),
-            )),
-            None => Ok(()),
+            ));
         }
+        let result =
+            installation::publication::active(&self.root, self.cell.pg).and_then(|active| {
+                if active.plan != self.installed_plan
+                    || active.path != self.store.root()
+                    || (active.plan.is_some()
+                        && !installation::publication::publication_marked(&self.root))
+                {
+                    Err(corrupt(
+                        "active VSR generation changed while this writer owned the store",
+                    ))
+                } else {
+                    self.store.validate_owned_custody(&self.store_custody)
+                }
+            });
+        if let Err(err) = &result {
+            *self
+                .durability_failure
+                .lock()
+                .map_err(|_| corrupt("VSR durability fence is poisoned"))? =
+                Some(err.message.clone());
+        }
+        result
     }
 
     fn append(&mut self, kind: WalRecordKind, payload: &[u8]) -> RsfResult<()> {
+        self.ensure_active_view()?;
+        self.append_control(kind, payload)
+    }
+
+    fn append_control(&mut self, kind: WalRecordKind, payload: &[u8]) -> RsfResult<()> {
         self.ensure_healthy()?;
         let result: RsfResult<()> = (|| {
-            let recovery = self.store.recover_current()?.recovery;
-            let tail = recovery.pg_tail(self.cell.pg);
-            let previous_hash = tail.map_or([0_u8; 32], |tail| tail.record_hash);
-            let index = LogIndex(
-                tail.map_or(Some(1), |tail| tail.index.0.checked_add(1))
-                    .ok_or_else(|| invalid_input("VSR physical log index exhausted"))?,
-            );
-            self.store.append_wal(WalAppend {
-                pg: self.cell.pg,
-                epoch: self.cell.view,
-                index,
-                kind,
-                previous_hash,
-                payload,
-            })?;
+            let revision = self.next_state_revision()?;
+            self.store
+                .append_next_wal(self.cell.pg, self.cell.view, kind, payload)?;
+            // Only this owner's successful append may advance physical custody.
+            // Failure here fences the handle before any acknowledgement escapes.
+            self.store_custody = self.store.capture_owned_custody()?;
+            self.state_revision = revision;
             Ok(())
         })();
         if let Err(err) = &result {
-            self.durability_failure = Some(err.message.clone());
+            *self
+                .durability_failure
+                .lock()
+                .map_err(|_| corrupt("VSR durability fence is poisoned"))? =
+                Some(err.message.clone());
         }
         result
     }

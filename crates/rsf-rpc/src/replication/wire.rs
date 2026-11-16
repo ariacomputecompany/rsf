@@ -12,6 +12,40 @@ pub(super) const COMMIT: u8 = 2;
 pub(super) const TAIL: u8 = 3;
 pub(super) const TRANSFER: u8 = 4;
 pub(super) const PRIMARY_PROBE: u8 = 5;
+pub(super) const HISTORY_BEGIN: u8 = 6;
+pub(super) const HISTORY_RECORD: u8 = 7;
+pub(super) const HISTORY_FINISH: u8 = 8;
+pub(super) const VIEW_CHANGE_BEGIN: u8 = 9;
+pub(super) const VIEW_CHANGE_RECORD: u8 = 10;
+pub(super) const INSTALL_BEGIN: u8 = 11;
+pub(super) const INSTALL_RECORD: u8 = 12;
+pub(super) const INSTALL_FINISH: u8 = 13;
+pub(super) const REPLICA_STATUS: u8 = 14;
+pub(super) const HEARTBEAT: u8 = 15;
+pub(super) const INSTALL_BATCH: u8 = 16;
+pub(super) const VIEW_CHANGE_BATCH: u8 = 17;
+pub(super) const MEMBERSHIP_BEGIN: u8 = 18;
+pub(super) const MEMBERSHIP_SNAPSHOT: u8 = 19;
+pub(super) const MEMBERSHIP_BATCH: u8 = 20;
+pub(super) const MEMBERSHIP_RESUME: u8 = 21;
+
+pub(super) const MEMBERSHIP_AUTH_BEGIN: u8 = 22;
+pub(super) const MEMBERSHIP_AUTH_BATCH: u8 = 23;
+pub(super) const MEMBERSHIP_AUTH_FINISH: u8 = 24;
+pub(super) const MEMBERSHIP_PROMISE: u8 = 25;
+pub(super) const MEMBERSHIP_INPUT_BEGIN: u8 = 26;
+pub(super) const MEMBERSHIP_INPUT_BATCH: u8 = 27;
+pub(super) const MEMBERSHIP_ACCEPT: u8 = 28;
+pub(super) const MEMBERSHIP_CHOSEN: u8 = 29;
+pub(super) const MEMBERSHIP_INPUT_DESCRIPTOR: u8 = 30;
+pub(super) const MEMBERSHIP_INPUT_READ: u8 = 31;
+pub(super) const MEMBERSHIP_STAGE: u8 = 32;
+pub(super) const MEMBERSHIP_PUBLISH: u8 = 33;
+pub(super) const MEMBERSHIP_PUBLICATION: u8 = 34;
+pub(super) const MEMBERSHIP_RECOVERY: u8 = 35;
+pub(super) const CONTROL_COMMITTED: u8 = 36;
+
+pub(super) const CONTROL_INITIAL: u8 = 37;
 
 pub(super) fn cluster_digest(cluster: &ClusterId) -> [u8; 32] {
     Sha256::digest(cluster.as_str().as_bytes()).into()

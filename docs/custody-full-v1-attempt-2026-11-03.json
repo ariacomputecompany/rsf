@@ -1,0 +1,242 @@
+{
+  "date": "2026-11-03",
+  "all_pass": false,
+  "production_qualified": false,
+  "source_sha256": "fc5aa5b1f6915f04ab04248efc64d3b9d8f42913dd6a88c8faecda4d19d4d152",
+  "source_unchanged": true,
+  "engine": {
+    "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+    "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "version": "fozzy 0.1.0"
+  },
+  "passed_domains": [
+    "storage",
+    "vsr",
+    "control-state",
+    "membership",
+    "membership-decision",
+    "membership-peer",
+    "membership-staging",
+    "membership-activation",
+    "protocol",
+    "peer-rpc",
+    "kv-transactions",
+    "sql",
+    "authentication",
+    "tenancy",
+    "daemon",
+    "native-membership",
+    "automatic-client",
+    "sql-stream",
+    "daemon-stress",
+    "release-stress",
+    "object-blob",
+    "recovery",
+    "policy",
+    "end-to-end"
+  ],
+  "failed_domains": [
+    "workspace"
+  ],
+  "workspace_command": [
+    "scripts/capture-host-process.sh",
+    "/Users/deepsaint/Desktop/rsf/artifacts/verification.custody-20261103-v1/workspace/attempt-0001/workspace.process.log",
+    "cargo",
+    "test",
+    "--workspace"
+  ],
+  "workspace_exit": 101,
+  "workspace_tests_reached": {
+    "passed": 726,
+    "failed": 4,
+    "ignored": 0
+  },
+  "workspace_rpc_tests": {
+    "passed": 91,
+    "failed": 4,
+    "ignored": 0
+  },
+  "failures": [
+    {
+      "test": "replication::tests::membership_publication::failures::real_tls_membership_publication_rejects_wrong_authority_missing_apply_and_corrupt_owner",
+      "stage": "all-voter fixture STAGE before named adversarial assertions",
+      "replica": 2,
+      "elapsed": "1.603433209s",
+      "error": "VsrTransportError { replica: NodeId(2), reason: \"Resource temporarily unavailable (os error 35)\" }",
+      "fixture": "/private/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-56998-1793746143576116000-0"
+    },
+    {
+      "test": "replication::tests::membership_publication::adversarial::replies::managed_recovery_rejects_authenticated_reply_for_another_input_then_recovers",
+      "stage": "all-voter fixture STAGE before named adversarial assertions",
+      "replica": 3,
+      "elapsed": "1.604092875s",
+      "error": "VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+      "fixture": "/private/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-56998-1793746142072150000-0"
+    },
+    {
+      "test": "replication::tests::membership_publication::adversarial::replies::managed_recovery_discards_real_delayed_reply_after_active_custody_or_context_loss",
+      "stage": "all-voter fixture STAGE before named adversarial assertions",
+      "replica": 3,
+      "elapsed": "1.604094167s",
+      "error": "VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+      "fixture": "/private/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-56998-1793746140876600000-0"
+    },
+    {
+      "test": "replication::tests::membership_publication::adversarial::replies::managed_recovery_accepts_delayed_historical_reply_after_real_tls_view_and_promise",
+      "stage": "all-voter fixture STAGE before named adversarial assertions",
+      "replica": 3,
+      "elapsed": "1.604096292s",
+      "error": "VsrTransportError { replica: NodeId(3), reason: \"Resource temporarily unavailable (os error 35)\" }",
+      "fixture": "/private/var/folders/xn/zb2_wvj508d9vx1cr7grpzlm0000gn/T/rsf-peer-native-membership-publication-56998-1793746140701040000-0"
+    }
+  ],
+  "evidence_root": "artifacts/verification.custody-20261103-v1",
+  "evidence_sha256": {
+    "summary.json": "dcbec48b839c1556262364901598f554cf47e5dac5835619fa534a3dd948d709",
+    "checkpoint.json": "aa9e7e63389fc77da923a3bd8b4aae577c3cbd29d30ba20035f201c71e4517b2",
+    "workspace.trace.fozzy": "3cb3432252fb4b6e7288c4fb44cbdbe348f87c6bc8d3bb29a8d91206d44fcfad",
+    "workspace.actual.stdout": "cf1ec667f5d3a42afbfe60a982f37d45e84fbefdc2a1e959f18b45914b86687d",
+    "workspace.actual.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "failed-fixtures/manifest.json": "5501e82a24f89bf5414763776fc1e5268ee198b4d7bcbe9471c675c42b294e14"
+  },
+  "workload_metrics": {
+    "daemon-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 198,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 14.795679753984835,
+      "elapsed_ms": 57324,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 428772,
+        "p50": 262301,
+        "p95": 324410,
+        "p99": 414547
+      },
+      "payload_bytes": 442587,
+      "profile": "debug",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    },
+    "release-stress": {
+      "abrupt_process_shutdowns": 18,
+      "acknowledged": 774,
+      "clients": 4,
+      "concurrent_write_ops_per_second": 23.849496263237324,
+      "elapsed_ms": 87451,
+      "latency_scope": "acknowledged writes and uncertain-write retry resolutions",
+      "latency_us": {
+        "max": 286370,
+        "p50": 165335,
+        "p95": 206990,
+        "p99": 263357
+      },
+      "payload_bytes": 1769691,
+      "profile": "release",
+      "rounds": 3,
+      "scope": "single host loopback TLS with fsync; hardware/WAN and capacity qualification remain separate",
+      "uncertain_writes_resolved": 3,
+      "workload": "native-kv-process-stress"
+    }
+  },
+  "automatic_client_metrics": {
+    "debug": {
+      "acknowledged_before_crash": 4,
+      "active_sql_session_resumed": true,
+      "client_transport_retries": 0,
+      "commit_confirmation_retries": 0,
+      "concurrent_clients": 4,
+      "coordinator_recoveries_before_crash": 3,
+      "coordinator_reuses_before_crash": 150,
+      "disjoint_sql_sessions_committed": true,
+      "elapsed_ms": 62681,
+      "history_growth_ms": 29522,
+      "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
+      "precrash_sql_read_dependency_recovered": true,
+      "primary_state_deleted": true,
+      "profile": "debug",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "serializable_sql_phantom_rejected": true,
+      "sql_key_components_isolated": true,
+      "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 162,
+      "workload": "automatic-client-takeover"
+    },
+    "release": {
+      "acknowledged_before_crash": 4,
+      "active_sql_session_resumed": true,
+      "client_transport_retries": 0,
+      "commit_confirmation_retries": 0,
+      "concurrent_clients": 4,
+      "coordinator_recoveries_before_crash": 3,
+      "coordinator_reuses_before_crash": 150,
+      "disjoint_sql_sessions_committed": true,
+      "elapsed_ms": 54915,
+      "history_growth_ms": 24874,
+      "history_growth_writes": 128,
+      "indexed_sql_after_takeover": true,
+      "precrash_sql_read_dependency_recovered": true,
+      "primary_state_deleted": true,
+      "profile": "release",
+      "replacement_restarts": 1,
+      "requests_without_acknowledgement": 28,
+      "retried_requests": 32,
+      "scope": "single host loopback TLS with fsync; automatic elections and client listeners; not independent-host capacity qualification",
+      "serializable_sql_phantom_rejected": true,
+      "sql_key_components_isolated": true,
+      "sql_session_original_results_replayed": true,
+      "sql_stream_after_takeover": true,
+      "submitted_requests": 32,
+      "surface_count": 4,
+      "surviving_replicas_checked": 2,
+      "verified_logical_kv_writes": 162,
+      "workload": "automatic-client-takeover"
+    }
+  },
+  "sql_stream_metrics": {
+    "debug": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 38106,
+      "indexed_queries_verified": true,
+      "profile": "debug",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    },
+    "release": {
+      "buffered_overflow_rejected": true,
+      "bytes": 264960,
+      "chunk_bound": 4096,
+      "elapsed_ms": 16162,
+      "indexed_queries_verified": true,
+      "profile": "release",
+      "quorum_loss_rejected": true,
+      "rows": 128,
+      "scope": "single-host loopback TLS with fsync; streaming delivery proof, not production capacity qualification",
+      "workload": "native-sql-stream"
+    }
+  },
+  "limits": [
+    "Cargo stopped at rsf-rpc; later workspace packages did not run in this attempt. A failed workspace gate does not imply every required regression failed.",
+    "All four failures exhausted the existing bounded STAGE transport before the tests reached their named adversarial assertions. This evidence does not isolate a server substep cause.",
+    "Dedicated RPC95, native16 and both stress profiles passed in the other domains; those results do not clear this failed full gate.",
+    "No deadline, retry, workload or concurrency changes; no pass-by-rerun claim.",
+    "Development-host evidence only. Linux is the sole production target and remains unqualified; no hosted CI/CD."
+  ],
+  "prior_scoped_report": "docs/custody-regression-verification-2026-11-03.json",
+  "prior_affected_failure": "docs/custody-affected-attempt-2026-11-03.json",
+  "next_work": "Qualify reviewed streaming local source/selected group copy with existing guards and normal timing; do not claim it causally resolves these failures without evidence."
+}

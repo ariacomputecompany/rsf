@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod durable;
+mod pages;
+mod reads;
 
+use rsf_core::relational_key::RelationalKeyFormat;
 use std::collections::{BTreeMap, BTreeSet};
 
 use rsf_buffer::{BufferDecision, BufferPool};
@@ -40,7 +43,10 @@ use rsf_tuple::{TupleDecision, TupleKey, TupleStore, TupleVersion};
 use rsf_vacuum::{VacuumDecision, VacuumPlanner, VacuumPolicy};
 use rsf_wal::{FlushRequest, WalDecision, WalGate, WalPolicy};
 
-pub use durable::{DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery};
+pub use durable::{
+    DurableSqlEngine, DurableSqlExecution, DurableSqlRecovery, SqlPersistenceStats,
+    SqlSessionContext,
+};
 
 const DEFAULT_PAGE_SIZE: u32 = 4096;
 
@@ -141,6 +147,12 @@ impl SqlMutationEvidence {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SqlOutcome {
+    SchemaStaged {
+        session_id: String,
+        snapshot: CommitVersion,
+        table: String,
+        item: String,
+    },
     TableCreated {
         table: String,
         version: CommitVersion,
@@ -254,6 +266,7 @@ enum SqlTransactionMutation {
 
 #[derive(Clone, Debug)]
 pub struct SqlEngine {
+    key_format: RelationalKeyFormat,
     tables: BTreeMap<String, Table>,
     rows: BTreeMap<(String, String), Row>,
     primary: PrimaryIndex,
@@ -264,14 +277,17 @@ pub struct SqlEngine {
     pages: PageServer,
     wal: WalGate,
     buffer: BufferPool,
-    table_pages: BTreeMap<String, PageId>,
+    table_pages: BTreeMap<String, BTreeSet<PageId>>,
+    row_pages: BTreeMap<Vec<u8>, PageId>,
     page_wal_base_images: BTreeMap<PageId, Vec<u8>>,
     page_wal_redo_records: Vec<Vec<u8>>,
     layout_decisions: BTreeMap<String, SqlLayoutDecision>,
     next_page_lsn: u64,
-    query_reports: Vec<SqlQueryReport>,
+    query_reports: Option<SqlQueryReport>,
+    query_report_count: usize,
     portals: SqlPortalSession,
     stats: StatisticsCatalog,
+    query_sizes: BTreeMap<String, reads::QuerySize>,
     schema_version: CommitVersion,
     transaction: Option<SqlTransactionState>,
     next_transaction: u64,
@@ -281,6 +297,7 @@ pub struct SqlEngine {
 impl Default for SqlEngine {
     fn default() -> Self {
         Self {
+            key_format: RelationalKeyFormat::default(),
             tables: BTreeMap::new(),
             rows: BTreeMap::new(),
             primary: PrimaryIndex::default(),
@@ -292,13 +309,16 @@ impl Default for SqlEngine {
             wal: WalGate::new(WalPolicy::new(1024 * 1024, true).expect("valid wal policy")),
             buffer: BufferPool::new(128).expect("valid buffer capacity"),
             table_pages: BTreeMap::new(),
+            row_pages: BTreeMap::new(),
             page_wal_base_images: BTreeMap::new(),
             page_wal_redo_records: Vec::new(),
             layout_decisions: BTreeMap::new(),
             next_page_lsn: 1,
-            query_reports: Vec::new(),
+            query_reports: None,
+            query_report_count: 0,
             portals: SqlPortalSession::default(),
             stats: StatisticsCatalog::default(),
+            query_sizes: BTreeMap::new(),
             schema_version: CommitVersion::GENESIS,
             transaction: None,
             next_transaction: 1,
@@ -308,6 +328,18 @@ impl Default for SqlEngine {
 }
 
 impl SqlEngine {
+    pub fn key_format(&self) -> RelationalKeyFormat {
+        self.key_format
+    }
+    fn row_key(&self, table: &str, primary: &str) -> Vec<u8> {
+        self.key_format.row_key(table, primary)
+    }
+    fn row_prefix(&self, table: &str) -> Vec<u8> {
+        self.key_format.row_prefix(table)
+    }
+    fn primary_key_from_row_key(&self, table: &str, key: &[u8]) -> RsfResult<String> {
+        self.key_format.primary_key(table, key)
+    }
     pub fn execute(
         &mut self,
         router: &mut impl FabricRouterPort,
@@ -546,12 +578,25 @@ impl SqlEngine {
         profile: SqlLayoutProfile,
     ) -> RsfResult<()> {
         let mut table = table_from_descriptor(descriptor)?;
+        if self.key_format == RelationalKeyFormat::LegacyDelimitedV1 {
+            let prefix = self.row_prefix(&table.name);
+            for known in self.tables.keys().filter(|known| **known != table.name) {
+                let other = self.row_prefix(known);
+                if prefix.starts_with(&other) || other.starts_with(&prefix) {
+                    return Err(RsfError::new(
+                        ErrorCode::InvalidInput,
+                        "legacy SQL table key namespaces overlap; explicit key migration is required",
+                    ));
+                }
+            }
+        }
         let decision = choose_table_layout(&table, profile);
         table.layout_profile = decision.profile;
         table.layout = decision.layout;
         table.page_size = decision.page_size;
         self.layout_decisions
             .insert(table.name.clone(), decision.clone());
+        self.query_sizes.entry(table.name.clone()).or_default();
         self.tables.insert(table.name.clone(), table);
         Ok(())
     }
@@ -580,18 +625,44 @@ impl SqlEngine {
         kv: KvEngine,
         tables: impl IntoIterator<Item = SqlRecoveredTable>,
     ) -> RsfResult<(Self, SqlRecoveryReport)> {
+        let versions = kv.scan_prefix_versions(b"");
+        let format = RelationalKeyFormat::detect(versions.iter().map(|(key, _)| key.as_slice()))?;
+        Self::recover_from_committed_kv_with_format(kv, tables, format)
+    }
+    pub fn recover_from_committed_kv_with_format(
+        kv: KvEngine,
+        tables: impl IntoIterator<Item = SqlRecoveredTable>,
+        key_format: RelationalKeyFormat,
+    ) -> RsfResult<(Self, SqlRecoveryReport)> {
         let mut engine = Self {
             kv,
+            key_format,
             ..Self::default()
         };
         for recovered in tables {
             engine.register_recovered_table(recovered)?;
         }
+        for (key, _) in engine.kv.scan_prefix_versions(b"") {
+            if let Some(format) = RelationalKeyFormat::format_of(&key)
+                && (format != key_format
+                    || engine
+                        .tables
+                        .keys()
+                        .filter(|table| key_format.primary_key(table, &key).is_ok())
+                        .count()
+                        != 1)
+            {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "SQL row key has a foreign format or no unique catalog owner",
+                ));
+            }
+        }
         let report = engine.rebuild_recovered_relational_state()?;
         // KV versions are the durable source for this recovery path. Rebuild
         // live page slots too, so subsequent UPDATE/DELETE redo has a base row.
         for row in engine.rows.values().cloned().collect::<Vec<_>>() {
-            let key = logical_row_key(&row.table, &row.primary_key);
+            let key = engine.row_key(&row.table, &row.primary_key);
             let payload = engine
                 .kv
                 .get(&key)
@@ -602,7 +673,6 @@ impl SqlEngine {
                 &row.table,
                 RedoOperation::InsertRow,
                 row.version,
-                1,
                 checked_len_i32(&payload)?,
                 key,
                 Some(payload),
@@ -631,11 +701,8 @@ impl SqlEngine {
         let mut highest_version = CommitVersion(0);
 
         for table in self.tables.values().cloned().collect::<Vec<_>>() {
-            for (key, versions) in self
-                .kv
-                .scan_prefix_versions(table_row_prefix(&table.name).as_bytes())
-            {
-                let primary_key = primary_key_from_logical_row_key(&table.name, &key)?;
+            for (key, versions) in self.kv.scan_prefix_versions(&self.row_prefix(&table.name)) {
+                let primary_key = self.primary_key_from_row_key(&table.name, &key)?;
                 let live_row = self.replay_recovered_tuple_versions(
                     &table,
                     &primary_key,
@@ -676,6 +743,7 @@ impl SqlEngine {
                 .insert((row.table.clone(), row.primary_key.clone()), row);
         }
 
+        self.rebuild_query_sizes()?;
         Ok(SqlRecoveryReport {
             tables: self.tables.len(),
             row_versions,
@@ -823,9 +891,10 @@ impl SqlEngine {
             ));
         }
         self.validate_constraints_for_values(table, &primary_key, &columns)?;
-        let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
+        let logical_key = self.row_key(table, &primary_key);
         let request_payload =
             self.encode_row_payload(table, &primary_key, &columns, CommitVersion(0))?;
+        self.validate_page_payload(table, &logical_key, &request_payload)?;
         let evidence = commit_sql_request(
             router,
             pg,
@@ -884,9 +953,10 @@ impl SqlEngine {
             columns.insert(column, value);
         }
         self.validate_constraints_for_update(table, primary_key, &existing, &columns)?;
-        let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
+        let logical_key = self.row_key(table, primary_key);
         let request_payload =
             self.encode_row_payload(table, primary_key, &columns, CommitVersion(0))?;
+        self.validate_page_payload(table, &logical_key, &request_payload)?;
         let evidence = commit_sql_request(
             router,
             pg,
@@ -935,7 +1005,7 @@ impl SqlEngine {
         if self.select_pk(table, primary_key).is_none() {
             return Err(RsfError::new(ErrorCode::InvalidInput, "row is not present"));
         }
-        let logical_key = format!("table/{table}/pk/{primary_key}").into_bytes();
+        let logical_key = self.row_key(table, primary_key);
         let evidence = commit_sql_request(
             router,
             pg,
@@ -992,9 +1062,9 @@ impl SqlEngine {
     }
 
     pub fn row_count(&self) -> usize {
-        self.tables
-            .keys()
-            .map(|table| self.committed_rows_for_table(table).len())
+        self.query_sizes
+            .values()
+            .map(|size| size.rows as usize)
             .sum()
     }
 
@@ -1011,11 +1081,11 @@ impl SqlEngine {
     }
 
     pub fn query_report_count(&self) -> usize {
-        self.query_reports.len()
+        self.query_report_count
     }
 
     pub fn last_query_report(&self) -> Option<&SqlQueryReport> {
-        self.query_reports.last()
+        self.query_reports.as_ref()
     }
 
     pub fn prepare_statement(
@@ -1050,7 +1120,7 @@ impl SqlEngine {
         deadline_ms: u64,
     ) -> RsfResult<SqlPortalExecution> {
         let statement = self.portals.bound_sql(portal)?;
-        let previous_report_count = self.query_reports.len();
+        let previous_report_count = self.query_report_count;
         let outcome = self.execute(router, pg, &statement)?;
         let elapsed_ms = self.portal_elapsed_ms(previous_report_count);
         let rows = outcome_row_count(&outcome);
@@ -1171,9 +1241,23 @@ impl SqlEngine {
             return Vec::new();
         }
         let descriptor = secondary_index_descriptor(table_record, column);
+        let Some(ty) = table_record
+            .descriptor
+            .columns
+            .iter()
+            .find(|entry| entry.name == column)
+            .map(|entry| &entry.ty)
+        else {
+            return Vec::new();
+        };
+        let Ok(value) =
+            query_value_from_sql_string(ty, value, column).and_then(query_value_to_sql_string)
+        else {
+            return Vec::new();
+        };
         let row = RowImage {
-            primary_key: value.to_string(),
-            values: BTreeMap::from([(column.to_string(), value.to_string())]),
+            primary_key: value.clone(),
+            values: BTreeMap::from([(column.to_string(), value)]),
         };
         let Ok(key) = encode_index_key(&descriptor, &row) else {
             return Vec::new();
@@ -1183,49 +1267,6 @@ impl SqlEngine {
             .into_iter()
             .filter_map(|primary_key| self.physical_row(table_record, &primary_key))
             .collect()
-    }
-
-    fn execute_select(
-        &mut self,
-        table: &str,
-        projection: Projection,
-        predicate: Option<Predicate>,
-        limit: Option<usize>,
-    ) -> RsfResult<Vec<Row>> {
-        let table_record = self.table_record(table)?.clone();
-        let requested_projection = projection.clone();
-        let typed_predicate = type_select_predicate(&table_record, predicate)?;
-        let logical = QueryPlanner.select(
-            &table_record.descriptor,
-            projection_with_primary(&table_record, projection),
-            typed_predicate,
-            limit,
-        )?;
-        let physical = PhysicalPlanner.plan(
-            &table_record.descriptor,
-            &logical,
-            &PhysicalPlanningContext {
-                stats: self.table_stats(&table_record),
-                indexes: self.secondary_index_descriptors(&table_record),
-                stream_threshold_bytes: 64 * 1024,
-                cacheable: false,
-            },
-        )?;
-        let execution = PhysicalExecutor.execute(&physical)?;
-        let candidates = self.query_candidates(&table_record, &logical, &physical)?;
-        let result = QueryExecutor.execute(&logical, &candidates)?;
-        self.query_reports.push(SqlQueryReport {
-            logical,
-            physical,
-            execution,
-        });
-        let mut rows = result
-            .rows
-            .into_iter()
-            .map(|row| row_from_query_row(&table_record, row))
-            .collect::<RsfResult<Vec<_>>>()?;
-        apply_requested_projection(&mut rows, &requested_projection)?;
-        Ok(rows)
     }
 
     fn begin_transaction(
@@ -1473,38 +1514,6 @@ impl SqlEngine {
         self.physical_primary_row(table_record, primary_key)
     }
 
-    fn transaction_rows_for_table(&self, table: &str) -> Vec<Row> {
-        let mut rows = self
-            .committed_rows_for_table(table)
-            .into_iter()
-            .map(|row| (row.primary_key.clone(), row))
-            .collect::<BTreeMap<_, _>>();
-        if let Some(transaction) = &self.transaction {
-            for ((staged_table, primary_key), mutation) in &transaction.staged {
-                if staged_table != table {
-                    continue;
-                }
-                match mutation {
-                    SqlTransactionMutation::Set(columns) => {
-                        rows.insert(
-                            primary_key.clone(),
-                            Row {
-                                table: table.to_string(),
-                                primary_key: primary_key.clone(),
-                                columns: columns.clone(),
-                                version: transaction.snapshot,
-                            },
-                        );
-                    }
-                    SqlTransactionMutation::Delete => {
-                        rows.remove(primary_key);
-                    }
-                }
-            }
-        }
-        rows.into_values().collect()
-    }
-
     fn validate_transaction_candidate(
         &self,
         table: &str,
@@ -1596,17 +1605,17 @@ impl SqlEngine {
         }
         self.validate_row_columns(table, columns)?;
         self.validate_constraints_for_values(table, primary_key, columns)?;
-        let logical_key = logical_row_key(table, primary_key);
+        let logical_key = self.row_key(table, primary_key);
         let row_payload = self.encode_row_payload(table, primary_key, columns, version)?;
         self.apply_page_wal(
             table,
             RedoOperation::InsertRow,
             version,
-            1,
             checked_len_i32(&row_payload)?,
             logical_key.clone(),
             Some(row_payload.clone()),
         )?;
+        self.update_query_size(table, &logical_key, Some(row_payload.len()))?;
         self.kv
             .apply_committed_set(logical_key, row_payload.clone(), version);
         self.apply_primary_insert(table, primary_key, columns, pg, version)?;
@@ -1638,7 +1647,7 @@ impl SqlEngine {
         self.validate_row_columns(table, columns)?;
         self.validate_constraints_for_update(table, primary_key, &existing, columns)?;
         self.deindex_row(&existing)?;
-        let logical_key = logical_row_key(table, primary_key);
+        let logical_key = self.row_key(table, primary_key);
         let row_payload = self.encode_row_payload(table, primary_key, columns, version)?;
         let previous_bytes = self
             .kv
@@ -1649,11 +1658,11 @@ impl SqlEngine {
             table,
             RedoOperation::UpdateRow,
             version,
-            0,
             checked_len_i32(&row_payload)? - checked_usize_i32(previous_bytes)?,
             logical_key.clone(),
             Some(row_payload.clone()),
         )?;
+        self.update_query_size(table, &logical_key, Some(row_payload.len()))?;
         self.kv
             .apply_committed_set(logical_key, row_payload.clone(), version);
         self.apply_primary_update(table, primary_key, columns, pg, version)?;
@@ -1683,7 +1692,7 @@ impl SqlEngine {
         else {
             return Err(RsfError::new(ErrorCode::InvalidInput, "row is not present"));
         };
-        let logical_key = logical_row_key(table, primary_key);
+        let logical_key = self.row_key(table, primary_key);
         let previous_bytes = self
             .kv
             .get(&logical_key)
@@ -1693,11 +1702,11 @@ impl SqlEngine {
             table,
             RedoOperation::DeleteRow,
             version,
-            -1,
             -checked_usize_i32(previous_bytes)?,
             logical_key.clone(),
             None,
         )?;
+        self.update_query_size(table, &logical_key, None)?;
         self.kv.apply_committed_clear(logical_key, version);
         self.apply_primary_delete(table, primary_key)?;
         self.apply_tuple_delete(table, primary_key, version)?;
@@ -1706,98 +1715,12 @@ impl SqlEngine {
     }
 
     fn portal_elapsed_ms(&self, previous_report_count: usize) -> u64 {
-        if self.query_reports.len() > previous_report_count {
+        if self.query_report_count > previous_report_count {
             self.last_query_report()
                 .map(|report| report.execution.stages.len().max(1) as u64)
                 .unwrap_or(1)
         } else {
             1
-        }
-    }
-
-    fn query_candidates(
-        &self,
-        table: &Table,
-        logical: &QueryPlan,
-        physical: &PhysicalPlan,
-    ) -> RsfResult<Vec<QueryRow>> {
-        let access = physical
-            .operators
-            .iter()
-            .find_map(|operator| match operator.access {
-                AccessPath::CacheLookup | AccessPath::StreamRead { .. } => None,
-                _ => Some(&operator.access),
-            })
-            .ok_or_else(|| {
-                RsfError::new(
-                    ErrorCode::InvalidInput,
-                    "physical query plan has no row-producing access operator",
-                )
-            })?;
-
-        let rows = match access {
-            AccessPath::PrimaryKeyLookup { column } => {
-                let Some(value) = equality_text_value(logical.predicate.as_ref(), column) else {
-                    return Ok(Vec::new());
-                };
-                self.transaction_row(&table.name, &value)
-                    .into_iter()
-                    .collect::<Vec<_>>()
-            }
-            AccessPath::SecondaryIndexLookup { column, .. } => {
-                let Some(value) = equality_text_value(logical.predicate.as_ref(), column) else {
-                    return Ok(Vec::new());
-                };
-                self.transaction_rows_for_table(&table.name)
-                    .into_iter()
-                    .filter(|row| {
-                        row.columns
-                            .get(column)
-                            .is_some_and(|actual| actual == &value)
-                    })
-                    .collect()
-            }
-            AccessPath::RangeScan => self.transaction_rows_for_table(&table.name),
-            AccessPath::CacheLookup | AccessPath::StreamRead { .. } => Vec::new(),
-        };
-
-        rows.into_iter()
-            .map(|row| query_row_from_row(table, &row))
-            .collect()
-    }
-
-    fn table_stats(&self, table: &Table) -> TableStats {
-        if let Some(estimate) = self.stats.estimate(&table.descriptor.name)
-            && estimate.rows > 0
-        {
-            return TableStats {
-                table: estimate.table.clone(),
-                rows: estimate.rows,
-                average_row_bytes: estimate.average_row_bytes().max(1),
-            };
-        }
-        let rows = self
-            .committed_rows_for_table(&table.name)
-            .into_iter()
-            .collect::<Vec<_>>();
-        let row_count = rows.len() as u64;
-        let total_bytes = rows
-            .iter()
-            .map(|row| {
-                row.columns
-                    .iter()
-                    .map(|(column, value)| column.len() + value.len())
-                    .sum::<usize>()
-            })
-            .sum::<usize>() as u64;
-        TableStats {
-            table: table.descriptor.name.clone(),
-            rows: row_count,
-            average_row_bytes: if row_count == 0 {
-                1
-            } else {
-                (total_bytes / row_count).max(1)
-            },
         }
     }
 
@@ -1956,9 +1879,9 @@ impl SqlEngine {
         primary_key: &str,
         snapshot: ReadSnapshot,
     ) -> Option<&[u8]> {
-        let key = format!("table/{table}/pk/{primary_key}");
+        let key = self.row_key(table, primary_key);
         self.kv
-            .get_at(key.as_bytes(), snapshot)
+            .get_at(&key, snapshot)
             .map(|value| value.value.as_slice())
     }
 
@@ -2013,18 +1936,43 @@ impl SqlEngine {
         let (pages, report) =
             PageServer::recover_with_report(&snapshot.page_images, &snapshot.redo_records)
                 .map_err(page_replay_error)?;
-        let mut table_pages = BTreeMap::new();
+        let mut table_pages: BTreeMap<String, BTreeSet<PageId>> = BTreeMap::new();
+        let mut row_pages = BTreeMap::new();
         for page in pages.page_ids() {
-            if table_pages.insert(page.table.clone(), page).is_some() {
-                return Err(RsfError::new(
-                    ErrorCode::InvalidInput,
-                    "recovered page WAL contains more than one page for a SQL table",
-                ));
+            self.table_record(&page.table)?;
+            let image = pages
+                .read_image(&page, CommitVersion(0))
+                .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?;
+            let prefix = self.row_prefix(&page.table);
+            for slot in image
+                .slots()
+                .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?
+            {
+                if !slot.row_key.starts_with(&prefix) {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "foreign row key in recovered SQL page",
+                    ));
+                }
+                if !slot.deleted && row_pages.insert(slot.row_key, page.clone()).is_some() {
+                    return Err(RsfError::new(
+                        ErrorCode::CorruptionDetected,
+                        "duplicate live row in recovered SQL pages",
+                    ));
+                }
             }
+            table_pages
+                .entry(page.table.clone())
+                .or_default()
+                .insert(page);
         }
-        self.pages = pages;
-        self.table_pages = table_pages;
-        self.page_wal_base_images = snapshot
+        let next_page_lsn = report.high_lsn.0.checked_add(1).ok_or_else(|| {
+            RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "recovered SQL page LSN exhausted",
+            )
+        })?;
+        let base_images = snapshot
             .page_images
             .iter()
             .map(|bytes| {
@@ -2033,9 +1981,14 @@ impl SqlEngine {
                 Ok((image.id, bytes.clone()))
             })
             .collect::<RsfResult<_>>()?;
+        self.pages = pages;
+        self.table_pages = table_pages;
+        self.row_pages = row_pages;
+        self.page_wal_base_images = base_images;
         self.page_wal_redo_records = snapshot.redo_records;
         self.buffer = BufferPool::new(128).expect("valid buffer capacity");
-        self.next_page_lsn = report.high_lsn.0.saturating_add(1);
+        self.wal = WalGate::new(WalPolicy::new(1024 * 1024, true).expect("valid wal policy"));
+        self.next_page_lsn = next_page_lsn;
         Ok(report)
     }
 
@@ -2044,18 +1997,58 @@ impl SqlEngine {
         table: &str,
         operation: RedoOperation,
         commit_version: CommitVersion,
-        row_delta: i16,
         byte_delta: i32,
         row_key: Vec<u8>,
         row_payload: Option<Vec<u8>>,
     ) -> RsfResult<Option<PageFrame>> {
+        if operation == RedoOperation::SplitPage {
+            return Err(RsfError::new(
+                ErrorCode::InvalidInput,
+                "SQL page adapter requires row redo; use atomic relocation for page moves",
+            ));
+        }
         let decision = self.layout_decision_for_table(table)?;
         if decision.layout == SqlTableLayout::OrderedKv {
             return Ok(None);
         }
-        let page = self.ensure_table_page(table, decision.page_size)?;
+        if operation == RedoOperation::UpdateRow {
+            let page = self.row_page(&row_key)?;
+            let mut image = self
+                .pages
+                .read_image(&page, CommitVersion(0))
+                .map_err(|reason| RsfError::new(ErrorCode::CorruptionDetected, reason))?;
+            let payload = row_payload.as_ref().ok_or_else(|| {
+                RsfError::new(ErrorCode::InvalidInput, "update requires row payload")
+            })?;
+            if image.update_row(row_key.clone(), payload.clone()).is_err() {
+                return self
+                    .move_page_row(
+                        table,
+                        commit_version,
+                        row_key,
+                        payload.clone(),
+                        decision.page_size,
+                    )
+                    .map(Some);
+            }
+        }
+        let page = if operation == RedoOperation::InsertRow {
+            self.insertion_page(
+                table,
+                &row_key,
+                row_payload.as_deref().ok_or_else(|| {
+                    RsfError::new(ErrorCode::InvalidInput, "insert requires row payload")
+                })?,
+                decision.page_size,
+                None,
+            )?
+        } else {
+            self.row_page(&row_key)?
+        };
+        let index_key = row_key.clone();
+        let deleted = operation == RedoOperation::DeleteRow;
         let current = self.read_page_frame(&page, CommitVersion(0))?;
-        let lsn = self.allocate_page_lsn(commit_version);
+        let lsn = self.allocate_page_lsn(commit_version)?;
         let redo_bytes = byte_delta.unsigned_abs().max(1);
         match self.wal.append(page.clone(), lsn, redo_bytes) {
             WalDecision::Appended(_) => {}
@@ -2111,14 +2104,9 @@ impl SqlEngine {
             RedoOperation::DeleteRow => {
                 RedoRecord::delete_row(page.clone(), current.lsn, lsn, row_key)
             }
-            RedoOperation::SplitPage => RedoRecord::new(
-                page.clone(),
-                current.lsn,
-                lsn,
-                RedoOperation::SplitPage,
-                row_delta,
-                byte_delta,
-            ),
+            RedoOperation::SplitPage => {
+                unreachable!("split operations are rejected before WAL append")
+            }
         };
         let encoded_redo = redo.encode().map_err(|reason| {
             RsfError::new(
@@ -2151,48 +2139,12 @@ impl SqlEngine {
             "flush",
         )?;
         expect_buffer_ok(self.buffer.unpin(&page), "unpin")?;
+        if deleted {
+            self.row_pages.remove(&index_key);
+        } else {
+            self.row_pages.insert(index_key, page);
+        }
         Ok(Some(applied))
-    }
-
-    fn ensure_table_page(&mut self, table: &str, page_size: u32) -> RsfResult<PageId> {
-        self.table_record(table)?;
-        if let Some(page) = self.table_pages.get(table) {
-            return Ok(page.clone());
-        }
-        let page = PageId::new(table, 1);
-        match self
-            .pages
-            .create_page(page.clone(), CommitVersion(0), page_size)
-        {
-            PageDecision::Applied(_) => {
-                let image = self
-                    .pages
-                    .read_image(&page, CommitVersion(0))
-                    .map_err(|reason| {
-                        RsfError::new(
-                            ErrorCode::CorruptionDetected,
-                            format!("created relational page image was unreadable: {reason}"),
-                        )
-                    })?;
-                let encoded = image.encode().map_err(|reason| {
-                    RsfError::new(
-                        ErrorCode::CorruptionDetected,
-                        format!("created relational page image was not encodable: {reason}"),
-                    )
-                })?;
-                self.page_wal_base_images.insert(page.clone(), encoded);
-                self.table_pages.insert(table.to_string(), page.clone());
-                Ok(page)
-            }
-            PageDecision::Rejected { reason, .. } => Err(RsfError::new(
-                ErrorCode::InvalidInput,
-                format!("relational page creation rejected: {reason}"),
-            )),
-            other => Err(RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!("unexpected relational page creation decision {other:?}"),
-            )),
-        }
     }
 
     fn layout_decision_for_table(&self, table: &str) -> RsfResult<SqlLayoutDecision> {
@@ -2218,10 +2170,12 @@ impl SqlEngine {
         }
     }
 
-    fn allocate_page_lsn(&mut self, commit_version: CommitVersion) -> CommitVersion {
+    fn allocate_page_lsn(&mut self, commit_version: CommitVersion) -> RsfResult<CommitVersion> {
         let lsn = self.next_page_lsn.max(commit_version.0);
-        self.next_page_lsn = lsn.saturating_add(1);
-        CommitVersion(lsn)
+        self.next_page_lsn = lsn
+            .checked_add(1)
+            .ok_or_else(|| RsfError::new(ErrorCode::InvalidInput, "SQL page LSN exhausted"))?;
+        Ok(CommitVersion(lsn))
     }
 
     fn rebuild_index(&mut self, table: &str, descriptor: &IndexDescriptor) -> RsfResult<()> {
@@ -2236,10 +2190,10 @@ impl SqlEngine {
             .committed_rows_for_table(table)
             .into_iter()
             .filter(|row| row_has_index_values(row, descriptor))
-            .map(|row| row_image(&row))
-            .collect::<Vec<_>>();
+            .map(|row| row_image(table_record, &row))
+            .collect::<RsfResult<Vec<_>>>()?;
         let rebuild = planner.plan_rebuild(descriptor, &rows)?;
-        self.indexes.apply_rebuild(&rebuild);
+        self.indexes.apply_rebuild(&rebuild)?;
         Ok(())
     }
 
@@ -2248,7 +2202,7 @@ impl SqlEngine {
             return Vec::new();
         };
         self.kv
-            .scan_prefix(table_row_prefix(table).as_bytes())
+            .scan_prefix(&self.row_prefix(table))
             .into_iter()
             .filter_map(|(key, value)| {
                 self.physical_row_from_value(table_record, &key, &value.value, value.version)
@@ -2257,10 +2211,10 @@ impl SqlEngine {
     }
 
     fn physical_row(&self, table: &Table, primary_key: &str) -> Option<Row> {
-        let value = self.kv.get(&logical_row_key(&table.name, primary_key))?;
+        let value = self.kv.get(&self.row_key(&table.name, primary_key))?;
         self.physical_row_from_value(
             table,
-            &logical_row_key(&table.name, primary_key),
+            &self.row_key(&table.name, primary_key),
             &value.value,
             value.version,
         )
@@ -2288,7 +2242,7 @@ impl SqlEngine {
         bytes: &[u8],
         version: CommitVersion,
     ) -> Option<Row> {
-        let primary_key = primary_key_from_logical_row_key(&table.name, key).ok()?;
+        let primary_key = self.primary_key_from_row_key(&table.name, key).ok()?;
         self.row_from_physical_bytes(table, &primary_key, bytes, version)
             .ok()
     }
@@ -2327,7 +2281,7 @@ impl SqlEngine {
             return Ok(());
         }
         let plan = IndexPlanner::new(&table.descriptor, descriptors)?
-            .plan_insert(&table.descriptor, &row_image(row))?;
+            .plan_insert(&table.descriptor, &row_image(table, row)?)?;
         self.indexes.apply(&plan);
         Ok(())
     }
@@ -2344,7 +2298,7 @@ impl SqlEngine {
             return Ok(());
         }
         let plan = IndexPlanner::new(&table.descriptor, descriptors)?
-            .plan_delete(&table.descriptor, &row_image(row))?;
+            .plan_delete(&table.descriptor, &row_image(table, row)?)?;
         self.indexes.apply(&plan);
         Ok(())
     }
@@ -2470,7 +2424,14 @@ impl SqlEngine {
         version: CommitVersion,
     ) -> RsfResult<()> {
         let table_record = self.table_record(table)?;
-        let row = primary_row(table_record, primary_key, columns, pg, version);
+        let row = primary_row(
+            self.key_format,
+            table_record,
+            primary_key,
+            columns,
+            pg,
+            version,
+        );
         let descriptor = table_record.primary_descriptor.clone();
         match self.primary.insert(&descriptor, row)? {
             PrimaryDecision::Inserted(_) => Ok(()),
@@ -2494,7 +2455,14 @@ impl SqlEngine {
         version: CommitVersion,
     ) -> RsfResult<()> {
         let table_record = self.table_record(table)?;
-        let row = primary_row(table_record, primary_key, columns, pg, version);
+        let row = primary_row(
+            self.key_format,
+            table_record,
+            primary_key,
+            columns,
+            pg,
+            version,
+        );
         let descriptor = table_record.primary_descriptor.clone();
         match self
             .primary
@@ -2637,7 +2605,8 @@ impl SqlEngine {
 
     fn register_recovered_table(&mut self, recovered: SqlRecoveredTable) -> RsfResult<()> {
         let table_name = recovered.descriptor.name.0.clone();
-        self.register_table_descriptor_with_profile(recovered.descriptor, recovered.profile)?;
+        self.register_table_descriptor_with_profile(recovered.descriptor, recovered.profile)
+            .map_err(|err| RsfError::new(ErrorCode::CorruptionDetected, err.message))?;
         for constraint in recovered.constraints {
             match constraint {
                 ConstraintRule::PrimaryKey { .. } => {}
@@ -3579,11 +3548,25 @@ fn secondary_index_name(table: &str, column: &str) -> String {
     format!("{table}_{column}")
 }
 
-fn row_image(row: &Row) -> RowImage {
-    RowImage {
+fn row_image(table: &Table, row: &Row) -> RsfResult<RowImage> {
+    // Match the physical row codec's canonical values, including int/bool
+    // spellings. Primary-key payloads retain their actual logical key identity.
+    let values = table
+        .descriptor
+        .columns
+        .iter()
+        .filter_map(|column| {
+            row.columns.get(&column.name).map(|value| {
+                query_value_from_sql_string(&column.ty, value, &column.name)
+                    .and_then(query_value_to_sql_string)
+                    .map(|value| (column.name.clone(), value))
+            })
+        })
+        .collect::<RsfResult<BTreeMap<_, _>>>()?;
+    Ok(RowImage {
         primary_key: row.primary_key.clone(),
-        values: row.columns.clone(),
-    }
+        values,
+    })
 }
 
 fn row_has_index_values(row: &Row, descriptor: &IndexDescriptor) -> bool {
@@ -3703,6 +3686,7 @@ fn concrete_constraint_key(table: &Table, row: &Row, columns: &[String]) -> Opti
 }
 
 fn primary_row(
+    key_format: RelationalKeyFormat,
     table: &Table,
     primary_key: &str,
     columns: &BTreeMap<String, String>,
@@ -3715,37 +3699,15 @@ fn primary_row(
         .or_insert_with(|| primary_key.to_string());
     PrimaryRow {
         values,
-        row_key: logical_row_key(&table.name, primary_key),
+        row_key: key_format.row_key(&table.name, primary_key),
         placement_group,
         version,
     }
 }
 
+#[cfg(test)]
 fn logical_row_key(table: &str, primary_key: &str) -> Vec<u8> {
-    format!("table/{table}/pk/{primary_key}").into_bytes()
-}
-
-fn table_row_prefix(table: &str) -> String {
-    format!("table/{table}/pk/")
-}
-
-fn primary_key_from_logical_row_key(table: &str, key: &[u8]) -> RsfResult<String> {
-    let prefix = table_row_prefix(table);
-    let key = std::str::from_utf8(key).map_err(|_| {
-        RsfError::new(
-            ErrorCode::CorruptionDetected,
-            format!("physical row key for table {table} is not utf-8"),
-        )
-    })?;
-    key.strip_prefix(&prefix)
-        .filter(|primary_key| !primary_key.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| {
-            RsfError::new(
-                ErrorCode::CorruptionDetected,
-                format!("physical row key {key} does not match table {table}"),
-            )
-        })
+    RelationalKeyFormat::default().row_key(table, primary_key)
 }
 
 fn expect_buffer_ok(decision: BufferDecision, action: &str) -> RsfResult<()> {
@@ -3822,7 +3784,8 @@ fn outcome_row_count(outcome: &SqlOutcome) -> usize {
     match outcome {
         SqlOutcome::Selected { rows } => rows.len(),
         SqlOutcome::Inserted { .. } | SqlOutcome::Updated { .. } | SqlOutcome::Deleted { .. } => 1,
-        SqlOutcome::TableCreated { .. }
+        SqlOutcome::SchemaStaged { .. }
+        | SqlOutcome::TableCreated { .. }
         | SqlOutcome::IndexCreated { .. }
         | SqlOutcome::TransactionBegan { .. }
         | SqlOutcome::SavepointCreated { .. }
@@ -4064,6 +4027,163 @@ mod tests {
         assert_eq!(report.page_wal_tables, 1);
         assert_eq!(report.checkpoint_live_rows, 0);
         assert_eq!(report.checkpoint_tombstones, 1);
+    }
+
+    #[test]
+    fn oversized_sql_rows_are_rejected_before_protocol_commit() {
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut sql = SqlEngine::default();
+        sql.create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        let before = router.latest_version();
+        assert!(
+            sql.insert(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                "1",
+                BTreeMap::from([("name".into(), "x".repeat(5000))])
+            )
+            .is_err()
+        );
+        assert_eq!(router.latest_version(), before);
+        assert_eq!(sql.page_wal_report().pages, 0);
+        sql.insert(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "1",
+            BTreeMap::from([("name".into(), "old".into())]),
+        )
+        .unwrap();
+        let before = router.latest_version();
+        assert!(
+            sql.update(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                "1",
+                BTreeMap::from([("name".into(), "x".repeat(5000))])
+            )
+            .is_err()
+        );
+        assert_eq!(router.latest_version(), before);
+        assert_eq!(sql.select_pk("users", "1").unwrap().columns["name"], "old");
+    }
+
+    #[test]
+    fn invalid_multipage_snapshot_does_not_replace_live_sql_state() {
+        let mut sql = SqlEngine::default();
+        sql.create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        sql.insert(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "1",
+            BTreeMap::from([("name".into(), "old".into())]),
+        )
+        .unwrap();
+        let before = sql.page_wal_snapshot();
+        let mut image =
+            rsf_page::PageImage::new(PageId::new("users", 2), CommitVersion(2), 4096).unwrap();
+        image
+            .insert_row(logical_row_key("users", "1"), b"duplicate".to_vec())
+            .unwrap();
+        let mut bad = sql.page_wal_snapshot();
+        bad.page_images.push(image.encode().unwrap());
+        assert!(sql.recover_page_wal_snapshot(bad).is_err());
+        assert_eq!(sql.page_wal_snapshot(), before);
+        assert_eq!(sql.select_pk("users", "1").unwrap().columns["name"], "old");
+    }
+
+    #[test]
+    fn sql_page_wal_grows_moves_rows_and_recovers_many_pages() {
+        let mut router = FabricRouter::with_groups([PlacementGroupId(1)]);
+        let mut sql = SqlEngine::default();
+        sql.create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        for n in 0..160 {
+            sql.insert(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                n.to_string(),
+                BTreeMap::from([("name".to_string(), "x".repeat(2048))]),
+            )
+            .unwrap();
+        }
+        assert_eq!(sql.page_wal_report().pages, 160);
+        assert!(sql.page_wal_report().buffer_resident <= 128);
+        // Fill the last page, then grow the small row until relocation is required.
+        sql.insert(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "small",
+            BTreeMap::from([("name".to_string(), "a".repeat(100))]),
+        )
+        .unwrap();
+        let small_key = logical_row_key("users", "small");
+        let old_page = sql.row_pages[&small_key].clone();
+        sql.update(
+            &mut router,
+            PlacementGroupId(1),
+            "users",
+            "small",
+            BTreeMap::from([("name".to_string(), "b".repeat(3000))]),
+        )
+        .unwrap();
+        assert_ne!(sql.row_pages[&small_key], old_page);
+        sql.delete(&mut router, PlacementGroupId(1), "users", "42")
+            .unwrap();
+        let snapshot = sql.page_wal_snapshot();
+        let mut restarted = SqlEngine::default();
+        restarted
+            .create_table_with_profile("users", "id", ["id", "name"], SqlLayoutProfile::PageWal)
+            .unwrap();
+        restarted.recover_page_wal_snapshot(snapshot).unwrap();
+        assert_eq!(restarted.row_pages, sql.row_pages);
+        let (mut canonical, recovery) = SqlEngine::recover_from_committed_kv(
+            sql.committed_kv_for_recovery(),
+            sql.recovered_tables_for_checkpoint(),
+        )
+        .unwrap();
+        assert_eq!(recovery.live_rows, 160);
+        canonical
+            .update(
+                &mut router,
+                PlacementGroupId(1),
+                "users",
+                "small",
+                BTreeMap::from([("name".into(), "after-restart".into())]),
+            )
+            .unwrap();
+        assert_eq!(
+            canonical.select_pk("users", "small").unwrap().columns["name"],
+            "after-restart"
+        );
+        assert_eq!(restarted.page_wal_report().checkpoint_live_rows, 160);
+        assert_eq!(
+            restarted
+                .pages
+                .read_image(&restarted.row_pages[&small_key], CommitVersion(0))
+                .unwrap(),
+            sql.pages
+                .read_image(&sql.row_pages[&small_key], CommitVersion(0))
+                .unwrap()
+        );
+        restarted
+            .apply_page_wal(
+                "users",
+                RedoOperation::UpdateRow,
+                CommitVersion(1000),
+                16,
+                small_key.clone(),
+                Some(b"physical-update".to_vec()),
+            )
+            .unwrap();
     }
 
     #[test]

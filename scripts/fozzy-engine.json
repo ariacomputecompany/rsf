@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/ariacomputecompany/fozzy.git",
+  "commit": "30ef888219e3f822301fc6e6fd30644b1177ba9e",
+  "tree": "34484e4706f6215850d4b9154e5c2c2b732ed28b",
+  "version": "0.1.0",
+  "rust_toolchain": "1.92.0",
+  "files": {
+    "Cargo.toml": "f1ec9666b45b7ca54156b21faa2a15be6a402d1736f1c30499f519942ac18440",
+    "Cargo.lock": "c508b811a9489b28f70b42fc02d2a2dc162fa0e07e7f8efa5759818cd7f1baa8",
+    "src/platform/envinfo.rs": "22210205403879ab647cb413c314cc0a2c78e4d4479bd2f27ff7882d3e884f86"
+  }
+}

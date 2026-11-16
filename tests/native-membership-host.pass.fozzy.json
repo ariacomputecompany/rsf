@@ -1,0 +1,582 @@
+{
+  "version": 1,
+  "name": "native-membership-recovery-and-admission-debug-and-release",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_managed_membership_recovers_without_candidate_and_never_admits_clients_from_local_policy",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_client_rechecks_membership_ancestry_after_live_ordinary_installation",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_published_voters_require_admission_even_with_unmanaged_v1_identity",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_reconstructs_accepted_majority_and_keeps_stale_learner_clients_closed",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_competing_survivors_keep_highest_minority_b_and_original_receipt",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_coordinator_crash_preserves_an_actively_advancing_partial_input",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_two_groups_progress_with_removed_candidate_and_serve_inbound_queries",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    },
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "rsfd",
+        "--test",
+        "peer_process",
+        "native_prechoice_rejects_missing_or_valid_shortened_accepted_custody_without_repair",
+        "--",
+        "--nocapture"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

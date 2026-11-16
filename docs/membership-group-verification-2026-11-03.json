@@ -1,0 +1,711 @@
+{
+  "date": "2026-11-03",
+  "scope": "Streaming membership copy and independent custody fixture qualification",
+  "production_qualified": false,
+  "group_integration_sha256": "2138a5786e793d7fec7dcf1fd6da4aa0c6d83522ae893fb69ac3d968e250cf08",
+  "initial_selection_failure": {
+    "path": "artifacts/membership-group-qualification-20261103",
+    "source": "4f2d9f9a445f3ac848d88097c2d3af020a939d83913fdf8a446e5600baad2be7",
+    "codes": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 1,
+      "verify": 0,
+      "replay": 1,
+      "ci": 0
+    },
+    "engine": {
+      "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+      "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+      "version": "fozzy 0.1.0"
+    },
+    "hashes": {
+      "classification.json": "715f23e23416150d44e93f7193d25fe5596692e0c97a42fc73d7511bc0128bd5",
+      "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.ci.stdout": "7c5d9df10804fd37ec6854bf1b6804998e150c6694ae768e7bd8a4fadd3c8151",
+      "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.doctor.stdout": "6eabb1b783287542b5cfaf87309a278cf9f27be25991f5cab27d4eecc6265dab",
+      "contracts.execution.json": "a178adaa4192d212c0597622df71d3281e9ad768e23bd0b5686477d8b817f19c",
+      "contracts.host.fozzy.json": "5106adebe6e447083ba165ee5b82743c9acba4eed5402b9400c6b186e750b16d",
+      "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.host.stdout": "a4d651d39bdf1ad7575f570da6f79a606c4c1f34005bb51097fb1151886bfb8c",
+      "contracts.processes.json": "5f75d686dfa54dd117149e4725bdc185a476728f2a0d67c908b9ce89e7fb8188",
+      "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.replay.stdout": "da941e08a8def2053ce04c964f73ebd1581776b97f92b602b696afd741a3f7b7",
+      "contracts.rsf-storage.stderr": "86ee65a13241bc2575316b804c488cfff05d8638ff146cb37b496379969c3c7b",
+      "contracts.rsf-storage.stdout": "eee0e9180aba849aa9f8cace845ae25b562eae4f77ec192e040dcc454ad2b3f4",
+      "contracts.rsf-vsr.stderr": "46c7d0cc53ebd7eb66802b7e0e66785595eacafcdfe05ec9ff20d564d67ab406",
+      "contracts.rsf-vsr.stdout": "0dec1ce5a837769c8bbb2770e0295a4967f6567b18df71547ebeb61342c5bdf8",
+      "contracts.source-after.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+      "contracts.source-before.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+      "contracts.strict.fozzy.json": "a58de3a0770285342eb7cf658fe05baca79569489458a198143cec579eee7928",
+      "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.strict.stdout": "b2b221518710759aade80f03d41c747be113a3402085b07fe92aa9fa8213d35b",
+      "contracts.trace.fozzy": "3f7e305ddf2eed6dc1c4dc784f6a2efa2082a54488b1e1f32c0a585341a0f9c5",
+      "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.verify.stdout": "5fd71960f04966cac1ca6dd92d522f777221aef905429fd48bffffdaca81d539",
+      "execute.py": "9c8b041a4e200cd11d1c9339ac261f861a73f0b7e2cdfd071d7f74ab722e6031",
+      "original-manifest.json": "13bac99bc0380562e4c048b31d4d64bd55a46d04d638da1d8d60335d610f0294",
+      "run-contract.py": "6010123b456e231aadd5424d37f82ac4f112885ef5e830600c1ca3f335462144",
+      "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "runner-contracts.stdout": "215d04af080062dee9c3eb709039619fe984c88ce0df0e8ae8a6ae5061dc1b21",
+      "vsr.list.stderr": "58517eab9949746810c6cd319f782fd10e847c84a15fbdad7b9b9499373c7ab4",
+      "vsr.list.stdout": "0c27d911fc04c6a731f5c1b3a26e2e03ebd6a45823e644062740533294966a36"
+    },
+    "classification": {
+      "status": "coverage-harness failure; not behavioral red",
+      "source": "4f2d9f9a445f3ac848d88097c2d3af020a939d83913fdf8a446e5600baad2be7",
+      "actual_tests_passed": 9,
+      "actual_tests_failed": 0,
+      "expected_but_not_selected": 4,
+      "reason": "Four manifest names omitted the store module; exact census rejected incomplete coverage.",
+      "corrected_inventory": "artifacts/membership-group-qualification-v2-20261103/inventory.json"
+    },
+    "limit": "Coverage failure: nine actual tests passed; four names did not select tests. This is not a behavioral red result."
+  },
+  "targeted_contracts": {
+    "path": "artifacts/membership-group-qualification-v2-20261103",
+    "source": "4f2d9f9a445f3ac848d88097c2d3af020a939d83913fdf8a446e5600baad2be7",
+    "codes": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 0,
+      "verify": 0,
+      "replay": 0,
+      "ci": 0
+    },
+    "engine": {
+      "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+      "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+      "version": "fozzy 0.1.0"
+    },
+    "hashes": {
+      "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.ci.stdout": "0e13590c40c5a029d58f27269f6bebf2bd1a41186cebdcba9b589f8d832ce8c4",
+      "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.doctor.stdout": "404a8c47659b4b7c7fd68f02018f5a0edede8f8518d8c1443099437ef1a01e61",
+      "contracts.execution.json": "d0c291e627beab9b5f5cca684aa1740ade608a020185908dc269fadad17f0af0",
+      "contracts.host.fozzy.json": "ef61bd8eaf1c0c35be4c449cff6ffd4d037afefda2c86ddfe7ea50aadcda3abd",
+      "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.host.stdout": "55a71d213be88eb728dff61d3a51e0c67acac938289b79f222a04ed10d3bf38d",
+      "contracts.processes.json": "94c9e27280ef40b58078df21e07c77e0514b23e6bdc19c5f8b33acf4c1af719d",
+      "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.replay.stdout": "17b2d8ef31f69fbea42ba02b3034aaa428637e34092d575e79ec2b19cd385ab2",
+      "contracts.rsf-storage.stderr": "81f915a15c725032c93b16a9a1231c7b7a63a6be7a98165d2cbd22ddd6a60b64",
+      "contracts.rsf-storage.stdout": "c9541b1d5ca31fd93e3ee14f035c524bfd9786990cb8ffdac4b584af1fd78c5d",
+      "contracts.rsf-vsr.stderr": "0d70f2df5b4d3991a6208b09abdf6146ae94f1ad4e451d74633218f6e4bd5e51",
+      "contracts.rsf-vsr.stdout": "50984b8caca262522e293ed46e07376401a11a680973311a363bcfd0fd7c6971",
+      "contracts.source-after.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+      "contracts.source-before.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+      "contracts.strict.fozzy.json": "9120b44916701e97884c798d2021387d5c3c2501d2eec4dc432dc60844022786",
+      "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.strict.stdout": "6e4737113cd5435a8ac777eb1f8d05aac1df843c41b691e6907313c62eba09a2",
+      "contracts.trace.fozzy": "c8c4d46d424810c9e014604db82e34df537cf6e09f6d12f9f6bdda6ec7c18bea",
+      "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.verify.stdout": "a8685fb8b66c5d9da3df52d944e4e365997fd8cc042b3282995f7e21a2845d4f",
+      "execute.py": "e3b148c4adc94469afec09b0ce5d8df7eeef1ae7f00a59cf32ead0be61b99d9c",
+      "inventory.json": "c31cf2700f8e82bcf078e84d9c3cb7660c3b4a63ca31c8aab0d8da2036e562b5",
+      "run-contract.py": "77015c5bfa49733bf34411ab6171f3a60dd892c6a50078f5c2c1a3ccbcbbfe05",
+      "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "runner-contracts.stdout": "3af1fde2fed5bfe6ac6995b0c057006a4725ab3725c9a7d181f1a4f8aae5a8e1"
+    },
+    "tests": [
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "rsf-storage",
+          "--lib",
+          "--",
+          "--show-output",
+          "store::group::tests::owned::owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation",
+          "store::group::tests::owned::owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix",
+          "store::group::tests::owned::owned_group_releases_each_payload_before_polling_next_and_fences_unwind",
+          "store::group::tests::owned::owned_groups_keep_real_sync_fault_and_rotation_boundaries",
+          "store::group::tests::owned::owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error"
+        ],
+        "exit": 0,
+        "expected": [
+          "store::group::tests::owned::owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation",
+          "store::group::tests::owned::owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix",
+          "store::group::tests::owned::owned_group_releases_each_payload_before_polling_next_and_fences_unwind",
+          "store::group::tests::owned::owned_groups_keep_real_sync_fault_and_rotation_boundaries",
+          "store::group::tests::owned::owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error"
+        ],
+        "actual": [
+          [
+            "store::group::tests::owned::owned_group_releases_each_payload_before_polling_next_and_fences_unwind",
+            "ok"
+          ],
+          [
+            "store::group::tests::owned::owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix",
+            "ok"
+          ],
+          [
+            "store::group::tests::owned::owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation",
+            "ok"
+          ],
+          [
+            "store::group::tests::owned::owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error",
+            "ok"
+          ],
+          [
+            "store::group::tests::owned::owned_groups_keep_real_sync_fault_and_rotation_boundaries",
+            "ok"
+          ]
+        ],
+        "census_exact": true,
+        "pass": true
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "rsf-vsr",
+          "--lib",
+          "--",
+          "--show-output",
+          "membership::decision::disk::copy::tests::local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes",
+          "membership::decision::disk::copy::tests::local_copy_late_encoding_error_fences_store_and_existing_caller_latch",
+          "membership::decision::disk::copy::tests::local_copy_failure_guard_survives_unwind_without_reenabling_caller",
+          "membership::decision::disk::copy::tests::local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries",
+          "membership::staging::store::tests::group_copy_tests::unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal",
+          "membership::staging::store::tests::group_copy_tests::complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected",
+          "membership::decision::store::tests::bulk_input::membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal",
+          "membership::decision::store::tests::retained::stage_performance::created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry"
+        ],
+        "exit": 0,
+        "expected": [
+          "membership::decision::disk::copy::tests::local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes",
+          "membership::decision::disk::copy::tests::local_copy_late_encoding_error_fences_store_and_existing_caller_latch",
+          "membership::decision::disk::copy::tests::local_copy_failure_guard_survives_unwind_without_reenabling_caller",
+          "membership::decision::disk::copy::tests::local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries",
+          "membership::staging::store::tests::group_copy_tests::unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal",
+          "membership::staging::store::tests::group_copy_tests::complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected",
+          "membership::decision::store::tests::bulk_input::membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal",
+          "membership::decision::store::tests::retained::stage_performance::created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry"
+        ],
+        "actual": [
+          [
+            "membership::decision::disk::copy::tests::local_copy_failure_guard_survives_unwind_without_reenabling_caller",
+            "ok"
+          ],
+          [
+            "membership::decision::disk::copy::tests::local_copy_late_encoding_error_fences_store_and_existing_caller_latch",
+            "ok"
+          ],
+          [
+            "membership::decision::disk::copy::tests::local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes",
+            "ok"
+          ],
+          [
+            "membership::decision::disk::copy::tests::local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries",
+            "ok"
+          ],
+          [
+            "membership::decision::store::tests::bulk_input::membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal",
+            "ok"
+          ],
+          [
+            "membership::decision::store::tests::retained::stage_performance::created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry",
+            "ok"
+          ],
+          [
+            "membership::staging::store::tests::group_copy_tests::unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal",
+            "ok"
+          ],
+          [
+            "membership::staging::store::tests::group_copy_tests::complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected",
+            "ok"
+          ]
+        ],
+        "census_exact": true,
+        "pass": true
+      }
+    ]
+  },
+  "first_affected_failure": {
+    "path": "artifacts/membership-group-affected-20261103",
+    "source": "4f2d9f9a445f3ac848d88097c2d3af020a939d83913fdf8a446e5600baad2be7",
+    "codes": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 1,
+      "verify": 0,
+      "replay": 1,
+      "ci": 0
+    },
+    "engine": {
+      "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+      "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+      "version": "fozzy 0.1.0"
+    },
+    "hashes": {
+      "classification.json": "219ff146aaa261e0243a641c41371c022b9296bd54dc9cced7f2d297f0f106aa",
+      "contracts.cargo.stderr": "204d96010fc5dfe51fc59cb8c22c798c13e02fe6f0b73a789fc63d3ec2424ef4",
+      "contracts.cargo.stdout": "d4a081660b7b3c15c8a399d0efbf7740fe476074a219bc9b1c1428d5567c74a2",
+      "contracts.census.json": "eb1a01e4b674ce29d6c073dc889e2025676fd8079c2ca2bdffb58f81f09c2c6f",
+      "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.ci.stdout": "dcdb813d46df1858e7fde4f0dd0eb69d29f45e410d7b0823104dfa970d1f3f23",
+      "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.doctor.stdout": "6c372309389fda926b16d5075c97b42b407df07d46969e249448707abb1ad12f",
+      "contracts.execution.json": "f671963b48984ddb1c57f95cd70b83f26869f0654743340d1d0d96f75888024d",
+      "contracts.host.fozzy.json": "5fb1e2b8dc1a489052b4f6a1a44bab6aa7e99b92f9247fbb82d490b0c854d513",
+      "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.host.stdout": "89096cf415eaa86b4f5136c66be3f1e6445eba059bc6fc117ab2d4a49a7c3bc9",
+      "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.replay.stdout": "d500444b3854148019fafa0c0d7e79e12cc2a583276c938fd6d3f600d7dfdd15",
+      "contracts.source-after.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+      "contracts.source-before.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+      "contracts.strict.fozzy.json": "3bf68ff76d87886be492e84853bd6008ef62c6d5d69f3355f3a57c5649b6d883",
+      "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.strict.stdout": "cb0d4baaf90a106d3bfea97ca6f33acc145127eca2cf8cb101f1963000ebc452",
+      "contracts.trace.fozzy": "aa6b2a297fd7ed390d4d7565607922a2b3785557629b12e67554955d6afa0f17",
+      "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.verify.stdout": "5852caec37386b934a3346d9766cd18bdde57ecd8935e25ccbf971afe283e903",
+      "execute.py": "e78ac8683731f7fa42463269f45fb41d2ac6e5104fef3d898e80a8a9040add1d",
+      "inventory.json": "eb6421b9a71ce14760f5a6d4f40a218431dd9c278a9b16692dae03eb74a0401a",
+      "run-contract.py": "c5fe80316371de7fcbaf087c2ca7639c0f7f73b6287a35c704632e54b46a21cd",
+      "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "runner-contracts.stdout": "215d04af080062dee9c3eb709039619fe984c88ce0df0e8ae8a6ae5061dc1b21"
+    },
+    "classification": {
+      "status": "failed actual host package run",
+      "source": "4f2d9f9a445f3ac848d88097c2d3af020a939d83913fdf8a446e5600baad2be7",
+      "tests": {
+        "passed": 260,
+        "failed": 1,
+        "ignored": 0
+      },
+      "packages": {
+        "rsf-protocol": {
+          "passed": 57,
+          "failed": 0
+        },
+        "rsf-rpc": {
+          "passed": 95,
+          "failed": 0
+        },
+        "rsf-storage": {
+          "passed": 108,
+          "failed": 1
+        },
+        "rsf-vsr": "not reached"
+      },
+      "failure": "---- store::custody::tests::trusted_ancestor_alias_parent_route_is_preserved_but_final_owned_alias_is_rejected stdout ----\n\nthread 'store::custody::tests::trusted_ancestor_alias_parent_route_is_preserved_but_final_owned_alias_is_rejected' (4297395) panicked at crates/rsf-storage/src/store/custody/tests.rs:151:69:\ncalled `Result::unwrap()` on an `Err` value: RsfError { code: CorruptionDetected, message: \"cannot identify store root: No such file or directory (os error 2)\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "limits": [
+        "Fixture Drop removed available fixture state; no original failing fixture tree was preserved.",
+        "The missing-root cause is not established by this output. Timestamp-only shared helper names are being investigated with a deterministic same-clock collision regression.",
+        "RPC success does not retroactively clear the earlier four workspace deadline failures."
+      ],
+      "hashes": {
+        "run-contract.py": "c5fe80316371de7fcbaf087c2ca7639c0f7f73b6287a35c704632e54b46a21cd",
+        "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.execution.json": "f671963b48984ddb1c57f95cd70b83f26869f0654743340d1d0d96f75888024d",
+        "contracts.cargo.stdout": "d4a081660b7b3c15c8a399d0efbf7740fe476074a219bc9b1c1428d5567c74a2",
+        "contracts.strict.fozzy.json": "3bf68ff76d87886be492e84853bd6008ef62c6d5d69f3355f3a57c5649b6d883",
+        "contracts.host.fozzy.json": "5fb1e2b8dc1a489052b4f6a1a44bab6aa7e99b92f9247fbb82d490b0c854d513",
+        "contracts.trace.fozzy": "aa6b2a297fd7ed390d4d7565607922a2b3785557629b12e67554955d6afa0f17",
+        "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.census.json": "eb1a01e4b674ce29d6c073dc889e2025676fd8079c2ca2bdffb58f81f09c2c6f",
+        "runner-contracts.stdout": "215d04af080062dee9c3eb709039619fe984c88ce0df0e8ae8a6ae5061dc1b21",
+        "execute.py": "e78ac8683731f7fa42463269f45fb41d2ac6e5104fef3d898e80a8a9040add1d",
+        "contracts.cargo.stderr": "204d96010fc5dfe51fc59cb8c22c798c13e02fe6f0b73a789fc63d3ec2424ef4",
+        "contracts.ci.stdout": "dcdb813d46df1858e7fde4f0dd0eb69d29f45e410d7b0823104dfa970d1f3f23",
+        "contracts.source-before.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+        "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.replay.stdout": "d500444b3854148019fafa0c0d7e79e12cc2a583276c938fd6d3f600d7dfdd15",
+        "contracts.source-after.txt": "d805f7b21b967b33fa24f4d0ca86b214747c6c86fe28738dff691a7517665411",
+        "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "inventory.json": "eb6421b9a71ce14760f5a6d4f40a218431dd9c278a9b16692dae03eb74a0401a",
+        "contracts.doctor.stdout": "6c372309389fda926b16d5075c97b42b407df07d46969e249448707abb1ad12f",
+        "contracts.strict.stdout": "cb0d4baaf90a106d3bfea97ca6f33acc145127eca2cf8cb101f1963000ebc452",
+        "contracts.verify.stdout": "5852caec37386b934a3346d9766cd18bdde57ecd8935e25ccbf971afe283e903",
+        "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.host.stdout": "89096cf415eaa86b4f5136c66be3f1e6445eba059bc6fc117ab2d4a49a7c3bc9"
+      }
+    },
+    "census": {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-vsr",
+        "-p",
+        "rsf-protocol",
+        "-p",
+        "rsf-rpc"
+      ],
+      "exit": 101,
+      "tests": {
+        "passed": 260,
+        "failed": 1,
+        "ignored": 0
+      },
+      "named_tests": 261,
+      "required": {
+        "actual_promoted_pointer_and_owner_fixed_metadata_reject_damage_and_preserve_cold_replay": false,
+        "cached_published_learner_success_requires_outer_and_inner_custody_before_mutation": false,
+        "complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected": false,
+        "created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry": false,
+        "each_stage_effect_rejects_its_first_custody_fault_before_callback_or_target_publication": false,
+        "fixed_metadata_preserves_default_missing_pointer_and_valid_installed_generation": false,
+        "fixed_pointer_seal_and_marker_reject_sparse_trailing_truncated_and_corrupt_files_without_repair": false,
+        "fixed_publication_reader_bounds_even_an_unending_source_to_one_extra_byte": false,
+        "fixed_publication_reader_propagates_io_failure_without_returning_partial_success": false,
+        "immutable_capture_rejects_equal_byte_replacement_before_scanning": true,
+        "immutable_custody_rejects_replacement_alias_and_hardlink_without_reading_wal_on_validation": true,
+        "immutable_recovery_never_repairs_torn_active_tail_or_creates_missing_sidecars": true,
+        "local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries": false,
+        "local_copy_failure_guard_survives_unwind_without_reenabling_caller": false,
+        "local_copy_late_encoding_error_fences_store_and_existing_caller_latch": false,
+        "local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes": false,
+        "managed_anchor_validation_survives_temporarily_taken_recovery": true,
+        "managed_startup_handoff_cannot_substitute_a_for_distinct_chosen_b": true,
+        "managed_startup_handoff_reuses_exact_a_without_rereading_its_wal": true,
+        "membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal": false,
+        "membership_decision_exact_retries_reject_lost_journal_with_complete_input_intact": false,
+        "membership_decision_metadata_preserves_historical_acceptance_without_scrubbing_input_data": false,
+        "membership_decision_post_append_custody_failure_returns_no_ack_or_logical_swap": false,
+        "membership_decision_read_only_failure_latches_even_after_exact_path_restoration": false,
+        "owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error": true,
+        "owned_group_releases_each_payload_before_polling_next_and_fences_unwind": true,
+        "owned_groups_keep_real_sync_fault_and_rotation_boundaries": true,
+        "owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation": true,
+        "owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix": true,
+        "real_tls_cached_learner_ack_rejects_lost_custody_until_validated_restart": true,
+        "real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched": true,
+        "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": true,
+        "real_tls_managed_cached_stage_rejects_lost_learner_without_receipt_or_application_work": true,
+        "real_tls_managed_cached_stage_survives_auxiliary_journal_loss_but_not_hosted_loss": true,
+        "real_tls_managed_changed_learner_revalidates_original_authority_before_caching": true,
+        "real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receipt": true,
+        "real_tls_managed_decision_retries_reject_warm_journal_loss_before_durable_ack": true,
+        "real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": true,
+        "real_tls_managed_new_choice_revalidates_b_even_when_learner_token_is_unchanged": true,
+        "real_tls_managed_promise_and_accept_reject_lost_learner_before_journal_mutation": true,
+        "real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise": true,
+        "real_tls_stage_loss_cannot_block_independently_backed_historical_publication": true,
+        "sealed_stage_cold_recovery_never_truncates_source_or_selected_torn_tail": false,
+        "stage_callback_and_publication_hook_cannot_repair_or_acknowledge_lost_custody": false,
+        "stage_lock_creation_never_follows_a_symlink_substituted_after_precheck": false,
+        "stage_lock_rejects_existing_symlink_and_hardlink_without_changing_target": false,
+        "stage_own_receipt_and_publication_transitions_preserve_first_proof_and_need_no_wal_read": false,
+        "stage_owner_keeps_original_descriptor_locked_and_rejects_renamed_path_replacement": false,
+        "stage_report_first_observes_each_owned_loss_and_stays_failed_after_original_inode_restore": false,
+        "stage_root_replacement_and_retained_publication_loss_require_fresh_owner": false,
+        "unpublished_token_error_does_not_poison_later_valid_publication_and_retries": false,
+        "unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal": false
+      },
+      "valid": false
+    }
+  },
+  "fixture_collision": {
+    "red": {
+      "path": "artifacts/custody-fixture-collision-20261103/red",
+      "source": "a8aebfe604c1955327e9d8c0e77bf2efd051ceb557859118dea568b08ff3e645",
+      "codes": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "engine": {
+        "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "version": "fozzy 0.1.0"
+      },
+      "hashes": {
+        "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.ci.stdout": "007f5c3d6ea8f6942fae6534fa69b35b207c4fea90e4235f859df76e96762eab",
+        "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.doctor.stdout": "a09dffac6d833d09e939be4206558767001bea282b6f1a1203794fdec2a9a21f",
+        "contracts.execution.json": "b1a17ad48da5bde922be1bce818f1532bb3d2237458192519e9f484eb3e0cd43",
+        "contracts.host.fozzy.json": "4914ab4b8c9290979058a4fc76b815969426f0417963c15c02d131e3159c34b6",
+        "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.host.stdout": "b038ce0340a1e8003536e87ff5c08e28bdcf1d2121ff4a78455c0cfaebd610c3",
+        "contracts.processes.json": "90c2825a30bcf2eb9b221e5c94aeedafd95d2761a15f6d97fe77dc4bd12f69c5",
+        "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.replay.stdout": "5d3e5b3f802c8e1968d59ba8beaa4ee4dd44d6512c12ed1c8edd39361b3965d3",
+        "contracts.rsf-storage.stderr": "67c4c96fc4d402fcabecca760772c15ba9a6d4b98606619191a9e73f4dae9cdb",
+        "contracts.rsf-storage.stdout": "78939c7800a5eed16fe21ba41d829ff495e23fdb155cc88238b1e380724094ce",
+        "contracts.source-after.txt": "64c726495690a91da89a8c13e75269ddc69e1a0a554e2132a74a83c75c2db5bd",
+        "contracts.source-before.txt": "64c726495690a91da89a8c13e75269ddc69e1a0a554e2132a74a83c75c2db5bd",
+        "contracts.strict.fozzy.json": "26230edb6752929a4ff22742ccc84f4cb8e045c95fe0f647a2a330543b0780fc",
+        "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.strict.stdout": "52a098a53e78a96e74399d765826d91904e9370090da26e99c8218d9e0637e38",
+        "contracts.trace.fozzy": "70f07187b054407f050e380445f2a754495768499ffdcb3e9391053edb478798",
+        "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.verify.stdout": "2c9b20c825e8178e98d058ac50eee98671869d2d21da65186e1c2d774fa7f7a2",
+        "execute.py": "67d0edd53c167287ab7197d046893ef381cd251cf5ffb4d185634bc70fd360db",
+        "inventory.json": "b9d853df81bb2b2d2f38a3f29d6d43b35ee05e10aa02097a736e372fd49d864c",
+        "run-contract.py": "d72763743b2bef4877a18229c14104fab39f8fe4cedc733ea9759484ac4ac32a",
+        "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runner-contracts.stdout": "215d04af080062dee9c3eb709039619fe984c88ce0df0e8ae8a6ae5061dc1b21"
+      },
+      "tests": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-storage",
+            "--lib",
+            "--",
+            "--show-output",
+            "store::custody::tests::same_clock_fixture_drop_preserves_another_owned_store"
+          ],
+          "exit": 101,
+          "expected": [
+            "store::custody::tests::same_clock_fixture_drop_preserves_another_owned_store"
+          ],
+          "actual": [
+            [
+              "store::custody::tests::same_clock_fixture_drop_preserves_another_owned_store",
+              "FAILED"
+            ]
+          ],
+          "census_exact": true,
+          "pass": false
+        }
+      ],
+      "fixture_source_sha256": "0ae690faef6671a422190cad0843a036b11559b16aedf443340235e129b910e8"
+    },
+    "green": {
+      "path": "artifacts/custody-fixture-collision-20261103/green",
+      "source": "97b195e9157471d7aa59c3e22b4ac389aa2f41405b3d205447a37d43269b47f5",
+      "codes": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "engine": {
+        "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+        "version": "fozzy 0.1.0"
+      },
+      "hashes": {
+        "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.ci.stdout": "bf71631047e0ba9f92f426756ba1213ac79a2e6b36f4700d6a106e2255bd9564",
+        "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.doctor.stdout": "aa7f8ffb495ae625d38b3289cd8332d8fb94641c8f202750fbb32cf0cb89a702",
+        "contracts.execution.json": "f80203ebebd20c68fcb7326562df5c1cc1503d775f914fd26b004639fe6a2905",
+        "contracts.host.fozzy.json": "0a22b1625028c710ee8a9680cacdf21c2acfd1cb009964ca5f9e7170029a65f8",
+        "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.host.stdout": "51a45fa32cc376c5d67583d846fb505d7ef6cf43fcd028853852b195c77f7bb7",
+        "contracts.processes.json": "4eff871016c3f83c3dfaee65ed7c6e52c87714c083b519cee42f974afc276330",
+        "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.replay.stdout": "766fea7e5560a488d21ed3175aa2d7f5dd5f08cff72cf515681bed6db491804e",
+        "contracts.rsf-storage.stderr": "fff18f17e3ef44e85fa1229efa177eef55e9db741030bf37a2d5a8932613f1ba",
+        "contracts.rsf-storage.stdout": "47caad7323de67d786b94b5f0d13fbef15c3930b39e22195d9c28935237c52b2",
+        "contracts.source-after.txt": "c950042140ffce06aec1572069c03fcfe4ff8675ab0443d01977227aa5c170c0",
+        "contracts.source-before.txt": "c950042140ffce06aec1572069c03fcfe4ff8675ab0443d01977227aa5c170c0",
+        "contracts.strict.fozzy.json": "660c82dfc75e447cf3ba056d4e84fd95cfbd47a11e6f9ff6231dee0e32e4a680",
+        "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.strict.stdout": "e015e8dcf00b896a1811f05462f225f568af4b642a3713dbe46d5b25c922c5fe",
+        "contracts.trace.fozzy": "5b8e733bbc65d742568eb86ca2a5f934bdf1438aa4decce474439835fb5229d7",
+        "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "contracts.verify.stdout": "aed252b2116d26d8b87c1798f6314931aafa399e486e3d49d2115c91f32de054",
+        "execute.py": "82de640b683e994c7f626e4bf0a4a4de1c8292e63358aa068bd02bc18a075a8c",
+        "inventory.json": "b9d853df81bb2b2d2f38a3f29d6d43b35ee05e10aa02097a736e372fd49d864c",
+        "run-contract.py": "d72763743b2bef4877a18229c14104fab39f8fe4cedc733ea9759484ac4ac32a",
+        "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runner-contracts.stdout": "3af1fde2fed5bfe6ac6995b0c057006a4725ab3725c9a7d181f1a4f8aae5a8e1"
+      },
+      "tests": [
+        {
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "rsf-storage",
+            "--lib",
+            "--",
+            "--show-output",
+            "store::custody::tests::same_clock_fixture_drop_preserves_another_owned_store"
+          ],
+          "exit": 0,
+          "expected": [
+            "store::custody::tests::same_clock_fixture_drop_preserves_another_owned_store"
+          ],
+          "actual": [
+            [
+              "store::custody::tests::same_clock_fixture_drop_preserves_another_owned_store",
+              "ok"
+            ]
+          ],
+          "census_exact": true,
+          "pass": true
+        }
+      ],
+      "fixture_source_sha256": "a538986606ea48c8427a84d5f4f2dc3f511345b6586aa17309329da238bf16bb"
+    },
+    "scope": "Same clock values injected into the actual existing fixture helper; actual storage owners and real fixture destruction. Exclusive directory reservation prevents cross-fixture deletion.",
+    "limit": "This deterministically reproduces a fixture naming defect. The original transient missing-root failure did not preserve enough state to prove that its cause was this collision.",
+    "clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "source": "97b195e9157471d7aa59c3e22b4ac389aa2f41405b3d205447a37d43269b47f5",
+      "hashes": {
+        "clippy.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "clippy.stderr": "e370360abb95220e8400bcfc6af87f4cbbc606c336c4b2d7000b11639cb6d994"
+      }
+    }
+  },
+  "complete_affected_packages": {
+    "path": "artifacts/membership-group-affected-v2-20261103",
+    "source": "97b195e9157471d7aa59c3e22b4ac389aa2f41405b3d205447a37d43269b47f5",
+    "codes": {
+      "doctor": 0,
+      "strict": 0,
+      "host": 0,
+      "verify": 0,
+      "replay": 0,
+      "ci": 0
+    },
+    "engine": {
+      "path": "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+      "sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+      "version": "fozzy 0.1.0"
+    },
+    "hashes": {
+      "contracts.cargo.stderr": "509a070c830c721772bae2ecdade3fbf1ee5a6bae83de71419e73ef3313a1332",
+      "contracts.cargo.stdout": "b7046fe385b8d6fe912155b01612a4cde828652478ab6c433886d6a2b0a3a0fe",
+      "contracts.census.json": "06fe51e7a270d41f01ffdfdfa63043d60e18a40c645478241d23d504958263a9",
+      "contracts.ci.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.ci.stdout": "bc58770e41969a9f82790f8fca1d068d00b0a5ca840d5f92961e8ee47462955c",
+      "contracts.doctor.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.doctor.stdout": "68375e75b255a2d289bc19e959eae17e176d177a9fde9ae7ea055d54c4ed4eb9",
+      "contracts.execution.json": "a7532a1e2a4367a7af04d2792836a89dbca15d630a086f0331429bb832aed932",
+      "contracts.host.fozzy.json": "36824cdae837c843c259f030d5a294676e4c6253cf306b78d63e4a854ee580db",
+      "contracts.host.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.host.stdout": "17a1d3f1aed1bb401e85b19fcda70340161c376fea8cec2639ac03d66aeff116",
+      "contracts.replay.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.replay.stdout": "e2107400438c00f6cf45f30b442084fc2510db97ba75c8390c66e81c72852842",
+      "contracts.source-after.txt": "c950042140ffce06aec1572069c03fcfe4ff8675ab0443d01977227aa5c170c0",
+      "contracts.source-before.txt": "c950042140ffce06aec1572069c03fcfe4ff8675ab0443d01977227aa5c170c0",
+      "contracts.strict.fozzy.json": "5787ba8a20c152a16f5f8a2edb8b5536dd85f1003d71bf7452a4b98f72fdb76a",
+      "contracts.strict.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.strict.stdout": "d3d4ab01f578f34614076da00ef0c7506edbce16596acd67c2ca2505ef707716",
+      "contracts.trace.fozzy": "93e2e21673fd0f7609a0ecbd25a55d2ea094b9133f0542011cf5c03f5d9190c9",
+      "contracts.verify.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "contracts.verify.stdout": "b8045fee75cb579564982e41132746d764d7ee6554e82a87b96215e4a63edd71",
+      "execute.py": "e359993b33f9630a447bcb0a9e99819ab67b239505f0c38ef9d48ec08664182c",
+      "inventory.json": "bb77a6ea5dc9ab6a1665381e5e57cda4f5eaaefa81e5a9f4f5ffd4e367568b5b",
+      "run-contract.py": "c8b3cd083c02738239b2d27c38bd1a10b7fccdee0541aa234451c3427b08906a",
+      "runner-contracts.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "runner-contracts.stdout": "3af1fde2fed5bfe6ac6995b0c057006a4725ab3725c9a7d181f1a4f8aae5a8e1"
+    },
+    "census": {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "rsf-storage",
+        "-p",
+        "rsf-vsr",
+        "-p",
+        "rsf-protocol",
+        "-p",
+        "rsf-rpc"
+      ],
+      "exit": 0,
+      "tests": {
+        "passed": 496,
+        "failed": 0,
+        "ignored": 0
+      },
+      "named_tests": 496,
+      "required": {
+        "actual_promoted_pointer_and_owner_fixed_metadata_reject_damage_and_preserve_cold_replay": true,
+        "cached_published_learner_success_requires_outer_and_inner_custody_before_mutation": true,
+        "complete_local_copy_renewal_failure_prevents_meta_for_source_and_selected": true,
+        "created_stage_input_copy_resumes_exact_prefix_and_rejects_conflicting_retry": true,
+        "each_stage_effect_rejects_its_first_custody_fault_before_callback_or_target_publication": true,
+        "fixed_metadata_preserves_default_missing_pointer_and_valid_installed_generation": true,
+        "fixed_pointer_seal_and_marker_reject_sparse_trailing_truncated_and_corrupt_files_without_repair": true,
+        "fixed_publication_reader_bounds_even_an_unending_source_to_one_extra_byte": true,
+        "fixed_publication_reader_propagates_io_failure_without_returning_partial_success": true,
+        "immutable_capture_rejects_equal_byte_replacement_before_scanning": true,
+        "immutable_custody_rejects_replacement_alias_and_hardlink_without_reading_wal_on_validation": true,
+        "immutable_recovery_never_repairs_torn_active_tail_or_creates_missing_sidecars": true,
+        "local_copy_complete_suffix_still_reaches_closed_and_active_renewal_boundaries": true,
+        "local_copy_failure_guard_survives_unwind_without_reenabling_caller": true,
+        "local_copy_late_encoding_error_fences_store_and_existing_caller_latch": true,
+        "local_copy_stream_preserves_exact_packing_bytes_for_partial_and_empty_suffixes": true,
+        "managed_anchor_validation_survives_temporarily_taken_recovery": true,
+        "managed_startup_handoff_cannot_substitute_a_for_distinct_chosen_b": true,
+        "managed_startup_handoff_reuses_exact_a_without_rereading_its_wal": true,
+        "membership_bulk_input_copy_preserves_prefix_rejects_conflict_and_retries_without_new_wal": true,
+        "membership_decision_exact_retries_reject_lost_journal_with_complete_input_intact": true,
+        "membership_decision_metadata_preserves_historical_acceptance_without_scrubbing_input_data": true,
+        "membership_decision_post_append_custody_failure_returns_no_ack_or_logical_swap": true,
+        "membership_decision_read_only_failure_latches_even_after_exact_path_restoration": true,
+        "owned_empty_retry_renews_closed_and_active_bytes_after_complete_visible_error": true,
+        "owned_group_releases_each_payload_before_polling_next_and_fences_unwind": true,
+        "owned_groups_keep_real_sync_fault_and_rotation_boundaries": true,
+        "owned_groups_preserve_borrowed_and_single_append_wal_bytes_across_rotation": true,
+        "owned_producer_error_is_not_eof_and_late_failure_fences_actual_prefix": true,
+        "real_tls_cached_learner_ack_rejects_lost_custody_until_validated_restart": true,
+        "real_tls_cached_stage_rejects_own_history_loss_before_callback_and_stays_latched": true,
+        "real_tls_fresh_publication_rechecks_chosen_input_with_a_healthy_cached_stage": true,
+        "real_tls_managed_cached_stage_rejects_lost_learner_without_receipt_or_application_work": true,
+        "real_tls_managed_cached_stage_survives_auxiliary_journal_loss_but_not_hosted_loss": true,
+        "real_tls_managed_changed_learner_revalidates_original_authority_before_caching": true,
+        "real_tls_managed_chosen_b_accepts_matching_learner_commit_and_original_receipt": true,
+        "real_tls_managed_decision_retries_reject_warm_journal_loss_before_durable_ack": true,
+        "real_tls_managed_historical_publication_survives_auxiliary_journal_loss_only": true,
+        "real_tls_managed_new_choice_revalidates_b_even_when_learner_token_is_unchanged": true,
+        "real_tls_managed_promise_and_accept_reject_lost_learner_before_journal_mutation": true,
+        "real_tls_managed_receiver_retains_published_ancestry_after_ordinary_view_and_promise": true,
+        "real_tls_stage_loss_cannot_block_independently_backed_historical_publication": true,
+        "same_clock_fixture_drop_preserves_another_owned_store": true,
+        "sealed_stage_cold_recovery_never_truncates_source_or_selected_torn_tail": true,
+        "stage_callback_and_publication_hook_cannot_repair_or_acknowledge_lost_custody": true,
+        "stage_lock_creation_never_follows_a_symlink_substituted_after_precheck": true,
+        "stage_lock_rejects_existing_symlink_and_hardlink_without_changing_target": true,
+        "stage_own_receipt_and_publication_transitions_preserve_first_proof_and_need_no_wal_read": true,
+        "stage_owner_keeps_original_descriptor_locked_and_rejects_renamed_path_replacement": true,
+        "stage_report_first_observes_each_owned_loss_and_stays_failed_after_original_inode_restore": true,
+        "stage_root_replacement_and_retained_publication_loss_require_fresh_owner": true,
+        "unpublished_token_error_does_not_poison_later_valid_publication_and_retries": true,
+        "unsealed_complete_visible_source_and_selected_groups_renew_before_stage_seal": true
+      },
+      "valid": true
+    }
+  },
+  "limits": [
+    "Strict proc_when scenarios validate deterministic orchestration; host-backed phases execute the actual Rust tests. Replay/local Fozzy ci validate recorded outcomes, not another live test run.",
+    "All checks are local; no CI/CD, workflow, hosted runner or deployment was created.",
+    "The thirteen targeted contracts cover eleven new tests and two existing preservation tests. New APIs do not have a claimed old-source behavioral red.",
+    "Original deadlines, retry counts, workloads and test concurrency remain unchanged.",
+    "The earlier full custody gate remains failed and preserved in docs/custody-full-v1-attempt-2026-11-03.json. Subsequent package passes neither erase it nor establish the exact cause of its four setup deadlines.",
+    "This report is not a full workspace gate, Linux qualification, machine-power-loss experiment or production capacity result."
+  ]
+}

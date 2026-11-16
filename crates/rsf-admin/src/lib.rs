@@ -117,6 +117,12 @@ pub struct AdmissionRecord {
     pub supports_gateway: bool,
 }
 
+struct MembershipProposal {
+    view: Epoch,
+    primary: NodeId,
+    voters: Vec<NodeId>,
+}
+
 #[derive(Debug)]
 pub struct AdminPlane {
     cluster: ClusterMap,
@@ -231,7 +237,9 @@ impl AdminPlane {
 
     pub fn recover(path: impl AsRef<Path>) -> RsfResult<Self> {
         let path = path.as_ref();
-        let recovery = SegmentStore::recover(path)?;
+        let (store, recovery) = SegmentStore::open_recovered(path, Default::default())?;
+        #[cfg(test)]
+        tests::recovery_observation::after_open();
         let mut admin = Self::empty_for_recovery();
         for record in recovery.recovery.wal_records.iter().filter(|record| {
             record.pg == ADMIN_PG
@@ -241,7 +249,7 @@ impl AdminPlane {
             let event = AdminEvent::decode(&record.payload)?;
             admin.apply_event(event)?;
         }
-        admin.store = Some(SegmentStore::open(path)?);
+        admin.store = Some(store);
         if !admin.token_verifier_initialized() {
             return Err(corrupt("admin log is missing invite token verifier"));
         }
@@ -516,11 +524,9 @@ impl AdminPlane {
         router: &mut VsrBackedFabricRouter,
         node: NodeId,
     ) -> RsfResult<MembershipView> {
-        let result =
-            self.propose_voter_removal(node)
-                .and_then(|(view, primary, voters, _quorum)| {
-                    self.apply_router_membership(router, view, primary, &voters)
-                });
+        let result = self.propose_voter_removal(node).and_then(|proposal| {
+            self.apply_router_membership(router, proposal.view, proposal.primary, &proposal.voters)
+        });
         if let Err(err) = result {
             self.record_rejection(node, format!("voter removal rejected: {}", err.message))?;
             return Err(err);
@@ -539,10 +545,8 @@ impl AdminPlane {
         let result = self
             .propose_voter_replacement(removed, replacement)
             .and_then(|(add, remove)| {
-                let (view, primary, voters, _quorum) = add;
-                self.apply_router_membership(router, view, primary, &voters)?;
-                let (view, primary, voters, _quorum) = remove;
-                self.apply_router_membership(router, view, primary, &voters)
+                self.apply_router_membership(router, add.view, add.primary, &add.voters)?;
+                self.apply_router_membership(router, remove.view, remove.primary, &remove.voters)
             });
         if let Err(err) = result {
             self.record_rejection(
@@ -716,10 +720,7 @@ impl AdminPlane {
         Ok(())
     }
 
-    fn propose_voter_removal(
-        &self,
-        node: NodeId,
-    ) -> RsfResult<(Epoch, NodeId, Vec<NodeId>, QuorumIntersection)> {
+    fn propose_voter_removal(&self, node: NodeId) -> RsfResult<MembershipProposal> {
         let current = self.current_membership()?;
         if !current.voter_nodes().contains(&node) {
             return Err(invalid(format!("node {} is not a voter", node.0)));
@@ -736,10 +737,7 @@ impl AdminPlane {
         &self,
         removed: NodeId,
         replacement: NodeId,
-    ) -> RsfResult<(
-        (Epoch, NodeId, Vec<NodeId>, QuorumIntersection),
-        (Epoch, NodeId, Vec<NodeId>, QuorumIntersection),
-    )> {
+    ) -> RsfResult<(MembershipProposal, MembershipProposal)> {
         if removed == replacement {
             return Err(invalid(
                 "replacement voter must be different from removed voter",
@@ -771,7 +769,7 @@ impl AdminPlane {
         expanded_voters.push(replacement);
         expanded_voters.sort();
         let add = self.validate_membership_proposal(&current, expanded_voters.clone())?;
-        let expanded_view = membership_view(add.0, &expanded_voters);
+        let expanded_view = membership_view(add.view, &expanded_voters);
         let final_voters = expanded_voters
             .into_iter()
             .filter(|candidate| *candidate != removed)
@@ -784,7 +782,7 @@ impl AdminPlane {
         &self,
         current: &MembershipView,
         voters: Vec<NodeId>,
-    ) -> RsfResult<(Epoch, NodeId, Vec<NodeId>, QuorumIntersection)> {
+    ) -> RsfResult<MembershipProposal> {
         if voters.len() < 3 {
             return Err(invalid(
                 "membership change would violate minimum voter count",
@@ -799,7 +797,11 @@ impl AdminPlane {
             )));
         }
         let primary = voters[0];
-        Ok((next_view.epoch, primary, voters, quorum))
+        Ok(MembershipProposal {
+            view: next_view.epoch,
+            primary,
+            voters,
+        })
     }
 
     fn current_membership(&self) -> RsfResult<MembershipView> {
@@ -1551,6 +1553,7 @@ fn corrupt(message: impl Into<String>) -> RsfError {
 
 #[cfg(test)]
 mod tests {
+    pub(crate) mod recovery_observation;
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 

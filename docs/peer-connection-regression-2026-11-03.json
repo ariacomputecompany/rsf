@@ -1,0 +1,122 @@
+{
+  "date": "2026-11-03",
+  "status": "scoped-peer-connection-regression-qualified",
+  "production_qualified": false,
+  "full_gate_passed": false,
+  "change": "Keep the adversarial peer listener alive after an ended or expired ordinary connection, matching production connection service. Unexpected/authentication/frame errors and held-response deadlines remain strict.",
+  "unchanged_constraints": [
+    "800 ms RPC deadline",
+    "15-second two-group convergence bound",
+    "single production recovery retry",
+    "peer/group/payload cardinality and test concurrency"
+  ],
+  "regression": "real_tls_expired_ordinary_publication_reply_keeps_peer_and_exact_receipt_live",
+  "negative_control": {
+    "valid_red": "red-host",
+    "actual_test_counts": {
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0
+    },
+    "source_unchanged": true,
+    "source_sha256": "1fd83576a8e34e9104a43c7489d3f2efd78617eb5f405b2bda9b480c77417ab5",
+    "observed": "Actual publication dispatch completes, original reply deadline expires, old listener panics and existing retry loses its peer.",
+    "trace_sha256": "dce5497d60e4d46fe96025ca4736b71c00cc0bf35cac2e42e6efd166ec6a2cc8",
+    "strict_trace_verify_exit": 0,
+    "replay_exit": 1,
+    "local_ci_integrity_exit": 0,
+    "excluded_attempt": "red failed before test behavior because the sandbox denied local socket binding; it is not regression evidence."
+  },
+  "qualified_suites": {
+    "green": {
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      "source_sha256": "47f1a319b91ffdea1463717cc212e2e89c3f586b2a2dc793d2d60e6eee773ce5",
+      "source_unchanged": true,
+      "phases": [
+        "doctor-5",
+        "strict",
+        "host",
+        "strict-trace-verify",
+        "replay",
+        "local-ci"
+      ],
+      "evidence_sha256": {
+        "artifacts/two-group-baseline-20261103/green.trace.fozzy": "115c7816e61e8faf59ffd92b2b9ba8b185284815d5fa57f27019afc97ace8015",
+        "artifacts/two-group-baseline-20261103/green-doctor.json": "19247016bfff7302c290c1283eb9f94e37d50dcaa0af7596066df80a03e8c026",
+        "artifacts/two-group-baseline-20261103/green-strict.json": "d9684b84ee92861c0d725624d6228c131f34d7d8f655a0cda9d00618997b2e72",
+        "artifacts/two-group-baseline-20261103/green-host.json": "c7c1172df56f9ee342fd92f69ab0c9a99c6f4bb64f0d46e5658495fcad7cd083",
+        "artifacts/two-group-baseline-20261103/green-verify.json": "c03b478754d79db5c26a028a5f8eae90819f084424f6523f02ce5d8cd1884036",
+        "artifacts/two-group-baseline-20261103/green-replay.json": "a2a9f51915a6b074d8ffd38e9109c0d204813d8d4f913824ea33ac119a4778ee",
+        "artifacts/two-group-baseline-20261103/green-ci.json": "65e7511e7bbd276a2b1212098d15dc73426f5369e8e125ca07a0c291e857295e"
+      }
+    },
+    "adversarial": {
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      },
+      "source_sha256": "47f1a319b91ffdea1463717cc212e2e89c3f586b2a2dc793d2d60e6eee773ce5",
+      "source_unchanged": true,
+      "phases": [
+        "doctor-5",
+        "strict",
+        "host",
+        "strict-trace-verify",
+        "replay",
+        "local-ci"
+      ],
+      "evidence_sha256": {
+        "artifacts/two-group-baseline-20261103/adversarial.trace.fozzy": "1a0501a08c2f6c40ca0278de5efe8cd69589bd91ba29f50147c3a025a707f4f6",
+        "artifacts/two-group-baseline-20261103/adversarial-doctor.json": "b72879a36549813b13d9730c896719022238b502a33d76f91fcacf7f99469398",
+        "artifacts/two-group-baseline-20261103/adversarial-strict.json": "620e3d29bee4d92dda67c80f63ed65bddb4eb860a4374987a8a73c44da738e6e",
+        "artifacts/two-group-baseline-20261103/adversarial-host.json": "2d056cc558c5d07e38ec9cddf42a29285461dfdf975fa6d778fdcf4f072fb0de",
+        "artifacts/two-group-baseline-20261103/adversarial-verify.json": "d0ecc9b276fc58d15a0c86e50bb4e2bcd2ee5da195b20628fd183b9355d4fb06",
+        "artifacts/two-group-baseline-20261103/adversarial-replay.json": "ff2b1b8e767af647b4ef403efe554e47ba1fdb1cb8e8acdaa8fb11a336a1c976",
+        "artifacts/two-group-baseline-20261103/adversarial-ci.json": "c458bf303cbcdc3928d134f19f8aa827edb79576ab012c65f3d7ae500699a2e9"
+      }
+    },
+    "concurrent": {
+      "counts": {
+        "passed": 104,
+        "failed": 0,
+        "ignored": 0
+      },
+      "source_sha256": "47f1a319b91ffdea1463717cc212e2e89c3f586b2a2dc793d2d60e6eee773ce5",
+      "source_unchanged": true,
+      "phases": [
+        "doctor-5",
+        "strict",
+        "host",
+        "strict-trace-verify",
+        "replay",
+        "local-ci"
+      ],
+      "evidence_sha256": {
+        "artifacts/two-group-baseline-20261103/concurrent.trace.fozzy": "a18ba4f60917b7127d1c38d043cfc54dfe66d662d7348b3323b66d5ccf0847f1",
+        "artifacts/two-group-baseline-20261103/concurrent-doctor.json": "bb3fe220be868bb7e4a053d551bbc80c085a100b7722d1ea031a3008301f9d92",
+        "artifacts/two-group-baseline-20261103/concurrent-strict.json": "e176ff95dd7f4fe18f33b3153a83d6b77c5cf7c961e0d7d1a7ae7319e770cd15",
+        "artifacts/two-group-baseline-20261103/concurrent-host.json": "f67bde05c7807d53af24f4d72c3fc0fcb7d6eea0edb8aac709eaa64a07322502",
+        "artifacts/two-group-baseline-20261103/concurrent-verify.json": "fa24c414436c57affd882ca4fa7111ad75a8dcd2a0f2e22d547e592ee1e3750a",
+        "artifacts/two-group-baseline-20261103/concurrent-replay.json": "79562326e6037d419ebd50354e96d0f1722790a11c0de18f50cecfedf24acdd5",
+        "artifacts/two-group-baseline-20261103/concurrent-ci.json": "899456c62c63cff1be376670ee0ac760d0428e518ec454b3c96d01f6d8c601b6"
+      }
+    }
+  },
+  "strict_workspace_clippy": {
+    "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log_sha256": "fbb821d5d4bff4b5f1055a6ab7a96c90e707880fc036fc5db7f5742408acfdc4"
+  },
+  "required_integrated_regressions": 84,
+  "remaining_failure": "The fourth full gate still fails the native automatic peer election after repeated two-peer installation attempts; investigation continues.",
+  "limits": [
+    "Local Fozzy replay and CI validate recorded observations/integrity, not a new native execution or hosted GitHub check.",
+    "A fresh complete gate is required after all baseline corrections.",
+    "Single-host TLS/fsync is not independent-machine, WAN, power-loss or production-capacity qualification."
+  ]
+}

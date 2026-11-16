@@ -40,8 +40,10 @@ prefix repair after both stores have installed a membership change.
 
 This is not a network membership protocol. A peer bootstrapped only with a new
 configuration cannot invent the older configurations needed to validate an old
-prefix. Authenticated configuration-history transfer, quorum-certified network
-installation, learner admission and automatic failover remain release work.
+prefix. Authenticated history transfer and quorum-selected view installation are
+implemented, including opt-in automatic peer/client takeover. Quorum-certified
+voter changes and learner promotion remain release work; see
+[primary failover](primary-failover.md).
 Legacy logs without persisted bootstrap membership still require an explicit
 migration before topology changes; use the
 [bootstrap migration command](vsr-bootstrap-migration.md). View changes, timeout elections and membership
@@ -63,10 +65,46 @@ does not claim quorum-certified network reconfiguration. The VSR and RPC Fozzy
 domains run these tests through real host processes with trace verification,
 replay and CI checks.
 
-Final verification covers all 15 gate domains and 90 passing results. Evidence
+Historical verification covered all 15 gate domains and 90 passing results. Evidence
 is indexed in `artifacts/membership-history-verification-summary.json`. The base
 run is `artifacts/membership-history-production-final.log`; daemon and workspace
 were rerun in `artifacts/membership-history-regression.log` after a 500 ms fixture
 deadline expired during catch-up under host load. Those durability fixtures now
 use 2 seconds; dedicated RPC deadline tests remain unchanged. These are correctness
 and recovery results, not latency benchmark claims.
+
+## Authority changes after quorum installation
+
+A published view installation is a durable authority boundary. Its cell rejects
+local `view_change`, `timeout_election`, and `reconfigure` shortcuts; all of these
+leave the WAL and installed state unchanged. The fence survives reopen because
+it derives from the installed generation. A later view still proceeds through
+durable promises, authenticated quorum history selection, and installation.
+
+The shared WAL replayer rejects legacy local view/membership records following
+an installation marker, including checksummed records written by older software.
+Such histories cannot acquire authority merely by reopening or being selected
+for recovery. There is no automatic rewrite that treats them as certified state.
+Pre-installation legacy history remains readable under its existing migration
+contract; rejecting these later shortcuts does not invent quorum evidence for
+older local configuration changes.
+
+A network-backed `VsrBackedFabricRouter` also rejects unilateral authority
+changes before the first installation, with or without reachable quorum. The
+`VsrTransport` default is fail-closed. Only `LocalVsrTransport`, the explicit
+in-process simulation, opts into local model changes; installed cells retain
+their own fence even when a caller supplies that transport. A successful probe
+or an intersecting voter-set calculation is not a configuration proposal and
+cannot authorize changing the set.
+
+Regression tests check unchanged WAL/state across local rejection and restart,
+rejection of appended unchecked authority records, and a subsequent genuine
+quorum installation that preserves receipts and commits. A real TLS process test
+rejects network-router shortcuts with peers running and stopped, then restores a
+peer and commits at the original configuration. The current complete verification
+report is [verification-2026-10-21.json](verification-2026-10-21.json); historical
+evidence above does not replace a fresh run for current sources.
+
+The remaining installation contract is tracked in
+[certified membership](certified-membership.md). No current CLI or local model
+operation establishes that network transition.

@@ -487,6 +487,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsf-control-state"
+version = "0.1.0"
+dependencies = [
+ "rsf-core",
+ "rsf-vsr",
+]
+
+[[package]]
 name = "rsf-core"
 version = "0.1.0"
 dependencies = [
@@ -891,6 +899,7 @@ name = "rsf-rpc"
 version = "0.1.0"
 dependencies = [
  "rcgen",
+ "rsf-control-state",
  "rsf-core",
  "rsf-protocol",
  "rsf-storage",
@@ -968,6 +977,8 @@ dependencies = [
  "rsf-tuple",
  "rsf-vacuum",
  "rsf-wal",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1039,6 +1050,7 @@ name = "rsf-storage"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "libc",
  "rsf-core",
  "rsf-manifest",
 ]
@@ -1110,6 +1122,7 @@ dependencies = [
 name = "rsf-vsr"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rsf-core",
  "rsf-storage",
 ]
@@ -1157,11 +1170,13 @@ dependencies = [
 name = "rsfd"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rcgen",
  "rsf-admin",
  "rsf-auth",
  "rsf-blob",
  "rsf-control",
+ "rsf-control-state",
  "rsf-core",
  "rsf-kv",
  "rsf-object",

@@ -1,0 +1,71 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "baseline": {
+    "commit": "ddefd488769a989f832ae8fa0b9e0ba2ef72a42f",
+    "trace_directory": "artifacts/verification.PdjBEJ",
+    "all_23_domain_executions_passed": true,
+    "source_unchanged": true,
+    "source_sha256": "d1abff4ee68988eace4423da042187ab6f2eea855c3d416a0629dd82d70371ee",
+    "workspace": {
+      "passed": 1198,
+      "failed": 0,
+      "ignored": 1
+    },
+    "aggregate_passed": false,
+    "reason": "Peer stderr text prefixes a passing test stdout result without whitespace. Preserve this failed aggregate; do not recast it as a successful gate."
+  },
+  "membership_change": "Before initiating a new durable membership fence, validate upper bounds for full input, recovered decision, chosen, staged-quorum and activation proofs. Use actual scalar/report codec sizes and checked arithmetic without allocating all nested reporter copies. Bound all distinct reporters, not only a minimal majority.",
+  "compatibility": "Individual proposal encoding is unchanged. Previously acknowledged historical fences remain readable and exact retries do not rewrite them. Size admission does not activate membership or admit clients.",
+  "red_green": {
+    "red_trace": "artifacts/membership-capacity-before-fix-20261102.trace.fozzy",
+    "red_result": "3 pass; no-fence regression fails because the pre-hook path writes an oversized fence",
+    "green_trace": "artifacts/membership-capacity-after-fix-20261102.trace.fozzy",
+    "green_tests": 4,
+    "green_trace_verify_replay_ci_passed": true
+  },
+  "affected_packages": {
+    "trace": "artifacts/membership-capacity-packages-20261102.trace.fozzy",
+    "passed_tests": 228,
+    "vsr": 128,
+    "rpc": 43,
+    "protocol": 57,
+    "failed": 0,
+    "real_tls_no_fence_and_later_quorum_write": true,
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "trace_verify_replay_ci_passed": true
+  },
+  "clippy": {
+    "passed": true,
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsfd"
+    ],
+    "all_targets": true,
+    "warnings_denied": true,
+    "log": "artifacts/membership-capacity-20261102-clippy.log"
+  },
+  "capture_change": {
+    "description": "Capture stdout and stderr into separate complete logs before replay, preventing peer diagnostics from splitting libtest result lines. Preserve original command exit.",
+    "trace": "artifacts/separate-capture-20261102.trace.fozzy",
+    "real_exit_codes_verified": [
+      0,
+      17
+    ],
+    "exact_stdout_and_stderr_asserted": true,
+    "doctor_runs": 5,
+    "strict_orchestration_passed": true,
+    "trace_verify_replay_ci_passed": true
+  },
+  "limits": [
+    "Scripted Fozzy determinism and replay do not make native threads/sockets deterministic.",
+    "Fresh complete final-source 23-domain gate required.",
+    "Native active membership publication, learner promotion, new-quorum publication acknowledgements and control admission remain unfinished.",
+    "Capacity admission cannot repair a previously acknowledged oversized historical proposal.",
+    "Other production work in WORK.md remains open."
+  ]
+}

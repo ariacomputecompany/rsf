@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "name": "replicated-control-state-host",
+  "steps": [
+    {
+      "type": "proc_when",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsf-control-state"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "times": 1
+    },
+    {
+      "type": "proc_spawn",
+      "cmd": "cargo",
+      "args": [
+        "test",
+        "--locked",
+        "-p",
+        "rsf-control-state"
+      ],
+      "expect_exit": 0
+    }
+  ]
+}

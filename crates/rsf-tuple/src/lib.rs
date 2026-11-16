@@ -101,13 +101,13 @@ impl TupleStore {
                 key,
                 versions: Vec::new(),
             });
-        if let Some(last) = chain.versions.last() {
-            if create_version <= last.header.create_version {
-                return Ok(rejected(
-                    chain.key.clone(),
-                    "tuple versions must be appended in commit order",
-                ));
-            }
+        if let Some(last) = chain.versions.last()
+            && create_version <= last.header.create_version
+        {
+            return Ok(rejected(
+                chain.key.clone(),
+                "tuple versions must be appended in commit order",
+            ));
         }
         chain.versions.push(version.clone());
         Ok(TupleDecision::Inserted(version))

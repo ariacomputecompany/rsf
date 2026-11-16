@@ -1,0 +1,121 @@
+{
+  "date": "2026-11-03",
+  "status": "pinned-candidate-engine-complete-local-rsf-qualification",
+  "production_qualified": false,
+  "full_rsf_gate_passed": true,
+  "hosted_ci_enabled": false,
+  "bootstrap_files_sha256": {
+    "scripts/bootstrap-fozzy.py": "c34bcba3045c33896232df9765594bc537874c073a92c38481e55284fa4940fa",
+    "scripts/fozzy-engine.json": "a8e8f9baaeea86d8895dd40b2db11084b22afcbf2a026c53fc189f9f2eb9c9d1",
+    "scripts/test_bootstrap_fozzy.py": "a0b90492ff41f768cd72965ca565d053a9f25ddfedee17c1306aefd315f56a56"
+  },
+  "bootstrap_tests": {
+    "passed": 28,
+    "failed": 0,
+    "scope": "All subprocesses mocked; source/configuration rejection and provenance bookkeeping only."
+  },
+  "real_engine_build_and_own_tests": {
+    "date": "2026-11-03",
+    "scope": "Source build and own-test evidence; subsequent complete RSF qualification is separately bound below.",
+    "candidate_binary_sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "embedded_source_commit": "30ef888219e3f822301fc6e6fd30644b1177ba9e",
+    "build_provenance_sha256": "e46fcf7bfa58eb6fbe034972af898cd737825e2c64f012c3fbbd6bd18cb54b60",
+    "actual_engine_tests": {
+      "passed": 447,
+      "failed": 0,
+      "ignored": 0
+    },
+    "six_phase_host_pipeline_passed": true,
+    "pinned_source_inventory_unchanged": true,
+    "compiled_test_cache_reused": true,
+    "test_processes_fresh": true,
+    "first_wrapper_attempt_passed": false,
+    "generated_runtime_reports_preserved_separately": true,
+    "installed_engine_unchanged": true,
+    "evidence_sha256": {
+      "artifacts/ci-qualification-development/engine-own-tests-v2.trace.fozzy": "0effff8d242ab609a78ff6f063e9359e0f19d6f33c6b09f1d58df9a8427d7a03",
+      "artifacts/ci-qualification-development/engine-own-tests-v2-doctor.json": "bb5c7189c206d171683ccf556aa5c006bbd7c8c6f4845cc00cb9dc68a4068824",
+      "artifacts/ci-qualification-development/engine-own-tests-v2-strict.json": "85bb8616e5b0d4d9346609a99195ca3dfff85e7bef47548b56d4db1f7b700b91",
+      "artifacts/ci-qualification-development/engine-own-tests-v2-host.json": "9772d51830cdf5560d742d93b0feca690e6ab9ced83de4690f75745db3c1f59a",
+      "artifacts/ci-qualification-development/engine-own-tests-v2-verify.json": "3e8502009903fe1d98641b58219bb111dae286cb2b6d16d66cba933c5f92d69e",
+      "artifacts/ci-qualification-development/engine-own-tests-v2-replay.json": "b509fafbf132fa083b43dd6231c587f13dc728e393f29a5fb248cc32555211b8",
+      "artifacts/ci-qualification-development/engine-own-tests-v2-ci.json": "0e9be460a653570a46a6fb779fda2a7014d2555fe8bf516049c40c73483ab09d"
+    }
+  },
+  "candidate_release_engine_rsf_smoke": {
+    "date": "2026-11-03",
+    "status": "candidate-engine-scoped-smoke-passed",
+    "production_qualified": false,
+    "full_rsf_gate_passed": false,
+    "hosted_ci_enabled": false,
+    "candidate_binary_sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "source_commit": "30ef888219e3f822301fc6e6fd30644b1177ba9e",
+    "tests": {
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    "scope": [
+      "All 10 rsf-control-state tests",
+      "Real TLS expired-publication-reply regression"
+    ],
+    "rsf_source_sha256": "6898f73101edabf70ef95d7f5a3595ba5295f4f551d1c5545ae25527959a913b",
+    "rsf_source_unchanged": true,
+    "source_limit": "This earlier smoke run used temporary installation diagnostics and the then-unqualified selected-plan handoff; it was not final-source RSF qualification.",
+    "phases": [
+      "doctor-5",
+      "strict",
+      "host",
+      "strict-verify",
+      "replay",
+      "local-ci"
+    ],
+    "installed_engine_unchanged": true,
+    "evidence_sha256": {
+      "artifacts/ci-qualification-development/candidate-rsf-smoke.trace.fozzy": "52efac9743fec5ed71e074308640da99c471dc7358dbd074fe29d17b676fb3bf",
+      "artifacts/ci-qualification-development/candidate-rsf-smoke-doctor.json": "7387bb0e447e7ccc71454a7289914be94db07833af401128b1935eb14cacf6a8",
+      "artifacts/ci-qualification-development/candidate-rsf-smoke-strict.json": "827848e0e487057baf6f136fa88352e5cc60814b0cb96cedb41a0d58fe6340dd",
+      "artifacts/ci-qualification-development/candidate-rsf-smoke-host.json": "7aab8db422827ce2a5cbc8f4c222edb54ac247dbaa843a5bc264526d2b9c9092",
+      "artifacts/ci-qualification-development/candidate-rsf-smoke-verify.json": "3e72650b804e49ec982b35cf6c73749513d01ff57e685a859f85b3c16534b100",
+      "artifacts/ci-qualification-development/candidate-rsf-smoke-replay.json": "9446572f18006940a42f499ab80c75e121fd62fb676890e5fa98d4820f8f15cc",
+      "artifacts/ci-qualification-development/candidate-rsf-smoke-ci.json": "07ae42c159d4b5a530da78a61723b039dab80f9918c53ee78e743b190718be70"
+    },
+    "raw_output_note": "The generic multi-command helper reuses one process-log filename. Complete per-command outputs are retained in immutable trace decisions and separately extracted files; counts above come from all trace decisions."
+  },
+  "remaining": [
+    "Actual Linux VM verification of the implemented system, including kernel/filesystem/locking and crash-recovery behavior.",
+    "Production scope and capacity/fault qualification remain in WORK.md."
+  ],
+  "source_build_command": "RUSTUP_TOOLCHAIN=1.92.0 python3 -B scripts/bootstrap-fozzy.py <fresh isolated pinned source> <new prefix>",
+  "evidence_sha256": {
+    "artifacts/ci-qualification-development/root-engine-build-and-tests.json": "e9f634266a1c42300729420a5cae3bdbfd671d73e77c831105887cb598b0b114",
+    "artifacts/ci-qualification-development/root-engine-scoped-verification.json": "abb187b21d7f464b156441db10750d2818c388f59f9a4994b3694eba6a53ea05",
+    "artifacts/ci-qualification-development/bookkeeping-evidence/integrated.stderr": "c3bfb2d946cb3fb21c8b699a148126ccd0541a46d90852577fbc241f5fd0ea14",
+    "artifacts/fozzy-engine-candidate-20261103/provenance.json": "e46fcf7bfa58eb6fbe034972af898cd737825e2c64f012c3fbbd6bd18cb54b60"
+  },
+  "corrected_independent_review": {
+    "status": "all five original findings closed; no remaining concrete blocker in bounded bootstrap review",
+    "artifact": "artifacts/ci-qualification-development/corrected-independent-review.md",
+    "sha256": "3fbafe43ae808b95fe8f7fce4dab3119266879742112744c38fc60b1f6cd98f6",
+    "execution": "Read-only artifact and source inspection; no new runtime execution."
+  },
+  "complete_local_rsf_gate": {
+    "report": "docs/baseline-full-v5-verification-2026-11-03.json",
+    "sha256": "2ae29a56f78cc75fbc0faec928ba615f4bf56dcc69bd8be4a8c74d9b72a64834",
+    "source_commit": "4cdb5bcb677dc08db8834c5e5aa6fbfb84f55034",
+    "source_sha256": "3af67666a29ae0e2ce71b906d07b3f188c55ed6022d08ef4cbb8398a8eae87c6",
+    "engine_sha256": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "completed_domains": 25,
+    "workspace_tests": {
+      "passed": 1392,
+      "failed": 0,
+      "ignored": 1
+    },
+    "required_recovery_regressions": 99,
+    "native_membership_commands": 16,
+    "source_unchanged": true,
+    "hosted_ci_qualified": false,
+    "production_qualified": false
+  },
+  "release_workflow": "Manual verification and ordinary pushes to remote main; no CI/CD, per user instruction."
+}

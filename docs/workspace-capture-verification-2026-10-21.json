@@ -1,0 +1,65 @@
+{
+  "production_qualified": false,
+  "full_release_gate_passed": false,
+  "workspace_passed": true,
+  "application_rust_source_commit": "df6352178042fa680217b27d8e2a77b38bd70fa6",
+  "harness_source_parent_commit": "df6352178042fa680217b27d8e2a77b38bd70fa6",
+  "source_sha256_before": "a9629fd4c2bb588e25a173f162956b483b0018ca29866f077979763f52cfa4ff",
+  "source_sha256_after": "a9629fd4c2bb588e25a173f162956b483b0018ca29866f077979763f52cfa4ff",
+  "source_unchanged": true,
+  "application_Rust_sources_unchanged_from_parent": true,
+  "command": [
+    "cargo",
+    "test",
+    "--workspace"
+  ],
+  "host_process": {
+    "cmd": "sh",
+    "args": [
+      "scripts/capture-host-process.sh",
+      "artifacts/idle-application-workspace-capture.process.log",
+      "cargo",
+      "test",
+      "--workspace"
+    ],
+    "exit_code": 0
+  },
+  "tests": {
+    "passed": 1195,
+    "failed": 0,
+    "ignored": 1,
+    "result_groups": 163,
+    "required_regressions": {
+      "native_sql_streams_large_results_and_bounds_legacy_responses": true,
+      "idle_sql_writer_survives_polls_while_status_and_transport_checks_remain_fresh": true,
+      "idle_application_rejects_same_version_divergent_protocol_history_repeatedly": true
+    }
+  },
+  "capture_change": "A file holds stdout/stderr inherited by test descendants. The wrapper replays the combined log and returns Cargo original exit status, including failures. Test scheduling, deadlines, retries, payload sizes and row counts are unchanged.",
+  "raw_log": "artifacts/idle-application-workspace-capture.process.log",
+  "verification": {
+    "doctor_runs": 5,
+    "doctor": "artifacts/idle-application-workspace-capture-doctor.json",
+    "strict": "artifacts/idle-application-workspace-capture-strict.json",
+    "host_trace": "artifacts/idle-application-workspace-capture.trace.fozzy",
+    "trace_verify": "artifacts/idle-application-workspace-capture-trace-verify.json",
+    "replay": "artifacts/idle-application-workspace-capture-replay.json",
+    "ci": "artifacts/idle-application-workspace-capture-ci.json"
+  },
+  "capture_exit_propagation_proof": {
+    "actual_command_exit_codes": [
+      0,
+      17
+    ],
+    "trace": "artifacts/capture-host-smoke.trace.fozzy",
+    "both_output_streams_preserved": true,
+    "strict_trace_replay_ci_passed": true
+  },
+  "prior_full_capture_failure": "docs/idle-application-full-incomplete-verification-2026-10-21.json",
+  "limits": [
+    "This complete workspace retry is not a successful single 23-domain invocation; all 23 must run again on the capture harness source",
+    "Fozzy strict orchestration/recorded replay does not establish deterministic Rust scheduler or socket behavior",
+    "Tests use one host; independent-host/region fault and numerical capacity qualification remain unfinished",
+    "Learner promotion, native active membership publication, atomic control admission, routing, migration and bounded retention remain unfinished"
+  ]
+}

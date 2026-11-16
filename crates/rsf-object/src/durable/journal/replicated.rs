@@ -152,7 +152,9 @@ impl DurableObjectStore {
                 }
                 // This internal pin record alone does not acknowledge an object.
                 // The complete object command below durably replicates the bytes.
-                let pin = self.blobs.put(router, *blob_pg, payload.clone())?;
+                let pin = self
+                    .blobs
+                    .put_dependency(router, *blob_pg, payload.clone())?;
                 (payload, Some((pin.pin_evidence, pin.pins)))
             }
         };

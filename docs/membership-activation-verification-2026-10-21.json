@@ -1,0 +1,86 @@
+{
+  "production_qualified": false,
+  "complete_membership_qualified": false,
+  "full_release_gate_passed": false,
+  "source_parent_commit": "47d7a497690254c89d0c2b546308932a417b6842",
+  "source_sha256_before": "5a12f0420998e464142ba2ce058edd5ece4e124d3f6be367048cf04f04deda4f",
+  "source_sha256_after": "5a12f0420998e464142ba2ce058edd5ece4e124d3f6be367048cf04f04deda4f",
+  "source_unchanged": true,
+  "scope": "VSR kernel generation publication and authoritative replay; native membership orchestration and client admission remain unfinished",
+  "changes": [
+    "VSRMAI1 binds exact chosen old-quorum prefix and new-majority materialization receipts to activation",
+    "Shared sealed and synced generation publication for view and membership installation",
+    "VSR_PUBLISHED fence rejects missing active pointer after successful publication",
+    "Copied logical quorum histories reject unilateral authority shortcuts",
+    "Warm retry preserves later commits; repeated growth/shrink retains historical certificates, receipts and pending data"
+  ],
+  "host_tests": {
+    "passed": 279,
+    "failed": 0,
+    "ignored": 0,
+    "packages": {
+      "rsf-vsr": 124,
+      "rsf-rpc": 39,
+      "rsf-protocol": 57,
+      "rsf-storage": 59
+    },
+    "required_regressions": {
+      "membership_activation_preserves_certificates_receipts_pending_data_and_later_commits": true,
+      "membership_activation_requires_boot_materialization_matching_quorum_and_root_fence": true,
+      "membership_activation_replay_rejects_truncation_corrupt_boundaries_and_ordinary_markers": true,
+      "membership_activation_publication_boundaries_recover_old_fence_or_complete_new_authority": true,
+      "copied_membership_activation_history_retains_quorum_authority_guards": true,
+      "killed_membership_activation_recovers_sealed_authority_before_any_reply": true,
+      "successive_membership_activations_preserve_authority_and_fence_removed_voters": true,
+      "copied_view_installation_history_retains_quorum_authority_guards": true,
+      "published_view_recovery_rejects_lost_pointer_and_corrupt_publication_marker": true
+    },
+    "child_process_kills": [
+      "sealed before pointer rename",
+      "after pointer rename before parent sync",
+      "after durable publication before reply"
+    ]
+  },
+  "verification": {
+    "doctor_runs": 5,
+    "doctor": "artifacts/membership-activation-final-doctor.json",
+    "strict_orchestration": "artifacts/membership-activation-final-strict.json",
+    "recorded_host_trace": "artifacts/membership-activation-final.trace.fozzy",
+    "strict_trace_verify": "artifacts/membership-activation-final-trace-verify.json",
+    "replay": "artifacts/membership-activation-final-replay.json",
+    "ci": "artifacts/membership-activation-final-ci.json",
+    "strict_clippy_passed": true,
+    "clippy": "artifacts/membership-activation-final-clippy.log",
+    "clippy_scope": "storage/VSR/RPC/protocol/daemon all-targets no-deps, warnings denied",
+    "format_check_passed": true
+  },
+  "limits": [
+    "Fozzy strict scripted orchestration and trace replay do not establish deterministic Rust thread/socket scheduling",
+    "Host process death is covered; independent machine power loss is not",
+    "Authenticated crash-fault reports are not independent signatures or Byzantine evidence",
+    "Existing bounded record format may reject large combined activation proofs; native planning must preflight size before old-quorum fencing",
+    "No native operator membership command or client admission is enabled by this kernel API"
+  ],
+  "remaining_work": [
+    "Owned resumable learner promotion factory",
+    "Authenticated peer publication with trusted materialization and new-quorum publication acknowledgements",
+    "Native role custody/restart, removed voters and permanent original-candidate loss",
+    "Atomic replicated control/catalog client admission",
+    "Partial-proposal abort/conflict and repeated network membership lifecycle",
+    "Independent-group leadership/routing and cross-group scheduling",
+    "Legacy data/receipt migration and bounded receipt/blob/history retention",
+    "Full 23-domain/workspace verification on final source",
+    "Independent-host/region fault, capacity and p99 qualification for SQL/KV/object/blob"
+  ],
+  "prior_full_gate": "The older f8c16c7 run passed 21/22 domains and 1181 workspace tests. Later full attempts encountered client transport uncertainty or host resource exhaustion. Focused final client uncertainty checks passed; no complete current-source release gate is claimed.",
+  "source_commit": "13ed2d8c12e07837c45e73262dc3f715f983be19",
+  "subsequent_full_gate": {
+    "passed": false,
+    "passed_domains": 22,
+    "total_domains": 23,
+    "workspace_passed": 1192,
+    "workspace_failed": 1,
+    "workspace_ignored": 1,
+    "report": "docs/membership-activation-full-verification-2026-10-21.json"
+  }
+}

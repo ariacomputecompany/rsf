@@ -12,6 +12,7 @@ pub mod identity;
 pub mod object;
 pub mod placement;
 pub mod relational;
+pub mod relational_key;
 pub mod storage;
 pub mod time;
 pub mod transaction;

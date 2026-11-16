@@ -1,3 +1,7 @@
+mod movement;
+pub use movement::PageMove;
+use movement::RecoveryRecord;
+
 use std::collections::BTreeMap;
 
 use rsf_core::CommitVersion;
@@ -404,14 +408,16 @@ impl PageImage {
         if page_size < PAGE_HEADER_BYTES {
             return Err("page size must fit the page header".to_string());
         }
-        Ok(Self {
+        let image = Self {
             id,
             lsn,
             page_size,
             legacy_rows: 0,
             slots: BTreeMap::new(),
             tombstones: BTreeMap::new(),
-        })
+        };
+        image.ensure_capacity_for(None)?;
+        Ok(image)
     }
 
     pub fn insert_row(&mut self, key: Vec<u8>, payload: Vec<u8>) -> Result<(), String> {
@@ -513,8 +519,13 @@ impl PageImage {
             slots: BTreeMap::new(),
             tombstones: BTreeMap::new(),
         };
+        let mut encoded_slots = Vec::new();
         for _ in 0..slot_count {
             let row_key = cursor.bytes()?;
+            validate_row_key(row_key)?;
+            if image.slots.contains_key(row_key) || image.tombstones.contains_key(row_key) {
+                return Err("page contains duplicate row keys".to_string());
+            }
             let offset = cursor.u32()?;
             let length = cursor.u32()?;
             let deleted = match cursor.u8()? {
@@ -529,6 +540,7 @@ impl PageImage {
                 length,
                 deleted,
             };
+            encoded_slots.push(slot.clone());
             if deleted {
                 if !payload.is_empty() {
                     return Err("deleted page slot must not carry payload".to_string());
@@ -542,6 +554,12 @@ impl PageImage {
             }
         }
         image.ensure_capacity_for(None)?;
+        if image.slots()? != encoded_slots {
+            return Err("page slot offsets or ordering are invalid".to_string());
+        }
+        if bytes[cursor.offset..].iter().any(|byte| *byte != 0) {
+            return Err("page padding must be zero".to_string());
+        }
         Ok(image)
     }
 
@@ -593,30 +611,33 @@ impl PageImage {
     }
 
     fn ensure_capacity_for(&self, replacement: Option<(&[u8], &[u8])>) -> Result<(), String> {
-        let mut bytes = PAGE_HEADER_BYTES;
+        // The slot-offset model and the serialized envelope have different
+        // overheads. Both must fit, including retained deletion markers.
+        let mut logical_bytes = u64::from(PAGE_HEADER_BYTES);
+        let mut encoded_bytes = 34u64 + self.id.table.len() as u64;
+        let replacement_key = replacement.map(|(key, _)| key);
         for (key, payload) in &self.slots {
-            let payload = if replacement.is_some_and(|(replacement_key, _)| replacement_key == key)
-            {
-                replacement.expect("checked").1
-            } else {
-                payload.as_slice()
+            let payload = match replacement {
+                Some((candidate, payload)) if candidate == key => payload,
+                _ => payload.as_slice(),
             };
-            bytes = bytes
-                .checked_add(SLOT_METADATA_BYTES)
-                .and_then(|value| value.checked_add(key.len() as u32))
-                .and_then(|value| value.checked_add(payload.len() as u32))
-                .ok_or_else(|| "page capacity calculation overflow".to_string())?;
+            logical_bytes +=
+                u64::from(SLOT_METADATA_BYTES) + key.len() as u64 + payload.len() as u64;
+            encoded_bytes += 17 + key.len() as u64 + payload.len() as u64;
         }
         if let Some((key, payload)) = replacement
             && !self.slots.contains_key(key)
         {
-            bytes = bytes
-                .checked_add(SLOT_METADATA_BYTES)
-                .and_then(|value| value.checked_add(key.len() as u32))
-                .and_then(|value| value.checked_add(payload.len() as u32))
-                .ok_or_else(|| "page capacity calculation overflow".to_string())?;
+            logical_bytes +=
+                u64::from(SLOT_METADATA_BYTES) + key.len() as u64 + payload.len() as u64;
+            encoded_bytes += 17 + key.len() as u64 + payload.len() as u64;
         }
-        if bytes > self.page_size {
+        for key in self.tombstones.keys() {
+            if replacement_key != Some(key.as_slice()) {
+                encoded_bytes += 17 + key.len() as u64;
+            }
+        }
+        if logical_bytes.max(encoded_bytes) > u64::from(self.page_size) {
             Err("page does not have enough free space".to_string())
         } else {
             Ok(())
@@ -838,23 +859,43 @@ fn replay_page_server(
         server.pages.insert(image.id.clone(), image);
     }
 
+    let mut seen = BTreeMap::new();
     for bytes in redo_records {
-        let record = RedoRecord::decode(bytes).map_err(|reason| PageDecision::Rejected {
+        let record = RecoveryRecord::decode(bytes).map_err(|reason| PageDecision::Rejected {
             page: PageId::new("replay", 1),
             reason: format!("redo replay decode rejected: {reason}"),
         })?;
+        for row in record.rows() {
+            let key = (row.page.clone(), row.commit_lsn);
+            if let Some(previous) = seen.insert(key, bytes)
+                && previous != bytes
+            {
+                return Err(PageDecision::Rejected {
+                    page: row.page.clone(),
+                    reason: "conflicting replay records at the same page LSN".to_string(),
+                });
+            }
+        }
         decoded_records.push(record);
     }
-    decoded_records.sort_by(|left, right| {
-        left.page
-            .cmp(&right.page)
-            .then(left.commit_lsn.cmp(&right.commit_lsn))
-            .then(left.base_lsn.cmp(&right.base_lsn))
-    });
+    // Moves introduce dependencies between pages. Global LSN order preserves
+    // these dependencies; grouping replay by page would break them.
+    decoded_records.sort_by_key(RecoveryRecord::order);
 
     let mut skipped_records = 0;
     for record in decoded_records {
-        if apply_replay_record(&mut server, record)? {
+        let skipped = match record {
+            RecoveryRecord::Row(row) => apply_replay_record(&mut server, row)?,
+            RecoveryRecord::Move(record) => {
+                server
+                    .apply_move_inner(&record, true)
+                    .map_err(|reason| PageDecision::Rejected {
+                        page: record.remove.page,
+                        reason,
+                    })?
+            }
+        };
+        if skipped {
             skipped_records += 1;
         }
     }
@@ -1081,6 +1122,60 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_decode_rejects_duplicate_keys_invalid_offsets_and_padding() {
+        let mut image = PageImage::new(PageId::new("users", 1), CommitVersion(1), 256).unwrap();
+        image.insert_row(b"a".to_vec(), b"one".to_vec()).unwrap();
+        image.insert_row(b"b".to_vec(), b"two".to_vec()).unwrap();
+        let encoded = image.encode().unwrap();
+        // Header is 34 + table length; each slot has 17 bytes of metadata.
+        let first = 34 + "users".len();
+        let second = first + 17 + 1 + 3;
+        let mut duplicate = encoded.clone();
+        duplicate[second + 4] = b'a';
+        assert!(
+            PageImage::decode(&duplicate)
+                .unwrap_err()
+                .contains("duplicate")
+        );
+        let mut offset = encoded.clone();
+        offset[first + 5..first + 9].copy_from_slice(&0u32.to_be_bytes());
+        assert!(PageImage::decode(&offset).unwrap_err().contains("offsets"));
+        let mut padding = encoded;
+        *padding.last_mut().unwrap() = 1;
+        assert!(PageImage::decode(&padding).unwrap_err().contains("padding"));
+    }
+
+    #[test]
+    fn accepted_rows_and_tombstones_always_fit_the_serialized_page() {
+        let mut image = PageImage::new(PageId::new("users", 1), CommitVersion(0), 256).unwrap();
+        for n in 0..100u32 {
+            let before = image.clone();
+            let key = n.to_be_bytes().to_vec();
+            if image.insert_row(key.clone(), vec![b'x'; 8]).is_err() {
+                assert_eq!(image, before, "rejected insertion must be atomic");
+                break;
+            }
+            assert_eq!(
+                PageImage::decode(&image.encode().expect("accepted insert fits")).unwrap(),
+                image
+            );
+            image.delete_row(&key).unwrap();
+            assert_eq!(
+                PageImage::decode(&image.encode().expect("delete fits")).unwrap(),
+                image
+            );
+        }
+    }
+
+    #[test]
+    fn long_table_names_are_included_in_page_capacity() {
+        let id = PageId::new("t".repeat(80), 1);
+        let mut image = PageImage::new(id.clone(), CommitVersion(0), 128).unwrap();
+        assert!(image.insert_row(b"k".to_vec(), vec![1; 20]).is_err());
+        assert!(PageImage::new(id, CommitVersion(0), 64).is_err());
+    }
 
     #[test]
     fn applies_redo_when_lsn_matches() {

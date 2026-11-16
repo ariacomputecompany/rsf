@@ -1,5 +1,10 @@
+mod journal;
 mod replicated;
 mod requests;
+mod session;
+pub use journal::SqlPersistenceStats;
+use journal::{JournalFence, SqlJournal};
+pub use session::SqlSessionContext;
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -8,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use requests::{INTENT_FILE, PendingRequest, RequestReceipt};
 use rsf_constraints::ConstraintRule;
+use rsf_core::relational_key::RelationalKeyFormat;
 use rsf_core::{
     CommitVersion, Digest, ErrorCode, PlacementGroupId, RsfError, RsfResult,
     catalog::{ColumnDescriptor, ColumnType, NamespaceName, TableDescriptor, TableName},
@@ -23,12 +29,29 @@ use crate::{
 const STATE_FILE: &str = "sql.state";
 const TMP_FILE: &str = "sql.state.tmp";
 const FORMAT: &str = "RSF_SQL_STATE_V4";
+const JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V6";
+const LEGACY_JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V5";
+const FRAMED_FORMAT: &str = "RSF_SQL_STATE_V7";
+const FRAMED_JOURNALED_FORMAT: &str = "RSF_SQL_STATE_V8";
+
+#[cfg(test)]
+fn legacy_replicated(root: impl AsRef<Path>, namespace: &str) -> DurableSqlEngine {
+    let mut sql = DurableSqlEngine::open(&root).unwrap();
+    assert!(sql.engine.tables.is_empty() && sql.receipts.is_empty());
+    sql.engine.key_format = RelationalKeyFormat::LegacyDelimitedV1;
+    sql.persist().unwrap();
+    drop(sql);
+    DurableSqlEngine::open_replicated(root, namespace).unwrap()
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableSqlExecution {
     pub outcome: SqlOutcome,
     pub rows: usize,
     pub version: Option<CommitVersion>,
+    /// Data snapshot for a durable session SELECT; `version` certifies the read
+    /// dependency acknowledgement, which can be later than this snapshot.
+    pub read_snapshot: Option<CommitVersion>,
     pub persisted: bool,
     pub replayed: bool,
 }
@@ -53,6 +76,8 @@ pub struct DurableSqlEngine {
     receipts: BTreeMap<String, RequestReceipt>,
     namespace: Option<String>,
     commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
+    journal: Option<SqlJournal>,
+    sessions: BTreeMap<String, session::SessionState>,
 }
 
 impl DurableSqlEngine {
@@ -116,15 +141,28 @@ impl DurableSqlEngine {
                 format!("cannot inspect SQL checkpoint: {err}"),
             )
         })? {
+            if root.join(journal::DIRECTORY).exists() || root.join(journal::HEAD_FILE).exists() {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "SQL journal exists without its checkpoint",
+                ));
+            }
             return Ok(Self {
                 root,
                 _writer_lock: writer_lock,
-                engine: SqlEngine::default(),
+                engine: SqlEngine {
+                    key_format: pending
+                        .as_ref()
+                        .map_or_else(RelationalKeyFormat::default, |pending| pending.key_format),
+                    ..SqlEngine::default()
+                },
                 persistence_failed: false,
                 pending,
                 receipts: BTreeMap::new(),
                 namespace: None,
                 commands: BTreeMap::new(),
+                journal: None,
+                sessions: BTreeMap::new(),
                 recovery: DurableSqlRecovery {
                     tables: 0,
                     row_versions: 0,
@@ -135,8 +173,23 @@ impl DurableSqlEngine {
         }
 
         let checkpoint = read_checkpoint(&path)?;
+        let journal_fence = checkpoint.journal;
+        if checkpoint.namespace.is_none()
+            && (root.join(journal::DIRECTORY).exists() || root.join(journal::HEAD_FILE).exists())
+        {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "unbound SQL checkpoint cannot own a replicated journal",
+            ));
+        }
         let mut kv = KvEngine::default();
         for (key, versions) in checkpoint.kv {
+            if RelationalKeyFormat::format_of(&key) != Some(checkpoint.key_format) {
+                return Err(RsfError::new(
+                    ErrorCode::CorruptionDetected,
+                    "SQL checkpoint row key differs from its declared key domain",
+                ));
+            }
             for version in versions {
                 let mutation = if version.deleted {
                     KvMutation::Clear { key: key.clone() }
@@ -149,7 +202,24 @@ impl DurableSqlEngine {
                 kv.apply_committed_batch(version.version, vec![mutation])?;
             }
         }
-        let (engine, report) = SqlEngine::recover_from_committed_kv(kv, checkpoint.tables)?;
+        if pending
+            .as_ref()
+            .is_some_and(|pending| pending.key_format != checkpoint.key_format)
+            || checkpoint
+                .receipts
+                .values()
+                .any(|receipt| receipt.request.key_format != checkpoint.key_format)
+        {
+            return Err(RsfError::new(
+                ErrorCode::CorruptionDetected,
+                "SQL intent/receipt key format differs from checkpoint",
+            ));
+        }
+        let (engine, report) = SqlEngine::recover_from_committed_kv_with_format(
+            kv,
+            checkpoint.tables,
+            checkpoint.key_format,
+        )?;
         replicated::validate_recovered_operations(&engine, &checkpoint.commands)?;
         for receipt in checkpoint.receipts.values() {
             receipt.outcome(&engine)?;
@@ -160,7 +230,7 @@ impl DurableSqlEngine {
             live_rows: report.live_rows,
             tombstones: report.tombstones,
         };
-        Ok(Self {
+        let mut sql = Self {
             root,
             _writer_lock: writer_lock,
             engine,
@@ -170,7 +240,14 @@ impl DurableSqlEngine {
             receipts: checkpoint.receipts,
             namespace: checkpoint.namespace,
             commands: checkpoint.commands,
-        })
+            journal: None,
+            sessions: checkpoint.sessions,
+        };
+        if sql.namespace.is_some() {
+            session::validate_recovered(&sql)?;
+            sql.recover_journal(journal_fence)?;
+        }
+        Ok(sql)
     }
 
     pub fn execute(
@@ -215,6 +292,8 @@ impl DurableSqlEngine {
             return Ok(execution(outcome, false));
         }
         let pending = PendingRequest {
+            key_format: self.engine.key_format(),
+            session: None,
             client,
             statement: statement.to_string(),
             pg,
@@ -305,11 +384,14 @@ impl DurableSqlEngine {
 
     fn persist(&self) -> RsfResult<()> {
         let checkpoint = SqlCheckpoint {
+            key_format: self.engine.key_format(),
             tables: self.engine.recovered_tables_for_checkpoint(),
             kv: self.engine.committed_kv_versions_for_checkpoint(),
             receipts: self.receipts.clone(),
             namespace: self.namespace.clone(),
             commands: self.commands.clone(),
+            journal: self.journal.as_ref().map(|journal| journal.tail()),
+            sessions: self.sessions.clone(),
         };
         let encoded = encode_checkpoint(&checkpoint)?;
         atomic_write(&self.root, STATE_FILE, TMP_FILE, &encoded)
@@ -318,6 +400,7 @@ impl DurableSqlEngine {
 
 fn execution(outcome: SqlOutcome, replayed: bool) -> DurableSqlExecution {
     DurableSqlExecution {
+        read_snapshot: None,
         rows: outcome_row_count(&outcome),
         version: outcome_version(&outcome),
         persisted: outcome_persists(&outcome),
@@ -369,11 +452,14 @@ fn atomic_write(root: &Path, state_file: &str, tmp_file: &str, encoded: &str) ->
 
 #[derive(Clone, Debug)]
 struct SqlCheckpoint {
+    key_format: RelationalKeyFormat,
     tables: Vec<SqlRecoveredTable>,
     kv: Vec<(Vec<u8>, Vec<KvVersionedValue>)>,
     receipts: BTreeMap<String, RequestReceipt>,
     namespace: Option<String>,
     commands: BTreeMap<ClientRequestId, rsf_protocol::ReplicatedFabricCommand>,
+    journal: Option<JournalFence>,
+    sessions: BTreeMap<String, session::SessionState>,
 }
 
 fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
@@ -401,10 +487,27 @@ fn read_checkpoint(path: &Path) -> RsfResult<SqlCheckpoint> {
 
 fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
     let mut out = String::new();
-    out.push_str(FORMAT);
+    out.push_str(
+        match (checkpoint.key_format, checkpoint.journal.is_some()) {
+            (RelationalKeyFormat::LengthPrefixedV2, true) => FRAMED_JOURNALED_FORMAT,
+            (RelationalKeyFormat::LengthPrefixedV2, false) => FRAMED_FORMAT,
+            (RelationalKeyFormat::LegacyDelimitedV1, true) => JOURNALED_FORMAT,
+            (RelationalKeyFormat::LegacyDelimitedV1, false) => FORMAT,
+        },
+    );
     out.push('\n');
+    if let Some(fence) = checkpoint.journal {
+        out.push_str(&fence.line());
+    }
     if let Some(namespace) = &checkpoint.namespace {
         out.push_str(&format!("namespace\t{}\n", hex_bytes(namespace.as_bytes())));
+    }
+    for (key, state) in &checkpoint.sessions {
+        out.push_str(&format!(
+            "session\t{}\t{}\n",
+            hex_bytes(key.as_bytes()),
+            hex_bytes(&state.encode()?)
+        ));
     }
     for command in checkpoint.commands.values() {
         out.push_str(&format!("application\t{}\n", hex_bytes(&command.encode()?)));
@@ -453,7 +556,7 @@ fn encode_checkpoint(checkpoint: &SqlCheckpoint) -> RsfResult<String> {
         }
     }
     for receipt in checkpoint.receipts.values() {
-        out.push_str(&receipt.encode());
+        out.push_str(&receipt.encode()?);
     }
     append_checksum(&mut out);
     Ok(out)
@@ -490,9 +593,19 @@ fn verify_checksum(text: &str) -> RsfResult<&str> {
 fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     let text = verify_checksum(text)?;
     let mut lines = text.lines();
-    let replicated_format = match lines.next() {
-        Some(FORMAT) => true,
-        Some("RSF_SQL_STATE_V3") => false,
+    let format = lines.next();
+    let key_format = if matches!(format, Some(FRAMED_FORMAT | FRAMED_JOURNALED_FORMAT)) {
+        RelationalKeyFormat::LengthPrefixedV2
+    } else {
+        RelationalKeyFormat::LegacyDelimitedV1
+    };
+    let (replicated_format, journaled_format, session_format) = match format {
+        Some(FRAMED_JOURNALED_FORMAT) => (true, true, true),
+        Some(FRAMED_FORMAT) => (true, false, true),
+        Some(JOURNALED_FORMAT) => (true, true, true),
+        Some(LEGACY_JOURNALED_FORMAT) => (true, true, false),
+        Some(FORMAT) => (true, false, false),
+        Some("RSF_SQL_STATE_V3") => (false, false, false),
         _ => {
             return Err(RsfError::new(
                 ErrorCode::CorruptionDetected,
@@ -502,6 +615,8 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     };
 
     let mut receipts = BTreeMap::new();
+    let mut sessions = BTreeMap::new();
+    let mut journal = None;
     let mut namespace = None;
     let mut commands = BTreeMap::new();
     let mut tables = BTreeMap::<String, PendingTable>::new();
@@ -512,6 +627,24 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
         }
         let fields = line.split('\t').collect::<Vec<_>>();
         match fields.as_slice() {
+            ["session", key, state] if session_format => {
+                let key = decode_string(key, "SQL session key")?;
+                let state = session::SessionState::decode(&hex_decode(state)?)?;
+                if sessions.insert(key, state).is_some()
+                    || sessions.len() > session::MAX_ACTIVE_SQL_SESSIONS
+                {
+                    return Err(corrupt_line(
+                        line_number,
+                        "duplicate or excessive SQL sessions",
+                    ));
+                }
+            }
+            ["journal", ..] if journaled_format => {
+                let fence = JournalFence::decode(&fields)?;
+                if journal.replace(fence).is_some() {
+                    return Err(corrupt_line(line_number, "duplicate journal fence"));
+                }
+            }
             ["namespace", encoded] if replicated_format => {
                 let value = decode_string(encoded, "SQL namespace")?;
                 replicated::validate_namespace(&value)?;
@@ -637,7 +770,22 @@ fn decode_checkpoint(text: &str) -> RsfResult<SqlCheckpoint> {
     }
 
     replicated::validate_checkpoint_commands(namespace.as_deref(), &commands, &receipts)?;
+    if namespace.is_none() && !sessions.is_empty() {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            "SQL sessions require a namespace binding",
+        ));
+    }
+    if journaled_format != journal.is_some() || (journaled_format && namespace.is_none()) {
+        return Err(RsfError::new(
+            ErrorCode::CorruptionDetected,
+            "journaled SQL checkpoint requires namespace and journal fence",
+        ));
+    }
     Ok(SqlCheckpoint {
+        key_format,
+        journal,
+        sessions,
         namespace,
         commands,
         tables: tables
@@ -716,7 +864,7 @@ fn reject_transaction_control(statement: &str) -> RsfResult<()> {
     ) {
         return Err(RsfError::new(
             ErrorCode::InvalidInput,
-            "daemon durable SQL data-plane requires autocommit statements until durable SQL session transaction recovery is wired",
+            "durable SQL transaction controls require an explicit SQL session context",
         ));
     }
     Ok(())
@@ -855,7 +1003,7 @@ fn decode_string(value: &str, label: &str) -> RsfResult<String> {
 }
 
 fn hex_decode(value: &str) -> RsfResult<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(RsfError::new(
             ErrorCode::CorruptionDetected,
             "hex field has an odd number of digits",
@@ -1007,6 +1155,8 @@ mod tests {
             )
             .unwrap();
             let request = PendingRequest {
+                key_format: RelationalKeyFormat::default(),
+                session: None,
                 client: "insert".to_string(),
                 statement: "INSERT INTO users (id, name) VALUES (1, ada)".to_string(),
                 pg: PlacementGroupId(1),
@@ -1077,6 +1227,8 @@ mod tests {
         );
         assert!(!path.join(INTENT_FILE).exists());
         let request = PendingRequest {
+            key_format: RelationalKeyFormat::default(),
+            session: None,
             client: "create".to_string(),
             statement: "CREATE TABLE users(id PRIMARY KEY)".to_string(),
             pg: PlacementGroupId(1),
@@ -1114,7 +1266,10 @@ mod tests {
                 .execute(&mut router, PlacementGroupId(1), statement, "request")
                 .expect_err(statement);
             assert_eq!(err.code, ErrorCode::InvalidInput);
-            assert!(err.message.contains("autocommit"), "{statement}: {err:?}");
+            assert!(
+                err.message.contains("explicit SQL session context"),
+                "{statement}: {err:?}"
+            );
             assert!(sql.engine.transaction.is_none());
             drop(sql);
             fs::remove_dir_all(path).unwrap();
@@ -1297,11 +1452,14 @@ mod tests {
     #[test]
     fn checkpoint_rejects_every_truncated_prefix_and_single_byte_mutation() {
         let checkpoint = encode_checkpoint(&SqlCheckpoint {
+            key_format: RelationalKeyFormat::default(),
             tables: Vec::new(),
             kv: Vec::new(),
             receipts: BTreeMap::new(),
             namespace: None,
             commands: BTreeMap::new(),
+            journal: None,
+            sessions: BTreeMap::new(),
         })
         .unwrap();
         for end in 0..checkpoint.len() {
@@ -1358,9 +1516,9 @@ mod tests {
 
         let err = recovered
             .execute(&mut router, PlacementGroupId(1), "BEGIN", "sql-test-begin")
-            .expect_err("transaction control rejected until durable session recovery exists");
+            .expect_err("transaction control requires an explicit session");
         assert_eq!(err.code, ErrorCode::InvalidInput);
-        assert!(err.message.contains("autocommit"));
+        assert!(err.message.contains("explicit SQL session context"));
 
         let _ = fs::remove_dir_all(&path);
     }

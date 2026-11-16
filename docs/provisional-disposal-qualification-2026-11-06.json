@@ -1,0 +1,185 @@
+{
+  "scope": "Storage prerequisite for caller-authorized bounded namespace disposal. Does not integrate ordinary/initial/native control paths or qualify production.",
+  "source": "1ea8c0d086d0dd314e20ff462d17f5b2c4466dca54d0d8483eb73cf7ecf96831",
+  "execution_sha256": "2e11b6220fc77ca33bfdefe027ddc5b01abdca5e2c6925e55d105471d9503e9a",
+  "actual_command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "rsf-storage"
+  ],
+  "test_summaries": [
+    "test result: ok. 176 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.84s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "required_test_outcomes": {
+    "store::custody::discard::tests::discard_is_read_only_bounded_inventory_then_two_phase_without_recovery_or_lock_creation": [
+      "ok"
+    ],
+    "store::custody::discard::tests::discard_accepts_actual_factory_and_owned_rotation_interruption_prefixes_without_parsing_wal": [
+      "ok"
+    ],
+    "store::custody::discard::tests::discard_exact_segment_budget_excludes_metadata_and_limits_refuse_without_mutation": [
+      "ok"
+    ],
+    "store::custody::discard::tests::discard_declared_name_and_temporary_metadata_caps_remain_independent_of_segment_data": [
+      "ok"
+    ],
+    "store::custody::discard::tests::boundaries::every_discard_unlink_rmdir_and_sync_boundary_failure_preserves_recognizable_cold_remainder": [
+      "ok"
+    ],
+    "store::custody::discard::tests::boundaries::discard_barriers_keep_manifest_last_and_factory_temporary_before_its_required_segment": [
+      "ok"
+    ],
+    "store::custody::discard::tests::boundaries::discard_callback_error_still_observes_physical_loss_and_never_deletes_through_replacement": [
+      "ok"
+    ],
+    "store::custody::discard::tests::boundaries::discard_clean_callback_refusal_precedes_effects_and_callback_unwind_returns_no_capability": [
+      "ok"
+    ],
+    "store::custody::discard::tests::refusal::discard_rejects_foreign_aliased_hardlinked_nonempty_sidecars_and_rotation_residue_before_effects": [
+      "ok"
+    ],
+    "store::custody::discard::tests::refusal::discard_rejects_root_replacement_or_new_name_after_inventory_without_adopting_it": [
+      "ok"
+    ],
+    "store::custody::discard::tests::refusal::discard_remainder_refuses_surviving_auxiliary_and_reappeared_removed_children": [
+      "ok"
+    ],
+    "store::custody::discard::tests::refusal::missing_declared_files_are_discard_only_while_manifestless_sidecars_and_auxiliaries_reject": [
+      "ok"
+    ],
+    "store::custody::discard::tests::refusal::actual_unlink_permission_failure_returns_no_remainder_and_leaves_anchor_and_children": [
+      "ok"
+    ]
+  },
+  "phases": {
+    "doctor": {
+      "command": [
+        "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "doctor",
+        "--deep",
+        "--scenario",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/strict.fozzy.json",
+        "--runs",
+        "5",
+        "--seed",
+        "20260912",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "83402574b6a8e7de2e81951750a51e16952cae420adb518f11692d1933cd5a82",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "strict": {
+      "command": [
+        "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "test",
+        "--det",
+        "--strict",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/strict.fozzy.json",
+        "--seed",
+        "20260912",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "d33140fa32e61c800600a592f95ed5723d923c528ea0c87057e37f6b5dd95af7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "host": {
+      "command": [
+        "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "run",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/host.fozzy.json",
+        "--det",
+        "--seed",
+        "20260912",
+        "--record",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/trace.fozzy",
+        "--proc-backend",
+        "host",
+        "--fs-backend",
+        "host",
+        "--http-backend",
+        "host",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "cf41884021df796a470831e2c690bc06f6d16c0aa699caa8baebd6858dab82b9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "verify": {
+      "command": [
+        "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "trace",
+        "verify",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/trace.fozzy",
+        "--strict",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "283bbd0a2c954313a43bfbfba6142eb4a9350c1dcdbde269d6f4f493b3f48a27",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "replay": {
+      "command": [
+        "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "replay",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/trace.fozzy",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "6f58bfe047cd4b0e1daffebc08397b4b362260a0a9186d52662b24ad03d2be0c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ci": {
+      "command": [
+        "/Users/deepsaint/Desktop/rsf/artifacts/fozzy-engine-candidate-20261103/bin/fozzy",
+        "ci",
+        "/Users/deepsaint/Desktop/rsf/artifacts/control-qualification-provisional-v3-20261106/trace.fozzy",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "b2d376df91c475bbb165842e1370164c8ff4ed682e71a774ad3ec25e1bfdd405",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "trace_sha256": "96e5b2e088c27fc2b482756c29135c9f4ba226cd3ff3aa45975e3d870972430d",
+  "controls": {
+    "artifacts/control-stack-qualification-20261106/execute.py": "a1ffc805824b41bb63efda6980c2bf3e0ab78c96dd7c9377d587c5479d1ad9a2",
+    "artifacts/fozzy-engine-candidate-20261103/bin/fozzy": "13fd8f91e842237ba7c145de073f0695692d754a31d41142ec5fda0af3e581a7",
+    "artifacts/control-qualification-provisional-v3-20261106/strict.fozzy.json": "56e4bb64406d22a01ae16081e5cfc2ab746d6eeab12440de072afce2c6177d75",
+    "artifacts/control-qualification-provisional-v3-20261106/host.fozzy.json": "5382dd815a424b6e198eb7a55e2244b8e72d71abfdf8d43dd68101a3fcc774b5",
+    "artifacts/source-fingerprint.py": "431e06df6d52e6b498def4e3707f8916b80db8dcf49612666891cea53203a015",
+    "artifacts/control-disposal-composition-20261106/manifest.json": "b435d86d6edb922735e7f3c644d428e57daf95d48be918cc2a843c415277a987",
+    "artifacts/control-disposal-composition-20261106/required-tests.json": "9301ab7526d182184a0393b7fedb0c345513cda110f99c7e5d030f758d5eb976",
+    "artifacts/control-disposal-composition-20261106/01-provisional.patch": "15cf31ad8ed55d93fb15ce86a5dde85b9c40ab71ab9370b81414066a150ac883",
+    "artifacts/control-disposal-composition-20261106/02-ordinary-behavioral-red.patch": "a7aacb2d8f70439c33ba885c16d25bdf334b9ce30681717b49ed89d17c58786e",
+    "artifacts/control-disposal-composition-20261106/03-ordinary-green.patch": "4c82451e18e6e0c3d75ee2c4c0f4a6b8363ed28e67cd0fb114d55735927113b4",
+    "artifacts/control-disposal-composition-20261106/04-initial-green.patch": "56541e234cac1c510c6f6dc6528139e24f76bcad245939146ecfd2d9bec88dd9",
+    "artifacts/control-disposal-composition-20261106/integration.patch": "f86dcd1ecede38b26a21ac4b3491b3aef89dfd3115e3980e2db6494a783a1dba",
+    "artifacts/control-disposal-composition-20261106/reverse.patch": "8a723c679618b2a74e97ebc78f05800426bc17679a4dd4ebc0a40a0ecaf1239a"
+  },
+  "checks": {
+    "cargo fmt --all -- --check": 0,
+    "cargo clippy --locked -p rsf-storage --all-targets -- -D warnings": 0
+  },
+  "previous_attempts": [
+    {
+      "path": "artifacts/control-qualification-provisional-v1-20261106",
+      "result": "Compile failure in new test helper: String passed where &str required; no behavioral evidence."
+    },
+    {
+      "path": "artifacts/control-qualification-provisional-v2-20261106",
+      "result": "All176 storage tests and13 contracts passed. Subsequent lint check found three style issues; corrected without changing assertions, finalv3 requalified."
+    }
+  ],
+  "limitations": [
+    "No old-API regression RED is claimed for this new API.",
+    "Caller must own outer namespace and independently authorize disposal of nonselected state.",
+    "Full baseline still fails timing; ordinary disposal, initial/native paths and Linux qualification remain open."
+  ],
+  "production_qualified": false,
+  "cicd_used": false
+}

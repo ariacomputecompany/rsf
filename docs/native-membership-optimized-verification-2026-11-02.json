@@ -1,0 +1,74 @@
+{
+  "date": "2026-11-02",
+  "production_qualified": false,
+  "full_final_source_gate_passed": false,
+  "base_commit": "df937314e01122bf35d27c1ff6bd3e0299ae123e",
+  "final_source_sha256": "498b68c645d457f6412c056e734729b35f503fe068d207d6c18b0d28c2f31ab0",
+  "source_unchanged": true,
+  "change": "Complete membership input copies validate the retained prefix once and use one Full-sync writer for all bounded suffix batches. Chosen import compares persisted bytes before and after copying against opaque replay-validated approval; public chosen learning retains semantic replay. No deadline, retry, payload or concurrency reduction.",
+  "affected_packages": {
+    "packages": [
+      "rsf-vsr",
+      "rsf-rpc",
+      "rsf-protocol",
+      "rsf-storage",
+      "rsfd"
+    ],
+    "passed": 441,
+    "failed": 0,
+    "ignored": 1,
+    "trace": "artifacts/native-managed-optimized-20261102.trace.fozzy",
+    "seed": 20260912,
+    "doctor_runs": 5,
+    "strict_orchestration": true,
+    "host_execution": true,
+    "trace_verify": true,
+    "replay": true,
+    "ci": true
+  },
+  "clippy": {
+    "passed": true,
+    "all_targets": true,
+    "no_deps": true,
+    "warnings_denied": true,
+    "log": "artifacts/native-managed-optimized-20261102-clippy.log"
+  },
+  "regression_evidence": [
+    "Exact retained prefix conflicts and incomplete bulk sources reject before suffix writes; exact retry adds no WAL record.",
+    "Higher promises and the first chosen certificate survive exact retry and cold recovery.",
+    "Short/corrupt acknowledged input rejects before the copying boundary.",
+    "Injected short, malformed descriptor and full-count corrupt WAL after copying reject before choice; public learning independently rejects all three.",
+    "Native managed recovery, both native ancestry-admission regressions, and all filesystem alias/bound-input regressions pass in the complete affected run."
+  ],
+  "preserved_failure": {
+    "report": "docs/native-membership-verification-2026-11-02.json",
+    "reproduction_trace": "artifacts/native-stage-baseline-20261102.trace.fozzy",
+    "scope": "Full concurrent RPC suite on unchanged production, with request-attributable diagnostics.",
+    "server_stage_ms": 1602.318875,
+    "caller_two_attempts_ms": 1604.136291,
+    "result": "56 RPC tests passed, one staging test failed."
+  },
+  "intermediate_one_writer": {
+    "trace": "artifacts/native-stage-one-writer-20261102.trace.fozzy",
+    "source_sha256": "f5fe741527cee0b3d0648875029e9837828ec4374407b9c4e5455b32efd11a49",
+    "passed": 137,
+    "failed": 0,
+    "server_first_stage_ms": 911.591542,
+    "caller_stage_success_ms": 923.654792,
+    "note": "The existing lost-reply retry resolved the first expired response. These single observations are diagnostic, not capacity or p99 benchmarks. Final source additionally removes duplicate semantic replay."
+  },
+  "expanded_gate": {
+    "domains": 24,
+    "required_native_regressions": 36,
+    "native_debug_release_cases": 3,
+    "status": "pending on final source"
+  },
+  "remaining": [
+    "Complete unchanged-source expanded gate, including workspace, debug/release native lifecycle, takeover, streaming and stress.",
+    "Autonomous pre-choice recovery, safe incomplete factory continuation, repeated membership lifecycles and conflict/abort handling.",
+    "Replicated control/catalog admission across all external and library paths; no operator membership command enabled.",
+    "Combined scheduler destruction/two-PG/delayed-reply schedules, independent-group routing, bounded history/retention and legacy migration.",
+    "Independent-host/region, power-loss and numeric capacity/p99 qualification; local traces do not make native scheduling deterministic.",
+    "Whole-state rollback needs independently trusted control binding; unrestricted dependency lint debt remains."
+  ]
+}

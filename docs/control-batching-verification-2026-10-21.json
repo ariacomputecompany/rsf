@@ -1,0 +1,76 @@
+{
+  "all_pass": false,
+  "production_qualified": false,
+  "source_sha256": "5971de07b6c57b0181c8434fc86e5fa092838363b7d23949a16266d99650d4fa",
+  "milestone": "Bounded election transfer/staging, completed installation retry, cumulative socket I/O accounting",
+  "targeted_checks": {
+    "vsr_tests": 89,
+    "rpc_tests": 29,
+    "daemon_unit_tests": 65,
+    "core_log": "artifacts/batched-install-idempotent-fixed-tests.log",
+    "daemon_log": "artifacts/data-io-budget-final-tests.log",
+    "debug_takeover_log": "artifacts/batched-install-ack-client.log",
+    "debug_takeover_passed": true,
+    "history_growth_writes": 128,
+    "concurrent_requests": 32,
+    "acknowledged_before_crash": 4,
+    "retried_requests": 32,
+    "verified_logical_kv_writes": 162,
+    "surviving_replicas_checked": 2,
+    "surface_count": 4,
+    "primary_state_deleted": true,
+    "replacement_restarts": 1,
+    "clippy": {
+      "passed": true,
+      "crates": [
+        "rsf-vsr",
+        "rsf-rpc",
+        "rsfd"
+      ],
+      "all_targets": true,
+      "no_deps": true,
+      "deny_warnings": true,
+      "log": "artifacts/batched-control-qualified-clippy.log"
+    }
+  },
+  "full_gate": {
+    "status": "interrupted_after_failures",
+    "log": "artifacts/batched-control-qualified-20261021.log",
+    "trace_directory": "artifacts/verification.anNt3n",
+    "failed_domains": [
+      "peer-rpc"
+    ],
+    "passed_domains": [
+      "storage",
+      "vsr",
+      "membership",
+      "protocol",
+      "kv-transactions"
+    ],
+    "not_completed": [
+      "sql",
+      "authentication",
+      "tenancy",
+      "daemon",
+      "automatic-client",
+      "daemon-stress",
+      "release-stress",
+      "object-blob",
+      "recovery",
+      "policy",
+      "end-to-end",
+      "workspace"
+    ],
+    "observations": [
+      "Learner catch-up and recipient installation restart hit RPC deadlines",
+      "Original process and tool handle were absent when rechecked; no complete summary was produced"
+    ]
+  },
+  "limits": [
+    "Single-host loopback TLS with fsync",
+    "Application execution remains synchronous and is not bounded by the socket I/O budget",
+    "Complete histories are still retained and validated during cold recovery and selection",
+    "The previous listener collision remains unexplained; broader gate success is unproven",
+    "New batch wire kinds require recipient support; legacy single-record requests remain accepted"
+  ]
+}

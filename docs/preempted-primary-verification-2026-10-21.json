@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-21",
+  "production_qualified": false,
+  "full_gate_passed": false,
+  "baseline_commit": "22b045bc2770b4caa39cd70948949671c889f092",
+  "baseline_gate": {
+    "artifacts": "artifacts/verification.wfcF1I",
+    "passed_domains": 22,
+    "total_domains": 23,
+    "failed_domain": "automatic-client",
+    "workspace": {
+      "passed": 1195,
+      "failed": 0,
+      "ignored": 1
+    }
+  },
+  "failure": "A locally installed primary repeatedly resumes retained input below another voters durable higher promise; native takeover does not converge within its unchanged deadline.",
+  "fixture": {
+    "path": "artifacts/failed-automatic-election-fixture-20261021",
+    "files": 137,
+    "manifest": "artifacts/failed-automatic-election-fixture-manifest.json",
+    "diagnostic_trace": "artifacts/failed-election-status-final.trace.fozzy",
+    "node_1": {
+      "view": 3,
+      "primary": 1,
+      "promised_target": 6,
+      "retained_target": 3,
+      "committed_tail": 151
+    },
+    "node_2": {
+      "view": 5,
+      "primary": 2,
+      "retained_target": 5,
+      "committed_tail": 151
+    }
+  },
+  "change": "Observe authenticated higher normal views and durable promises as proposal lower bounds; recover superseded partial installations and timed-out confirmed primaries through ordinary quorum elections.",
+  "targeted_regressions": {
+    "before": "artifacts/preempted-primary-before-fix.log",
+    "before_failed": 2,
+    "after": "artifacts/preempted-primary-after-fix.log",
+    "after_passed": 2,
+    "coverage": [
+      "partial-primary restart with superseding promise",
+      "previously confirmed primary with superseding promise",
+      "cold recovery retains committed payload and receipt"
+    ]
+  },
+  "clippy": {
+    "log": "artifacts/preempted-primary-clippy.log",
+    "packages": [
+      "rsf-rpc",
+      "rsfd"
+    ],
+    "all_targets": true,
+    "warnings_denied": true,
+    "passed": true
+  },
+  "unchanged": [
+    "request deadlines",
+    "wire retry budgets",
+    "native workload sizes",
+    "convergence deadline"
+  ],
+  "pending": [
+    "recorded final-source RPC and daemon host execution",
+    "debug and release native automatic takeover",
+    "fresh complete 23-domain qualification",
+    "remaining production work in WORK.md"
+  ]
+}

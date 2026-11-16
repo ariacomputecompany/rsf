@@ -1,0 +1,239 @@
+{
+  "status": "scoped native bootstrap/migration milestone; full production qualification remains open",
+  "source_sha256": "d79fda77bde61c968a49dec3218f40f56f1abc7f70db89ac129a409b12e31584",
+  "changes": [
+    "Native identity V3 restrictive persistence with original descriptor ownership, same-FD readback and post-rename verification.",
+    "Reserved-only provisional storage and VSR bootstrap, native Initialized publication before voting/listening, strict existing recovery and actual Genesis scheduler.",
+    "Restore documented daemon protocol.vsr transfer through original application SourceOwner custody; explicit quiesced legacy identity migration.",
+    "Complete legacy membership fixtures with the original peer lock without altering process assertions or deadlines."
+  ],
+  "full_suites": {
+    "rsf-storage": {
+      "directory": "artifacts/fresh-native-migration-qualification-20261106/observation-fresh-native-migration-v1-rsf-storage",
+      "source_sha256": "8f2ae389976d177fa5a86f39c5691d0adc4f372d3647342bcb8c77679f7e6ab2",
+      "source_unchanged": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": true,
+      "actual_default_suite_passed": true,
+      "valid_observation": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.55s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "hashes": {
+        "execution.json": "f3357a048b7198d3f735e799c77217be09567cfef219ecdbba5ab1b68561d2a0",
+        "trace.fozzy": "50cf03ba299a519836c2081711c34009a62f42073aa4998a6c117fed19f042fa",
+        "cargo.stdout": "97c26fa96843265ce179d3c69cb4ba3911404d1f3faea830c56c419b28ae8f34",
+        "cargo.stderr": "844b297c2d32c19d7ee0fb9d345692226972534ddd2b82439bf969d43d933d93",
+        "cargo-process.json": "7e89e1678c386a696a2913e2ca7e2a4a57ceb164b4a9b7cff212de263851e06b",
+        "discovery.stdout": "399f4df7e0e7851c61e136473eee3283f528627b3968775e8bc5706b25b5973b",
+        "discovery-process.json": "f75766765abd1b7a2aabd75894f61d976e536c8643c1a108cd3902068f694f75"
+      }
+    },
+    "rsf-vsr": {
+      "directory": "artifacts/fresh-native-migration-qualification-20261106/observation-fresh-native-migration-v1-rsf-vsr",
+      "source_sha256": "8f2ae389976d177fa5a86f39c5691d0adc4f372d3647342bcb8c77679f7e6ab2",
+      "source_unchanged": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": true,
+      "actual_default_suite_passed": true,
+      "valid_observation": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: ok. 384 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 129.71s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "hashes": {
+        "execution.json": "a85902c7514122fb09d63533cd840bdba8dc441f0ca04ae1c44fd9bdca404509",
+        "trace.fozzy": "7cf27dc3206917fdb1ed75612b0156def42c26e0017a5097740738e1672ff839",
+        "cargo.stdout": "27dbbb7da901d4650b8392c657b322ad9cff957a46dc29ac88155a620b5dcba7",
+        "cargo.stderr": "cb8e3eab87430c391db814f8e400810557fa89d335c00288362261d0737c0250",
+        "cargo-process.json": "aa8ad4a1a8416e766642a99dd170329f7146145af0c6abab8c98e6b9f9839a33",
+        "discovery.stdout": "9e25d7973c8163e546078f2575fa6ec9c16dddbaf9b25619f3516f2d9ddc2559",
+        "discovery-process.json": "57573d97dfb2eefd59d59a603cec67e71adc3780b5aa61c14766ab4ac34ce919"
+      }
+    },
+    "rsf-rpc": {
+      "directory": "artifacts/fresh-native-rpc-native-correction-qualification-20261106/observation-fresh-native-rpc-native-v2-rsf-rpc",
+      "source_sha256": "d79fda77bde61c968a49dec3218f40f56f1abc7f70db89ac129a409b12e31584",
+      "source_unchanged": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": true,
+      "actual_default_suite_passed": true,
+      "valid_observation": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: ok. 161 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 79.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "failed_tests": [],
+      "hashes": {
+        "execution.json": "b1a017ef968477db695f3bc0d626fc22d426eeb29fbfcc1aee258d5a60ec3fb8",
+        "trace.fozzy": "d9e13c91c4681e17c725ab419e551052185d4aa02413227fd0e64083813c46e5",
+        "cargo.stdout": "e1fcedb93c9117eea9b3326617534b70813bdac04beb6c58f265816b805c98be",
+        "cargo.stderr": "372e70fe1adb9454bbf1607a9a96ace3f578124872838afd058263a6faffec75",
+        "cargo-process.json": "117ca89c9381da1c3c92fb980fc49e43b0cf38437cb3d2bbaea45f7c8c64fa98",
+        "discovery.stdout": "5a76aa68d2eb3ec35f7b7fee1ca7a0bb95311d3c9996e89777d18394b20eeb78",
+        "discovery-process.json": "1e3fdd7f75dfa5e6c3dcc75fff7e4f48736a1f7751032041dd1b7bf4f3a4960a"
+      }
+    },
+    "rsfd": {
+      "directory": "artifacts/fresh-native-rpc-native-correction-qualification-20261106/observation-fresh-native-rpc-native-v2-rsfd",
+      "source_sha256": "d79fda77bde61c968a49dec3218f40f56f1abc7f70db89ac129a409b12e31584",
+      "source_unchanged": true,
+      "full_census_matches": true,
+      "required_names_valid": true,
+      "actual_tests_passed": false,
+      "actual_default_suite_passed": true,
+      "valid_observation": true,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 0,
+        "verify": 0,
+        "replay": 0,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: ok. 130 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.75s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s",
+        "test result: ok. 29 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 231.09s"
+      ],
+      "failed_tests": [],
+      "hashes": {
+        "execution.json": "6d939b71edcdf40b77f17ab13e30e123a6b6f3f3c535537badf1c648c432e18f",
+        "trace.fozzy": "0cf0eda1112bd086168290f8086744ca2a30eedafc75638e0c5bbab67fc65989",
+        "cargo.stdout": "977bb2d1926f46f1534376542dccee1cd52725fe2727bfe9eaa1cba0144ecdeb",
+        "cargo.stderr": "e70a9bbac78b70e6e42f083aa0bd48f7d45fc39666a41ee90cb70adf11b5b0c8",
+        "cargo-process.json": "9aabc111b19c07b5d6be122054a6748dd3de4f300bd6caea3e46245d8d283677",
+        "discovery.stdout": "68286a4f2ac91b3256f055f32325c5356c9821524f64d36dd004b0c518dd4522",
+        "discovery-process.json": "8da148f64be7d5b8d77333900ce7ce0e64ba04e22a3841b48077944ffbe8261b"
+      }
+    }
+  },
+  "preserved_integration_failures": {
+    "rsf-rpc": {
+      "directory": "artifacts/fresh-native-migration-qualification-20261106/observation-fresh-native-migration-v1-rsf-rpc",
+      "source_sha256": "8f2ae389976d177fa5a86f39c5691d0adc4f372d3647342bcb8c77679f7e6ab2",
+      "source_unchanged": true,
+      "full_census_matches": true,
+      "required_names_valid": false,
+      "actual_tests_passed": false,
+      "actual_default_suite_passed": false,
+      "valid_observation": false,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: FAILED. 160 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 85.31s"
+      ],
+      "failed_tests": [
+        "replication::tests::managed_control::initial::source::initial_control_only_owner_checks_complete_policy_before_creating_a_root"
+      ],
+      "hashes": {
+        "execution.json": "41d4bedc3b557c901f6924ca27516695b28a570bcdce2bdba8778890834f02de",
+        "trace.fozzy": "3d49c17908c00b6efe010ba9a09b19bb1a3303a1d43edc8575c8358bde65b25a",
+        "cargo.stdout": "1d5a808d4ecfd4be3b420a31496d6e2f7390bfea8be71188d3c4b594b815fc8a",
+        "cargo.stderr": "2aa6e0a6b662e8786a05f4eba638b782401eecc5424e1d81406f531d4f007e84",
+        "cargo-process.json": "9d16d9982a7aeb27a7f037f9ee759f8f64222de3c4c5504b0c82b9387245ac2e",
+        "discovery.stdout": "5a76aa68d2eb3ec35f7b7fee1ca7a0bb95311d3c9996e89777d18394b20eeb78",
+        "discovery-process.json": "67e8c2cfd50311ff81441de040982b9ff1cdffa2ecd3680d85d5285815f1c2ab"
+      }
+    },
+    "rsfd": {
+      "directory": "artifacts/fresh-native-migration-qualification-20261106/observation-fresh-native-migration-v1-rsfd",
+      "source_sha256": "8f2ae389976d177fa5a86f39c5691d0adc4f372d3647342bcb8c77679f7e6ab2",
+      "source_unchanged": true,
+      "full_census_matches": false,
+      "required_names_valid": false,
+      "actual_tests_passed": false,
+      "actual_default_suite_passed": false,
+      "valid_observation": false,
+      "phase_exits": {
+        "doctor": 0,
+        "strict": 0,
+        "host": 1,
+        "verify": 0,
+        "replay": 1,
+        "ci": 0
+      },
+      "summaries": [
+        "test result: FAILED. 129 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.63s"
+      ],
+      "failed_tests": [
+        "peer::control_tests::bootstrap_faults::native_fresh_completion_rechecks_original_kernel_lock_after_native_publication"
+      ],
+      "hashes": {
+        "execution.json": "88c4d3153cdad950cc086473f5bd0aaf70949ade57f8c80ff2d266c47606e1c2",
+        "trace.fozzy": "06bb0b6c0320949ae6875241df203f6ec31f3ace0892b5a6924ea9e13b4a4061",
+        "cargo.stdout": "e135f78bfe9aff01fe24b36330ecf06c9a193a8ab8c86c5bbbfdcf6252d52b7e",
+        "cargo.stderr": "fb5a88e76436fa5ebf35686cd294cfdadea521d5a956c48ec0a0712081fb4376",
+        "cargo-process.json": "102626aba4d84090e7c0aff970c7a9f977709db5bbfdbc4a542ed39761c514dc",
+        "discovery.stdout": "68286a4f2ac91b3256f055f32325c5356c9821524f64d36dd004b0c518dd4522",
+        "discovery-process.json": "d62641aedcbc9088a1eff6844c36d12e86fcae174876fc763a4d22414325b69f"
+      }
+    }
+  },
+  "corrections": {
+    "artifacts/fresh-native-integration-corrections-20261106/context-formatting.patch": "442b20d61969be77f9334ed66ed6fba1fa77d06cf62127446cb89c875b07df06",
+    "artifacts/fresh-native-integration-corrections-20261106/finite-limits-context.patch": "c80fb04aa4ddb0d1685df349a0dec173a5ef718eee917dada1fa65bd8a5379ad",
+    "artifacts/fresh-native-integration-corrections-20261106/native-sticky-expectation.patch": "aa8be16d21dec5d05dc045f19f95ab6df47d1ed9f5e579c92db8d4e21a0b26f9"
+  },
+  "checks": {
+    "fmt_exit": 0,
+    "fmt_session": 82790,
+    "clippy_exit": 0,
+    "clippy_session": 52782,
+    "git_diff_check_exit": 0
+  },
+  "production_qualified": false,
+  "full_baseline_passed": false,
+  "stress_qualified": false,
+  "linux_qualified": false,
+  "cicd_used": false,
+  "remaining": [
+    "Integrate and qualify initial sender, native orchestration, confirmation, later-prefix dissemination, retention, first-effect/publication and client admission.",
+    "Resolve historical STAGE/transport timing failures under original controls; a passing later suite alone does not identify or fix their cause.",
+    "Full final 25-domain baseline, debug/release stress and real SQL/KV/object/blob workflows.",
+    "Growing-history capacity/recovery, repeated membership and independent-group routing checks.",
+    "Actual Linux VM/kernel qualification; local Darwin filesystem hooks are not kernel EIO or machine power-loss evidence."
+  ],
+  "limits": [
+    "Storage/VSR full results are from8f2; later changes affect only RPC diagnostics and a native test expectation. Source fingerprints remain separate.",
+    "Native default suite permits only the exact existing stress ignore; separate actual stress is still required.",
+    "Fozzy strict scripted controls and replay/local trace-ci do not rerun Cargo. Host capture is the actual workload.",
+    "No timeout, retry, concurrency or workload budget was increased."
+  ]
+}

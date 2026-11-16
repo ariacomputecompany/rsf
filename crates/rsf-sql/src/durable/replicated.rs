@@ -6,8 +6,38 @@ use rsf_protocol::{
     ReplicatedFabricCommand,
 };
 
-mod plan;
+pub(super) mod plan;
 const MAGIC: &[u8] = b"RSFSC1";
+const SESSION_MAGIC: &[u8] = b"RSFSC2";
+const FRAMED_MAGIC: &[u8] = b"RSFSC3";
+pub(super) struct PreparedSql {
+    engine: SqlEngine,
+    session: Option<(String, Option<session::SessionState>)>,
+}
+fn operation(engine: &SqlEngine, request: &PendingRequest) -> RsfResult<FabricOperation> {
+    if let Some(proposal) = &request.session {
+        proposal.operation()
+    } else {
+        plan::operation(engine, &request.statement)
+    }
+}
+fn receipt_execution(
+    receipt: &RequestReceipt,
+    engine: &SqlEngine,
+    replayed: bool,
+) -> RsfResult<DurableSqlExecution> {
+    let mut result = execution(receipt.outcome(engine)?, replayed);
+    if receipt.request.session.is_some() {
+        result.version = Some(receipt.evidence.version);
+        result.persisted = true;
+    }
+    if let Some(proposal) = &receipt.request.session
+        && let session::model::SessionResult::Selected { snapshot, .. } = &proposal.result
+    {
+        result.read_snapshot = Some(CommitVersion(*snapshot));
+    }
+    Ok(result)
+}
 fn invalid(message: impl Into<String>) -> RsfError {
     RsfError::new(ErrorCode::InvalidInput, message)
 }
@@ -20,16 +50,29 @@ pub(super) fn validate_namespace(namespace: &str) -> RsfResult<()> {
     }
     Ok(())
 }
-fn application(namespace: &str, request: &PendingRequest) -> ApplicationPayload {
-    let mut bytes = MAGIC.to_vec();
-    bytes.extend_from_slice(request.encode().as_bytes());
-    ApplicationPayload {
+fn application(namespace: &str, request: &PendingRequest) -> RsfResult<ApplicationPayload> {
+    let mut bytes = if request.key_format == RelationalKeyFormat::LengthPrefixedV2 {
+        FRAMED_MAGIC
+    } else if request.session.is_some() {
+        SESSION_MAGIC
+    } else {
+        MAGIC
+    }
+    .to_vec();
+    if request.key_format == RelationalKeyFormat::LengthPrefixedV2 {
+        bytes.push(u8::from(request.session.is_some()));
+    }
+    bytes.extend_from_slice(request.encode()?.as_bytes());
+    Ok(ApplicationPayload {
         namespace: namespace.into(),
         surface: ApplicationSurface::Sql,
         bytes,
-    }
+    })
 }
-fn decode_request(command: &ReplicatedFabricCommand, namespace: &str) -> RsfResult<PendingRequest> {
+pub(super) fn decode_request(
+    command: &ReplicatedFabricCommand,
+    namespace: &str,
+) -> RsfResult<PendingRequest> {
     command.encode()?;
     if command.application.namespace != namespace
         || command.application.surface != ApplicationSurface::Sql
@@ -39,13 +82,27 @@ fn decode_request(command: &ReplicatedFabricCommand, namespace: &str) -> RsfResu
             "SQL command targets a different namespace, surface or consistency mode",
         ));
     }
-    let text = command
-        .application
-        .bytes
-        .strip_prefix(MAGIC)
-        .ok_or_else(|| corrupt("unknown SQL command format"))?;
+    let (text, is_session, key_format) =
+        if let Some(bytes) = command.application.bytes.strip_prefix(FRAMED_MAGIC) {
+            let (&kind, body) = bytes
+                .split_first()
+                .ok_or_else(|| corrupt("missing framed SQL command kind"))?;
+            if kind > 1 {
+                return Err(corrupt("invalid framed SQL command kind"));
+            }
+            (body, kind == 1, RelationalKeyFormat::LengthPrefixedV2)
+        } else if let Some(bytes) = command.application.bytes.strip_prefix(MAGIC) {
+            (bytes, false, RelationalKeyFormat::LegacyDelimitedV1)
+        } else if let Some(bytes) = command.application.bytes.strip_prefix(SESSION_MAGIC) {
+            (bytes, true, RelationalKeyFormat::LegacyDelimitedV1)
+        } else {
+            return Err(corrupt("unknown SQL command format"));
+        };
     let text = std::str::from_utf8(text).map_err(|_| corrupt("SQL command is not UTF-8"))?;
     let request = PendingRequest::decode(&text.split('\t').collect::<Vec<_>>())?;
+    if is_session != request.session.is_some() || key_format != request.key_format {
+        return Err(corrupt("SQL command format differs from its session body"));
+    }
     if command.request != ClientRequestId::new(request.client.clone(), 0)
         || command.commit.pg != request.pg
     {
@@ -77,7 +134,7 @@ pub(super) fn validate_checkpoint_commands(
         let receipt = receipts
             .get(&request.client)
             .ok_or_else(|| corrupt("SQL command has no receipt"))?;
-        receipt.request.matches(request.pg, &request.statement)?;
+        receipt.request.matches_request(&request)?;
         if receipt.evidence != crate::commit_evidence(command.certificate())
             || !versions.insert(command.commit.version)
         {
@@ -95,7 +152,10 @@ pub(super) fn validate_recovered_operations(
 ) -> RsfResult<()> {
     for command in commands.values() {
         let request = decode_request(command, &command.application.namespace)?;
-        if plan::operation(engine, &request.statement)? != command.commit.operation {
+        if request.key_format != engine.key_format() {
+            return Err(corrupt("SQL command key format differs from namespace"));
+        }
+        if operation(engine, &request)? != command.commit.operation {
             return Err(corrupt(
                 "SQL checkpoint command differs from recovered relational operation",
             ));
@@ -126,9 +186,10 @@ impl DurableSqlEngine {
         }
         sql.namespace = Some(namespace.into());
         sql.persist()?;
+        sql.recover_journal(None)?;
         Ok(sql)
     }
-    fn ensure_healthy(&self) -> RsfResult<()> {
+    pub(super) fn ensure_healthy(&self) -> RsfResult<()> {
         if self.persistence_failed {
             Err(corrupt(
                 "durable SQL state failed; reopen before further operations",
@@ -147,6 +208,22 @@ impl DurableSqlEngine {
     /// Inspect the local materialized snapshot. This does not establish leader
     /// freshness; network callers must confirm their read consistency separately.
     pub fn read_snapshot(&mut self, statement: &str) -> RsfResult<DurableSqlExecution> {
+        let mut rows = Vec::new();
+        self.read_snapshot_into(statement, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(execution(SqlOutcome::Selected { rows }, false))
+    }
+
+    /// Visit the local SELECT snapshot without collecting candidates/results.
+    /// The caller establishes network read freshness and serializes writes for
+    /// the duration of the visit. Sink failure stops execution immediately.
+    pub fn read_snapshot_into(
+        &mut self,
+        statement: &str,
+        sink: impl FnMut(crate::Row) -> RsfResult<()>,
+    ) -> RsfResult<usize> {
         self.ensure_healthy()?;
         if self.pending.is_some() {
             return Err(corrupt("resolve the pending SQL statement before reading"));
@@ -160,10 +237,8 @@ impl DurableSqlEngine {
         else {
             return Err(invalid("SQL snapshot inspection requires SELECT"));
         };
-        let rows = self
-            .engine
-            .execute_select(&table, projection, predicate, limit)?;
-        Ok(execution(SqlOutcome::Selected { rows }, false))
+        self.engine
+            .visit_select(&table, projection, predicate, limit, sink)
     }
 
     /// Resolve the local pending statement before exposing SQL reads. Callers
@@ -202,23 +277,22 @@ impl DurableSqlEngine {
         if client.trim().is_empty() {
             return Err(invalid("SQL request client must not be empty"));
         }
-        if let Some(pending) = &self.pending {
-            if pending.client == client {
-                pending.matches(pg, statement)?;
-            }
+        if let Some(pending) = &self.pending
+            && pending.client == client
+        {
+            pending.matches(pg, statement)?;
         }
         self.reconcile(router)?;
         let request = PendingRequest {
+            key_format: self.engine.key_format(),
+            session: None,
             client,
             statement: statement.into(),
             pg,
         };
         if self.receipts.contains_key(&request.client) {
             self.confirm_retry(router, &request)?;
-            return Ok(execution(
-                self.receipts[&request.client].outcome(&self.engine)?,
-                true,
-            ));
+            return self.execute_receipt(&self.receipts[&request.client], true);
         }
         if matches!(parse_statement(statement)?, ParsedStatement::Select { .. }) {
             return self.read_snapshot(statement);
@@ -232,17 +306,39 @@ impl DurableSqlEngine {
         self.submit_planned(router, candidate, command)
     }
 
-    fn prepare_replicated(
+    pub(super) fn prepare_replicated(
         &self,
         router: &mut impl FabricRouterPort,
         pending: &PendingRequest,
-    ) -> RsfResult<(SqlEngine, ReplicatedFabricCommand)> {
+    ) -> RsfResult<(PreparedSql, ReplicatedFabricCommand)> {
+        if pending.key_format != self.engine.key_format() {
+            return Err(corrupt("SQL request key format differs from namespace"));
+        }
+        // Certified legacy commands retain their historical semantics on replay.
+        // An unresolved pre-upgrade COMMIT must not submit a fresh snapshot-only
+        // decision after unrelated data changed. Reconcile committed history
+        // first; otherwise retain its exact intent and fail closed on conflict.
+        if let Some(proposal) = &pending.session
+            && !proposal.serializable
+            && matches!(
+                parse_statement(&pending.statement)?,
+                ParsedStatement::Commit
+            )
+        {
+            let state = proposal
+                .before
+                .as_ref()
+                .ok_or_else(|| corrupt("legacy SQL commit has no session state"))?;
+            session::validate_serializable_snapshot(self, state.snapshot).map_err(|_| corrupt(
+                "legacy pending SQL COMMIT conflicts with upgraded isolation; recover authoritative protocol history before serving",
+            ))?;
+        }
         let namespace = self
             .namespace
             .as_deref()
             .ok_or_else(|| invalid("SQL planning requires a bound namespace"))?;
-        let operation = plan::operation(&self.engine, &pending.statement)?;
-        let application = application(namespace, pending);
+        let operation = operation(&self.engine, pending)?;
+        let application = application(namespace, pending)?;
         let request = ClientRequestId::new(pending.client.clone(), 0);
         let commit = router.preview_application_request(
             pending.pg,
@@ -263,19 +359,14 @@ impl DurableSqlEngine {
         if command.commit.version <= self.highest_command() {
             return Err(corrupt("SQL command reorders applied history"));
         }
-        let candidate = plan::prepare(
-            &self.engine,
-            &pending.statement,
-            pending.pg,
-            command.commit.version,
-        )?;
+        let candidate = self.prepare_request(pending, command.commit.version)?;
         Ok((candidate, command))
     }
 
-    fn submit_planned(
+    pub(super) fn submit_planned(
         &mut self,
         router: &mut impl FabricRouterPort,
-        candidate: SqlEngine,
+        candidate: PreparedSql,
         command: ReplicatedFabricCommand,
     ) -> RsfResult<DurableSqlExecution> {
         let result = router.commit_application_request(
@@ -301,7 +392,7 @@ impl DurableSqlEngine {
         self.publish_command(candidate, command, receipt.replayed)
     }
 
-    fn confirm_retry(
+    pub(super) fn confirm_retry(
         &self,
         router: &mut impl FabricRouterPort,
         request: &PendingRequest,
@@ -310,7 +401,7 @@ impl DurableSqlEngine {
             .receipts
             .get(&request.client)
             .ok_or_else(|| corrupt("SQL retry has no receipt"))?;
-        receipt.request.matches(request.pg, &request.statement)?;
+        receipt.request.matches_request(request)?;
         let id = ClientRequestId::new(request.client.clone(), 0);
         let command = self
             .commands
@@ -348,22 +439,43 @@ impl DurableSqlEngine {
             .as_deref()
             .ok_or_else(|| invalid("SQL replay requires a bound namespace"))?;
         let request = decode_request(command, namespace)?;
+        if request.key_format != self.engine.key_format() {
+            if !self.commands.is_empty()
+                || !self.receipts.is_empty()
+                || !self.engine.tables.is_empty()
+                || self.pending.is_some()
+                || !self.sessions.is_empty()
+                || !self
+                    .engine
+                    .committed_kv_versions_for_checkpoint()
+                    .is_empty()
+            {
+                return Err(corrupt(
+                    "SQL replay key format differs from nonempty namespace",
+                ));
+            }
+            // A blank derived peer store learns its format from the first
+            // authenticated certified command, including legacy histories.
+            // Persist the decision before any command append can be acknowledged.
+            self.engine.key_format = request.key_format;
+            if let Err(error) = self.persist() {
+                self.persistence_failed = true;
+                return Err(error);
+            }
+        }
         if let Some(original) = self.commands.get(&command.request) {
             if original != command {
                 return Err(corrupt(
                     "SQL replay differs from its original complete command",
                 ));
             }
-            if let Some(pending) = &self.pending {
-                if pending.client == request.client {
-                    pending.matches(request.pg, &request.statement)?;
-                    self.clear_pending()?;
-                }
+            if let Some(pending) = &self.pending
+                && pending.client == request.client
+            {
+                pending.matches_request(&request)?;
+                self.clear_pending()?;
             }
-            return Ok(execution(
-                self.receipts[&request.client].outcome(&self.engine)?,
-                true,
-            ));
+            return self.execute_receipt(&self.receipts[&request.client], true);
         }
         if self
             .pending
@@ -376,24 +488,52 @@ impl DurableSqlEngine {
         }
         if command.commit.version <= self.highest_command()
             || self.receipts.contains_key(&request.client)
-            || plan::operation(&self.engine, &request.statement)? != command.commit.operation
+            || operation(&self.engine, &request)? != command.commit.operation
         {
             return Err(corrupt(
                 "SQL replay operation conflicts with applied history",
             ));
         }
-        let candidate = plan::prepare(
-            &self.engine,
-            &request.statement,
-            request.pg,
-            command.commit.version,
-        )?;
+        let candidate = self.prepare_request(&request, command.commit.version)?;
         self.publish_command(candidate, command.clone(), false)
+    }
+
+    // Journal recovery must not publish again or compare historical commands
+    // with the one pending intent left by the interrupted writer.
+    pub(super) fn replay_journal_command(
+        &mut self,
+        command: &ReplicatedFabricCommand,
+    ) -> RsfResult<()> {
+        let namespace = self
+            .namespace
+            .as_deref()
+            .ok_or_else(|| corrupt("SQL journal has no namespace"))?;
+        let request = decode_request(command, namespace)?;
+        if self.commands.contains_key(&command.request)
+            || self.receipts.contains_key(&request.client)
+            || command.commit.version <= self.highest_command()
+            || operation(&self.engine, &request)? != command.commit.operation
+        {
+            return Err(corrupt(
+                "SQL journal command conflicts with recovered history",
+            ));
+        }
+        let candidate = self.prepare_request(&request, command.commit.version)?;
+        let receipt = RequestReceipt {
+            request: request.clone(),
+            evidence: crate::commit_evidence(command.certificate()),
+        };
+        receipt.outcome(&candidate.engine)?;
+        self.install_candidate(candidate);
+        self.commands
+            .insert(command.request.clone(), command.clone());
+        self.receipts.insert(request.client, receipt);
+        Ok(())
     }
 
     fn publish_command(
         &mut self,
-        candidate: SqlEngine,
+        candidate: PreparedSql,
         command: ReplicatedFabricCommand,
         replayed: bool,
     ) -> RsfResult<DurableSqlExecution> {
@@ -406,24 +546,79 @@ impl DurableSqlEngine {
             request: request.clone(),
             evidence: crate::commit_evidence(command.certificate()),
         };
-        let outcome = match receipt.outcome(&candidate) {
-            Ok(outcome) => outcome,
+        let response = match receipt_execution(&receipt, &candidate.engine, replayed) {
+            Ok(response) => response,
             Err(err) => {
                 self.persistence_failed = true;
                 return Err(err);
             }
         };
-        self.engine = candidate;
+        let append = self
+            .journal
+            .as_mut()
+            .ok_or_else(|| corrupt("SQL writer has no journal"))
+            .and_then(|journal| journal.append(&self.root, &command));
+        if let Err(err) = append {
+            self.persistence_failed = true;
+            return Err(err);
+        }
+        self.install_candidate(candidate);
         self.commands.insert(command.request.clone(), command);
         self.receipts.insert(request.client, receipt);
-        if let Err(err) = self.persist() {
+        if self
+            .journal
+            .as_ref()
+            .is_some_and(SqlJournal::checkpoint_due)
+            && let Err(err) = self.checkpoint()
+        {
             self.persistence_failed = true;
             return Err(err);
         }
         if self.pending.is_some() {
             self.clear_pending()?;
         }
-        Ok(execution(outcome, replayed))
+        Ok(response)
+    }
+
+    fn prepare_request(
+        &self,
+        request: &PendingRequest,
+        version: CommitVersion,
+    ) -> RsfResult<PreparedSql> {
+        if request.key_format != self.engine.key_format() {
+            return Err(corrupt(
+                "SQL materialization key format differs from namespace",
+            ));
+        }
+        if let Some(proposal) = &request.session {
+            let prepared = session::prepare(self, proposal, version)?;
+            Ok(PreparedSql {
+                engine: prepared.engine,
+                session: Some((prepared.key, prepared.after)),
+            })
+        } else {
+            Ok(PreparedSql {
+                engine: plan::prepare(&self.engine, &request.statement, request.pg, version)?,
+                session: None,
+            })
+        }
+    }
+    fn install_candidate(&mut self, prepared: PreparedSql) {
+        self.engine = prepared.engine;
+        if let Some((key, state)) = prepared.session {
+            if let Some(state) = state {
+                self.sessions.insert(key, state);
+            } else {
+                self.sessions.remove(&key);
+            }
+        }
+    }
+    pub(super) fn execute_receipt(
+        &self,
+        receipt: &RequestReceipt,
+        replayed: bool,
+    ) -> RsfResult<DurableSqlExecution> {
+        receipt_execution(receipt, &self.engine, replayed)
     }
 }
 

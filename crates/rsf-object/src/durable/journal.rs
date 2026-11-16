@@ -349,6 +349,10 @@ impl DurableObjectStore {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Mirror the public durable put boundary without repackaging its routing, identities or payload"
+    )]
     pub(super) fn put_durable(
         &mut self,
         router: &mut impl FabricRouterPort,
@@ -517,17 +521,18 @@ impl DurableObjectStore {
         if request.client.0.is_empty() {
             return Err(invalid("object request client must not be empty"));
         }
-        if let Some(pending) = &self.journal.pending {
-            if &pending.request == request && !same_action(&pending.action, action) {
-                return Err(invalid("object retry differs from its durable intent"));
-            }
+        if let Some(pending) = &self.journal.pending
+            && &pending.request == request
+            && !same_action(&pending.action, action)
+        {
+            return Err(invalid("object retry differs from its durable intent"));
         }
-        if let Some(receipt) = self.journal.receipts.get(request) {
-            if !same_action(&receipt.action(), action) {
-                return Err(invalid(
-                    "object request identity was reused with a different command",
-                ));
-            }
+        if let Some(receipt) = self.journal.receipts.get(request)
+            && !same_action(&receipt.action(), action)
+        {
+            return Err(invalid(
+                "object request identity was reused with a different command",
+            ));
         }
         Ok(())
     }
@@ -549,10 +554,10 @@ impl DurableObjectStore {
             return Err(corrupt("duplicate object request receipt"));
         }
         validate_action(&receipt.action())?;
-        if let Some(pending) = &self.journal.pending {
-            if &pending.request != request || !same_action(&pending.action, &receipt.action()) {
-                return Err(corrupt("object receipt does not match its pending intent"));
-            }
+        if let Some(pending) = &self.journal.pending
+            && (&pending.request != request || !same_action(&pending.action, &receipt.action()))
+        {
+            return Err(corrupt("object receipt does not match its pending intent"));
         }
         match receipt {
             Receipt::Bucket(bucket) => {
